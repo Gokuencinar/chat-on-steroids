@@ -1280,7 +1280,7 @@ function connectorCards(next: AppState, desktopExpanded: boolean): HTMLElement[]
     card.append(head, el('p', 'hint', () => t(surface.cardSummary)));
 
     if (!surface.available) {
-      card.append(el('p', 'hint', surface.detail));
+      card.append(el('p', 'hint', () => t(surface.detail)));
       return card;
     }
 
@@ -1308,7 +1308,7 @@ function connectorCards(next: AppState, desktopExpanded: boolean): HTMLElement[]
       );
     }
 
-    if (surface.detail && surface.state === 'error') card.append(el('p', 'hint is-warn', surface.detail));
+    if (surface.detail && surface.state === 'error') card.append(el('p', 'hint is-warn', () => t(surface.detail)));
 
     // Published is only half the story. "Live" says this app is serving the connector;
     // it says nothing about whether the user ever created it in ChatGPT, and with two
@@ -1650,7 +1650,7 @@ async function runChecks(): Promise<void> {
   try {
     const result = await run(api.runDiagnostics());
     if (!result) return;
-    $('checksSummary').textContent = result.summary;
+    ui($('checksSummary'), 'textContent', () => t(result.summary));
     $('checkList').replaceChildren(
       ...result.checks.map((check) => {
         const li = el(
@@ -1667,7 +1667,7 @@ async function runChecks(): Promise<void> {
           check.status === 'pass' ? '✓' : check.status === 'fail' ? '!' : check.status === 'skipped' ? '–' : '…'
         );
         const body = el('div');
-        body.append(el('strong', '', check.name), el('p', '', check.detail));
+        body.append(el('strong', '', () => t(check.name)), el('p', '', () => t(check.detail)));
         li.append(mark, body);
         return li;
       })
@@ -1774,7 +1774,7 @@ for (const id of ['copyLog', 'copyLogText']) {
     const text = await run(api.getLogText());
     if (text === null) return;
     const copied = await run(api.writeClipboard(text));
-    if (copied) toast('Activity copied');
+    if (copied) toast(t('Activity copied'));
   });
 }
 
@@ -1782,7 +1782,7 @@ $('copyLogJson').addEventListener('click', async () => {
   const text = await run(api.getLogJson());
   if (text === null) return;
   const copied = await run(api.writeClipboard(text));
-  if (copied) toast('Activity JSON copied');
+  if (copied) toast(t('Activity JSON copied'));
 });
 
 // The API key is written on blur so it is not saved keystroke by keystroke.
@@ -1801,7 +1801,7 @@ $('apiKey').addEventListener('blur', () => {
         if (input.value === submitted) input.value = '';
         apply(next);
       }
-      toast('API key stored');
+      toast(t('API key stored'));
     }
     return next !== null;
   })();
@@ -1811,7 +1811,7 @@ $('removeApiKey').addEventListener('click', async () => {
   const next = await run(api.setApiKey('', state?.config.tunnel.profileId));
   if (next) {
     apply(next);
-    toast('API key removed');
+    toast(t('API key removed'));
   }
 });
 
