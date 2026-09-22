@@ -2765,6 +2765,13 @@ Each session title is the row's keyboard selection control, including expanded w
 Enter/Space selects it and the selected state is projected through the control's accessibility
 state. Row action buttons remain independent controls; ordering keeps the same title surface as
 its drag/Alt+Arrow handle instead of making an outer container with nested buttons interactive.
+`renderer/sidebar-completion.ts` owns only device-local read state for completed chat rows.
+Existing session completion evidence remains authoritative: active chats keep the per-chat spinner,
+a completed background chat gets a static accent marker until selected, and a selected chat's
+completion is acknowledged locally without writing session metadata. The receipt advances only after
+the current selection/load generation has successfully rendered that conversation at the live tail;
+failed or stale selection loads leave it unseen. A first-run baseline prevents historical completions
+from appearing unread after an update, and the stored receipts stay bounded.
 The chat keeps the current input queue/plan visible alongside a
 paged transcript. Main owns durable mutation acknowledgements; renderer optimism is not a
 receipt. Native edit context menus respect the focused editable control and selection.
