@@ -1543,5 +1543,10 @@
   "The helper returned an unusable continuation. Nothing was sent. Review the continuation instructions or choose another helper model.": "Yardımcı kullanılamaz bir devam döndürdü. Hiçbir şey gönderilmedi. Devam talimatlarını gözden geçirin veya başka bir yardımcı model seçin.",
   "The provider reported an error while generating the continuation. Check its status or choose another model.": "Sağlayıcı devamı oluştururken bir hata bildirdi. Durumunu kontrol edin veya başka bir model seçin.",
   "PDF exceeds the preview limit": "PDF önizleme sınırını aşıyor",
-  "PDF page dimensions exceed the preview limit": "PDF sayfası boyutları önizleme sınırını aşıyor"
+  "PDF page dimensions exceed the preview limit": "PDF sayfası boyutları önizleme sınırını aşıyor",
+  "Limit command launches": "Komut başlatmalarını sınırla",
+  "Only commands matching one of these rules may start.": "Yalnızca bu kurallardan biriyle eşleşen komutlar başlatılabilir.",
+  "Allowed commands (one rule per line)": "İzin verilen komutlar (satır başına bir kural)",
+  "Use an exact command or a trailing standalone * for additional arguments. Compound shell syntax is rejected. Allowed programs and their child processes remain trusted; this is not an OS sandbox.": "Tam bir komut veya ek bağımsız değişkenler için sonda tek başına * kullanın. Bileşik kabuk sözdizimi reddedilir. İzin verilen programlara ve alt süreçlerine güvenilmeye devam edilir; bu bir işletim sistemi sanal alanı değildir.",
+  "Line {0}: {1}": "Satır {0}: {1}"
 }

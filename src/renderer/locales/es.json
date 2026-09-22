@@ -1543,5 +1543,10 @@
   "{0} · {1} · {2} ago": "{0} · {1} · hace {2}",
   "{0} — found {1} · app receipt {2} · owner {3} · tool activity {4}": "{0} — encontrados {1} · recibo de la aplicación {2} · propietario {3} · actividad de herramientas {4}",
   "{0}: drag, click, or open the context menu": "{0}: arrastra, haz clic o abre el menú contextual",
-  "… still writing. The full answer appears when it finishes.": "… todavía escribiendo. La respuesta completa aparecerá cuando termine."
+  "… still writing. The full answer appears when it finishes.": "… todavía escribiendo. La respuesta completa aparecerá cuando termine.",
+  "Limit command launches": "Limitar el inicio de comandos",
+  "Only commands matching one of these rules may start.": "Solo pueden iniciarse comandos que coincidan con una de estas reglas.",
+  "Allowed commands (one rule per line)": "Comandos permitidos (una regla por línea)",
+  "Use an exact command or a trailing standalone * for additional arguments. Compound shell syntax is rejected. Allowed programs and their child processes remain trusted; this is not an OS sandbox.": "Usa un comando exacto o un * independiente al final para argumentos adicionales. Se rechaza la sintaxis compuesta del shell. Los programas permitidos y sus procesos secundarios siguen siendo de confianza; esto no es un sandbox del sistema operativo.",
+  "Line {0}: {1}": "Línea {0}: {1}"
 }

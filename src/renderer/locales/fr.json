@@ -1543,5 +1543,10 @@
   "The helper returned an unusable continuation. Nothing was sent. Review the continuation instructions or choose another helper model.": "L’assistant a renvoyé une continuation inutilisable. Rien n’a été envoyé. Vérifiez les instructions de continuation ou choisissez un autre modèle d’assistant.",
   "The provider reported an error while generating the continuation. Check its status or choose another model.": "Le fournisseur a signalé une erreur pendant la génération de la continuation. Vérifiez son état ou choisissez un autre modèle.",
   "PDF exceeds the preview limit": "Le PDF dépasse la limite d’aperçu",
-  "PDF page dimensions exceed the preview limit": "Les dimensions de la page PDF dépassent la limite d’aperçu"
+  "PDF page dimensions exceed the preview limit": "Les dimensions de la page PDF dépassent la limite d’aperçu",
+  "Limit command launches": "Limiter le lancement des commandes",
+  "Only commands matching one of these rules may start.": "Seules les commandes correspondant à l’une de ces règles peuvent démarrer.",
+  "Allowed commands (one rule per line)": "Commandes autorisées (une règle par ligne)",
+  "Use an exact command or a trailing standalone * for additional arguments. Compound shell syntax is rejected. Allowed programs and their child processes remain trusted; this is not an OS sandbox.": "Utilisez une commande exacte ou un * final indépendant pour les arguments supplémentaires. La syntaxe shell composée est refusée. Les programmes autorisés et leurs processus enfants restent approuvés ; ceci n’est pas un bac à sable du système.",
+  "Line {0}: {1}": "Ligne {0} : {1}"
 }
