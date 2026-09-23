@@ -1545,8 +1545,13 @@
   "The helper returned an unusable continuation. Nothing was sent. Review the continuation instructions or choose another helper model.": "ヘルパーから使用できない継続内容が返されました。何も送信されていません。継続指示を見直すか、別のヘルパーモデルを選択してください。",
   "The provider reported an error while generating the continuation. Check its status or choose another model.": "継続内容の生成中にプロバイダーからエラーが報告されました。状態を確認するか、別のモデルを選択してください。",
   "Limit command launches": "コマンドの起動を制限",
+  "Command policy mode": "コマンドポリシーモード",
+  "Allowlist": "許可リスト",
+  "Denylist": "拒否リスト",
   "Only commands matching one of these rules may start.": "これらのルールのいずれかに一致するコマンドだけを起動できます。",
+  "Commands matching any of these rules may not start.": "これらのルールのいずれかに一致するコマンドは起動できません。",
   "Allowed commands (one rule per line)": "許可するコマンド（1行に1ルール）",
+  "Blocked commands (one rule per line)": "ブロックするコマンド（1行に1ルール）",
   "Use an exact command or a trailing standalone * for additional arguments. Compound shell syntax is rejected. Allowed programs and their child processes remain trusted; this is not an OS sandbox.": "完全一致のコマンド、または追加引数を許可する末尾の独立した * を使用します。複合シェル構文は拒否されます。許可したプログラムと子プロセスは信頼されます。これは OS サンドボックスではありません。",
   "Line {0}: {1}": "{0}行目: {1}"
 }
