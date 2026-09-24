@@ -463,10 +463,17 @@ const SHELL_REFUSED = new RegExp(
     String.raw`is not recognized as (?:the name of )?a (?:cmdlet|command)`,
     String.raw`is not recognized as an internal or external command`,
     String.raw`The string (?:is missing the terminator|starting:)`,
+    String.raw`Falta la cadena en el terminador`,
     String.raw`Missing (?:argument|expression|closing|\))`
   ].join('|'),
   'im'
 );
+
+const POWERSHELL_MISSING_STRING_TERMINATOR =
+  /The string (?:is missing the terminator|starting:)|Falta la cadena en el terminador/i;
+
+const POWERSHELL_SCRIPTBLOCK_PARSE_EXCEPTION =
+  /(?:Exception calling|Excepci[oó]n al llamar a)\s+["']Create["']\s+(?:with|con)\b[\s\S]*?(?:At line|En l[ií]nea):\s*\d+\s+(?:char|Car[aá]cter):\s*\d+/i;
 
 /**
  * git subcommands that only report, and therefore cannot fail after printing.
@@ -1506,7 +1513,7 @@ export function execRecoveryHints(
     powershell &&
     command.includes('\\"') &&
     /PositionalParameterNotFound|A positional parameter cannot be found that accepts argument/i.test(outputText) &&
-    !/The string (?:is missing the terminator|starting:)/i.test(outputText)
+    !POWERSHELL_MISSING_STRING_TERMINATOR.test(outputText)
   ) {
     // The quotes balanced out, so PowerShell did run the line — with the double-quoted argument
     // ended at the backslash-quote and the remainder handed to the cmdlet as extra positional
@@ -1519,7 +1526,7 @@ export function execRecoveryHints(
     );
   }
 
-  if (powershell && command.includes('\\"') && /The string (?:is missing the terminator|starting:)/i.test(outputText)) {
+  if (powershell && command.includes('\\"') && POWERSHELL_MISSING_STRING_TERMINATOR.test(outputText)) {
     hints.push(
       'PowerShell refused that line at a quote and ran none of it, including any earlier ' +
         'statement on the same line. A backslash is not an escape character in PowerShell, so ' +
@@ -1545,17 +1552,17 @@ export function execRecoveryHints(
     );
   }
 
-  const bashQuoteFailure = command.includes('\\"') && /The string (?:is missing the terminator|starting:)/i.test(outputText);
+  const bashQuoteFailure = command.includes('\\"') && POWERSHELL_MISSING_STRING_TERMINATOR.test(outputText);
   const parserFailure =
     /\bParserError\b/i.test(outputText) ||
     // The batch runner parses each item with ScriptBlock.Create; PowerShell wraps its
     // parser diagnostic in this exception instead of emitting FullyQualifiedErrorId.
-    /Exception calling "Create" with "1" argument\(s\): "At line:\d+ char:\d+/i.test(outputText) ||
+    POWERSHELL_SCRIPTBLOCK_PARSE_EXCEPTION.test(outputText) ||
     /FullyQualifiedErrorId\s*:\s*(?:TerminatorExpectedAtEndOfString|MissingArgument|MissingExpressionAfterToken|MissingFileSpecification|RedirectionNotSupported|UnexpectedToken|EmptyPipeElement)/i.test(
       outputText
     );
   if (powershell && parserFailure && !invalidOperator && !bashQuoteFailure) {
-    const correction = /TerminatorExpectedAtEndOfString|missing the terminator/i.test(outputText)
+    const correction = /TerminatorExpectedAtEndOfString|missing the terminator|Falta la cadena en el terminador/i.test(outputText)
       ? 'Balance the quoted argument; for literal regexes and paths, prefer one single-quoted PowerShell argument.'
       : /MissingArgument|missing an argument/i.test(outputText)
         ? 'Supply the missing value after the named parameter or comma, quoting it as one argument when it contains shell punctuation.'

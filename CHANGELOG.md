@@ -21,6 +21,7 @@ the app refuses the extension and asks you to reload the matching copy.
 - Expand renderer and browser-companion localization coverage across English, Spanish, French, Japanese, Turkish, Simplified Chinese and Traditional Chinese.
 - Add optional command allowlist and denylist policies for tighter command execution control.
 - Add Project Files Git Changes/Diff review with working-tree status, per-file diff previews and an agent-review action.
+- Recognize Spanish-localized Windows PowerShell parser failures in command recovery hints, and keep the corresponding shell regression check lightweight enough for busy CI runners.
 - Keep the personalized 2.1.17 connector-schema reminder, bridge-protocol compatibility and Gokuencinar fork updater/release behavior intact.
 - Deliberately leave the larger GitHub Skills enhancements from upstream PR #345 out of this release because they are coupled to its broader workspace/composer redesign.
 

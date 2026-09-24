@@ -798,6 +798,19 @@ describe('saying what to do next', () => {
     }
   });
 
+  it('recognizes the localized ScriptBlock parser wrapper emitted by Spanish Windows PowerShell', () => {
+    const output = [
+      'Excepción al llamar a "Create" con los argumentos "1": "En línea: 1 Carácter: 14',
+      "+ Write-Output 'unterminated",
+      '+              ~~~~~~~~~~~~~',
+      "Falta la cadena en el terminador: '."
+    ].join('\n');
+    const hints = execRecoveryHints("Write-Output 'unterminated", output);
+    expect(hints).toHaveLength(1);
+    expect(hints[0]).toMatch(/PowerShell parsed none of the command/i);
+    expect(hints[0]).toMatch(/balance the quoted argument/i);
+  });
+
   it('stays silent on a shell where the operators work', () => {
     // PowerShell 7 runs `&&` without complaint, so there is no refusal text and no hint. The
     // hint keys off the shell's own error, never off the command containing the operator.
@@ -1221,7 +1234,9 @@ describe('a pipeline stopped early by Select-Object -First', () => {
     // One native process with far more to write than the stage will take, so the cut lands
     // while it is still writing. A cmdlet loop would not do: stopping it leaves $LASTEXITCODE
     // holding the status of whichever child had already finished, which is 0.
-    const generator = 'cmd /c "for /l %i in (1,1,20000) do @echo line%i"';
+    // Keep this well beyond a pipe buffer so Select-Object still closes the native writer
+    // early, but small enough that a busy CI worker does not spend tens of seconds in cmd.exe.
+    const generator = 'cmd /c "for /l %i in (1,1,5000) do @echo line%i"';
     expect(run(`${generator} | Select-Object -First 5 | Out-Null`)).not.toBe(0);
     // -Wait drains instead of stopping, which is the remedy the note hands the model.
     expect(run(`${generator} | Select-Object -First 5 -Wait | Out-Null`)).toBe(0);
