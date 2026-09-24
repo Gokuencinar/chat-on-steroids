@@ -1681,6 +1681,22 @@ function forgetTimelineRows(): void {
   rowCache.clear();
 }
 
+function toolMetric(value: string): HTMLElement {
+  const metric = el('span', 'metric');
+  const delta = /^(~?)(\+\d+)?(?:\s+)?([−-]\d+)?$/.exec(value);
+  if (!delta || (!delta[2] && !delta[3])) {
+    metric.textContent = value;
+    return metric;
+  }
+  if (delta[1]) metric.append(delta[1]);
+  if (delta[2]) metric.append(el('span', 'metric-added', delta[2]));
+  if (delta[3]) {
+    if (delta[2]) metric.append(' ');
+    metric.append(el('span', 'metric-removed', delta[3]));
+  }
+  return metric;
+}
+
 function toolBody(event: Extract<SessionEvent, { kind: 'tool_call' }>, context?: { id: string; current: () => boolean }): HTMLElement {
   const { call } = event;
   const summary = toolCallSummary(call);
