@@ -474,6 +474,12 @@ export interface BridgeStatus {
   /** Epoch ms of the last message from the extension, or null. */
   lastSeenAt: number | null;
   /**
+   * Compatibility of the last extension protocol observed by this app process.
+   * Null means no protocol has been observed yet. This, not release semver, decides
+   * whether the companion can use the current bridge contract.
+   */
+  extensionCompatible?: boolean | null;
+  /**
    * Version of the connected browser extension, learned from its own authenticated requests.
    *
    * This is the only place that fact lives. It is null before an extension has ever spoken to
@@ -596,7 +602,7 @@ export interface UpdateStatus {
 }
 
 /** Where an installation that cannot update itself gets the new version by hand. */
-export const RELEASES_PAGE = 'https://github.com/totec448-spec/chat-on-steroids/releases/latest';
+export const RELEASES_PAGE = 'https://github.com/Gokuencinar/chat-on-steroids/releases/latest';
 
 /**
  * Whether `candidate` is a later release than `current`, compared as three numbers.
@@ -640,6 +646,12 @@ export function browserExtensionRequired(_config: Pick<Config, 'sessions' | 'mul
 export interface AppState {
   config: Config;
   status: ConnectionStatus;
+  /**
+   * Exact declaration fingerprints for connectors currently published by the local MCP server.
+   * Missing entries mean that surface is not published right now. These hashes describe the
+   * local contract only; they are not evidence that ChatGPT has refreshed its cached tools.
+   */
+  connectorSchemas: Partial<Record<SurfaceId, string>>;
   platform: PlatformInfo;
   /** Only packaged Windows builds may change the login item. */
   loginStartupAvailable?: boolean;

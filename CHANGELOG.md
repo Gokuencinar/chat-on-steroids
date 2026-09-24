@@ -11,6 +11,12 @@ the app refuses the extension and asks you to reload the matching copy.
 
 ## Unreleased
 
+## [2.1.17] — 2026-09-24
+
+- Show the ChatGPT connector refresh reminder only after an exact published tool schema changes, instead of after every app-version bump.
+- Treat the bridge protocol as the browser companion compatibility fence, so a compatible older companion is not falsely reported as requiring an update.
+- Clarify that ChatGPT connector refreshes are separate from the browser extension, and keep the manual Releases link on Gokuencinar/chat-on-steroids.
+
 ## [2.1.16] — 2026-09-24
 
 - Fix the Windows updater loop caused by 2.1.15 shipping an internal `APP_VERSION` of 2.1.14.

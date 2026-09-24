@@ -526,6 +526,7 @@ const commandRedeems = new Map<string, Promise<void>>();
 let requestWindow = { start: Date.now(), count: 0 };
 const listeners = new Set<() => void>();
 let extensionVersion: string | null = null;
+let observedExtensionProtocol: number | null = null;
 let versionWarned = false;
 let latestCompanionDiagnostics: CompanionDiagnostics | null = null;
 let companionDiagnosticsRevision = 0;
@@ -713,6 +714,7 @@ export async function bridgeStatus(): Promise<BridgeStatus> {
     paired: stored !== null && stored !== BROWSER_DISCONNECTED,
     present: browserPresent(),
     lastSeenAt,
+    extensionCompatible: observedExtensionProtocol === null ? null : observedExtensionProtocol === BRIDGE_PROTOCOL,
     extensionVersion
   };
 }
@@ -846,13 +848,21 @@ function protocolCompatible(req: http.IncomingMessage): boolean {
 function noteExtensionVersion(req: http.IncomingMessage): void {
   const version = req.headers['x-extension-version'];
   const protocol = extensionProtocol(req);
+  let statusChanged = false;
   if (typeof version === 'string' && version !== extensionVersion) {
     extensionVersion = version.slice(0, 32);
     logInfo(`bridge: browser extension ${extensionVersion} connected`);
-    // Even an incompatible peer reports its version before the protocol fence.
-    // Publish that evidence without falsely granting compatible browser presence.
-    changed();
+    statusChanged = true;
   }
+  // Missing protocol evidence cannot erase a previously observed compatibility result.
+  // Legacy/non-extension local requests may omit this header entirely.
+  if (protocol !== null && protocol !== observedExtensionProtocol) {
+    observedExtensionProtocol = protocol;
+    statusChanged = true;
+  }
+  // Even an incompatible peer reports its version/protocol before the protocol fence.
+  // Publish that evidence without falsely granting compatible browser presence.
+  if (statusChanged) changed();
   if (!versionWarned && protocol !== null && protocol !== BRIDGE_PROTOCOL) {
     versionWarned = true;
     logWarn(
@@ -9078,6 +9088,7 @@ export function resetBridgeForTests(): void {
   lastBrowserLaunchAt = 0;
   lastSeenAt = null;
   extensionVersion = null;
+  observedExtensionProtocol = null;
   versionWarned = false;
   requestWindow = { start: Date.now(), count: 0 };
 }
