@@ -11,6 +11,14 @@ the app refuses the extension and asks you to reload the matching copy.
 
 ## Unreleased
 
+## [2.1.15] — 2026-09-24
+
+- Retire predecessor send listeners on extension recorder takeover so stale Goal state cannot rewrite later manual prompts.
+- Serialize durable Goal-objective publication and merge cross-chat background snapshots without rolling back newer accepted state.
+- Revalidate Project Files mutation parents immediately before create, rename, save and Trash operations.
+- Reduce attachment staging rescans and pathless clipboard memory by batching disk paths while staging in-memory files one at a time.
+- Render citation provenance with one canonical Markdown pass, share renderer HTML sanitization, and add keyboard session selection for parent/worker rows.
+- Avoid full live-conversation snapshots for bridge lookups that need only one exact conversation.
 - Keep fresh background workers rendering while their editor hydrates, including pending initial navigation and exact document retirement.
 - Read live alternate-shell request metadata and public activity before history hydration; place recorded tools beside native prose without a reload.
 - Restore versioned response observers without duplicate active readers and recognize complete identity in native resume streams.

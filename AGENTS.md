@@ -21,7 +21,7 @@ changed lines before applying an older patch. Document the work and its actual v
 the code currently does it. Known implementation gaps are collected in §21 instead of being
 mixed into the happy path as features.
 
-Source alignment: **2026-09-17**, including the 2.1.14 release candidate. App/extension **2.1.14**,
+Source alignment: **2026-09-24**, including the 2.1.15 release. App/extension **2.1.15**,
 bridge protocol **14** in the checked declarations (`package.json`, `src/main/version.ts`,
 `extension/manifest.json`). This does not prove release, installation or live Chrome behavior.
 
@@ -1031,7 +1031,10 @@ transport; receipt loss cannot justify switching to browser Send.
 Renderer/browser receive opaque ids, names, sizes, MIME and bounded previews, never source paths.
 Up to 20 files and 512 MiB total per message are locally admitted; provider limits can still
 reject an upload. Staging has a 2 GiB quota, serialized pruning/admission, and preserves outbox-
-retained bytes. Thumbnails do not modify originals or prove provider upload success.
+retained bytes. One picker/drop batch measures and prunes that store once before staging its
+members. Path-backed files cross preload as paths; pathless clipboard/paste files are materialized
+and staged one at a time so their bounded byte payloads do not accumulate in renderer/preload
+memory. Thumbnails do not modify originals or prove provider upload success.
 Image clipboard data and file drops anywhere in the window target the currently visible chat
 draft; the Folders card keeps its explicit folder-drop owner, and ordinary text paste/drop keeps
 its native editor behavior. Async import results carry both the draft key and its replacement
@@ -2710,6 +2713,10 @@ membership before saving. Off-page order survives partial list refreshes.
 Whole project groups use the same bounded order owner in a separate scope. Dragging a
 project summary or pressing Alt+Up/Down moves the group without changing any chat's project;
 the summary handle keeps focus and disclosure state. Group order survives reload.
+Each session title is the row's keyboard selection control, including expanded worker rows:
+Enter/Space selects it and the selected state is projected through the control's accessibility
+state. Row action buttons remain independent controls; ordering keeps the same title surface as
+its drag/Alt+Arrow handle instead of making an outer container with nested buttons interactive.
 The chat keeps the current input queue/plan visible alongside a
 paged transcript. Main owns durable mutation acknowledgements; renderer optimism is not a
 receipt. Native edit context menus respect the focused editable control and selection.
@@ -2855,10 +2862,14 @@ Creating an entry uses the same unsaved-edit guard as changing the selected file
 
 Text previews/editor input are bounded to 256 KiB; full editable previews retain exact UTF-8,
 BOM and line endings plus a content/file-identity revision. Save stages complete replacement bytes
-beside the original, flushes them, revalidates project access and the original revision, then
-renames. A failed staging write or rename never truncates the original. Duplicate saves are
+beside the original, flushes them, revalidates project access, the original revision and the
+owning directory immediately before pathname mutations, then renames. Create, rename and Trash
+also re-resolve their target/parent identity at the last practical pathname boundary. A failed
+staging write or rename never truncates the original. Duplicate saves are
 refused and newer edits typed during a pending save remain dirty. Atomic replacement is not an
-OS-wide lock against an unrelated writer after the final revision check.
+OS-wide lock against an unrelated writer or reparse-point swap after the final check: portable
+Node does not provide an openat/CreateFile-relative mutation primitive, so callers must still
+fail closed whenever a changed parent is observable before the syscall.
 
 Images accept at most 5 MiB input and 16 megapixels, then decode to a bounded 1600-pixel thumbnail.
 PDF input is bounded to 20 MiB; bundled PDF.js renders one page with at most 16 megapixels and
@@ -3227,10 +3238,12 @@ shared-tree change may already have addressed them.
   and phase rather than ordinary-turn idleness. Suspended-tab repair retains its separate
   existing action checks.
   Keep their operation-specific authority current through the browser action boundary.
-- **Goal publication:** explicit switch writes serialize, but mutate shared memory before
-  the awaited durable write; synchronous clear/move paths and objective/reply mutations do not
-  all share the same semantic transaction. Intent is durable commit before visible state, with
-  rollback unable to overwrite a newer accepted change.
+- **Goal publication:** objective saves now serialize their immediate durable barriers,
+  commit before publishing that conversation's live value, and merge synchronous set/clear/move
+  projections through a write-boundary snapshot so one chat cannot regress another on disk.
+  Switch writes still mutate shared memory before their awaited durable write, and reply/switch
+  clear/move paths do not all share one semantic transaction. Intent remains durable commit before
+  visible state, with rollback unable to overwrite a newer accepted change.
 - **Goal cross-ledger controls:** master/config/secret changes still cross separate ledgers.
   Recording Off lacks a uniform runtime gate for retained per-chat overrides. Attempt
   invalidation now preserves debt, but these remaining controls still need one durable
