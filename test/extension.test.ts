@@ -12,7 +12,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
-const { APP_VERSION, BRIDGE_PROTOCOL } = await import('../src/main/version.js');
+const { APP_VERSION, BRIDGE_PROTOCOL, extensionDownloadUrl } = await import('../src/main/version.js');
 
 let domSource = '';
 let backgroundSource = '';
@@ -41,6 +41,7 @@ describe('extension release metadata', () => {
     expect(manifest.version).toBe(APP_VERSION);
     expect(BRIDGE_PROTOCOL).toBe(14);
     expect(backgroundSource).toContain('const BRIDGE_PROTOCOL = 14;');
+    expect(extensionDownloadUrl()).toContain('github.com/Gokuencinar/chat-on-steroids/releases/download/');
   });
 
   /**

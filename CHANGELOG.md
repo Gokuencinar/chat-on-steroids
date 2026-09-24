@@ -11,6 +11,12 @@ the app refuses the extension and asks you to reload the matching copy.
 
 ## Unreleased
 
+## [2.1.16] — 2026-09-24
+
+- Fix the Windows updater loop caused by 2.1.15 shipping an internal `APP_VERSION` of 2.1.14.
+- Point extension recovery downloads at `Gokuencinar/chat-on-steroids` so the customized app and companion stay on the same fork.
+- Refuse to package a release when app, lockfile, extension and internal runtime versions disagree.
+
 ## [2.1.15] — 2026-09-24
 
 - Retire predecessor send listeners on extension recorder takeover so stale Goal state cannot rewrite later manual prompts.
