@@ -11,6 +11,19 @@ the app refuses the extension and asks you to reload the matching copy.
 
 ## Unreleased
 
+## [2.1.18] — 2026-09-24
+
+- Preserve Compact & Resume continuity across recovery, including exact handoff state and stalled workers that hit the context ceiling.
+- Optionally wait for a chat's own sub-agents before the next Goal, Loop or automatic continuation step.
+- Make the Compact & Resume handoff instructions editable while retaining the fixed protocol wrapper used for recovery.
+- Reattach the Core connector automatically on managed follow-up turns and recover that enrollment after an app or browser restart.
+- Mark background chats whose completion has not yet been seen, without persisting presentation-only read state into session authority.
+- Expand renderer and browser-companion localization coverage across English, Spanish, French, Japanese, Turkish, Simplified Chinese and Traditional Chinese.
+- Add optional command allowlist and denylist policies for tighter command execution control.
+- Add Project Files Git Changes/Diff review with working-tree status, per-file diff previews and an agent-review action.
+- Keep the personalized 2.1.17 connector-schema reminder, bridge-protocol compatibility and Gokuencinar fork updater/release behavior intact.
+- Deliberately leave the larger GitHub Skills enhancements from upstream PR #345 out of this release because they are coupled to its broader workspace/composer redesign.
+
 ## [2.1.17] — 2026-09-24
 
 - Show the ChatGPT connector refresh reminder only after an exact published tool schema changes, instead of after every app-version bump.
