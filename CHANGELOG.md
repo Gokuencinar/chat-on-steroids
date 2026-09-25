@@ -11,6 +11,8 @@ the app refuses the extension and asks you to reload the matching copy.
 
 ## Unreleased
 
+- Avoid reloading a still-responsive ChatGPT tab during silence recovery; keep the existing document and reserve reloads for genuinely unresponsive, discarded or frozen pages to reduce renderer pressure on very large conversations.
+
 ## [2.1.18] — 2026-09-25
 
 - Preserve Compact & Resume continuity across recovery, including exact handoff state and stalled workers that hit the context ceiling.

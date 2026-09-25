@@ -2657,6 +2657,7 @@ async function performBrowserRepairs(repairs, policy) {
     const repairAction = target ? 'reloaded' : 'reopened';
     try {
       const documentId = target ? tabDocuments[String(target.id)] : null;
+      let responsiveRepair = false;
       // Suspension grants a reload of a still-suspended shell, never a new tab.
       if (suspended) {
         if (!target) continue;
@@ -2699,6 +2700,7 @@ async function performBrowserRepairs(repairs, policy) {
             await call(`/status?repairFailed=${encodeURIComponent(token)}&repairAction=${repairAction}`);
             continue;
           }
+          responsiveRepair = check?.safe === true && latest?.safe === true;
         }
       }
       if (target && suspended && requiresClaim) {
@@ -2721,6 +2723,16 @@ async function performBrowserRepairs(repairs, policy) {
           await call(`/status?repaired=${encodeURIComponent(token)}&repairAction=resumed`);
           continue;
         }
+      }
+      if (target && reason === 'silence' && requiresClaim && responsiveRepair) {
+        // Two successful repair checks (before and after the claim) prove this exact document is
+        // alive, on the same question/turn and unchanged. Reloading a healthy but very large
+        // ChatGPT conversation is destructive: it rebuilds the whole page and can turn a transient
+        // quiet period into renderer pressure or a browser restart. Hand the existing page's
+        // recovery ticket forward instead. An unavailable page (no check reply) still falls through
+        // to the reload below, which preserves recovery for genuinely wedged/discarded documents.
+        await call(`/status?repaired=${encodeURIComponent(token)}&repairAction=resumed`);
+        continue;
       }
       if (target) await chrome.tabs.reload(target.id);
       else {

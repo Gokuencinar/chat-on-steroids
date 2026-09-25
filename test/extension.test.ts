@@ -1049,7 +1049,7 @@ describe('exact chat recovery from a fresh Chrome tab scan', () => {
       expect(trace.indexOf('scan')).toBeGreaterThan(trace.indexOf('handout'));
       expect(trace.indexOf('claim')).toBeGreaterThan(trace.indexOf('scan'));
       if (mode === 'unresolved') {
-        if (reason === 'compaction') expect(worker.tabsReload).not.toHaveBeenCalled();
+        if (reason === 'compaction' || reason === 'silence') expect(worker.tabsReload).not.toHaveBeenCalled();
         else expect(worker.tabsReload).toHaveBeenCalledExactlyOnceWith(21);
         expect(trace).toContain('repaired');
       } else {
@@ -1059,6 +1059,35 @@ describe('exact chat recovery from a fresh Chrome tab scan', () => {
       expect(worker.tabsCreate).not.toHaveBeenCalled();
     }
   );
+
+  it('reloads a silent chat only when its exact page no longer answers the repair check', async () => {
+    let armed = false, handed = false, repairedAction = '';
+    const fetch = vi.fn(async (input: string) => {
+      const url = new URL(input);
+      if (url.pathname === '/hello') return response(200, { app: 'chat-on-steroids', paired: true });
+      if (url.pathname === '/repairs/claim') return response(200, { allowed: true });
+      if (url.pathname === '/status') {
+        repairedAction = url.searchParams.get('repairAction') || repairedAction;
+        if (armed && !handed) {
+          handed = true;
+          return response(200, { repairs: [{ conversationId: CHAT, token: 'silent-unresponsive',
+            reason: 'silence', requiresClaim: true }] });
+        }
+        return response(200, { repairs: [] });
+      }
+      return response(200, {});
+    });
+    const worker = loadWorker({ local: new FakeStorageArea(paired), session: new FakeStorageArea(), fetch,
+      tabsQuery: async () => [{ id: 21, url: `https://chatgpt.com/c/${CHAT}` }],
+      tabsGet: async () => ({ id: 21, url: `https://chatgpt.com/c/${CHAT}` }),
+      tabsSendMessage: async (_id, message) => message.type === 'clf-repair-check' ? null : { ok: true } });
+    await worker.registerTab(21);
+    await worker.send({ type: 'bind', conversationId: CHAT }, 21);
+    await worker.fireAlarm(); armed = true; await worker.fireAlarm();
+    expect(worker.tabsReload).toHaveBeenCalledExactlyOnceWith(21);
+    expect(worker.tabsCreate).not.toHaveBeenCalled();
+    expect(repairedAction).toBe('reloaded');
+  });
 
   /**
    * Two tabs of one chat used to end the repair: neither was reloaded and the duplicate stayed

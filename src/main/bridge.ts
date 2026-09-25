@@ -8173,11 +8173,14 @@ async function confirmRepair(token: string, action: 'reloaded' | 'reopened' | 'r
       if (repair.attribution && repair.attribution.incident.firstAttemptAt === null)
         repair.attribution.incident.firstAttemptAt = Date.now();
       lastBrowserRecoveryAt.set(conversationId, Date.now());
-      awaitingReturn.add(conversationId);
+      // A resumed repair kept the existing responsive document; only a real reload/reopen has a
+      // replacement page whose return must be observed before another browser repair is allowed.
+      if (action === 'resumed') awaitingReturn.delete(conversationId);
+      else awaitingReturn.add(conversationId);
       if (repair.reason === 'silence') {
         const failedGrant = activeUntil.get(conversationId);
         if (failedGrant) failedGrant.until = Date.now() + recoveryBusyMs(failedGrant.model === 'pro');
-        // Persist the next existing instruction as soon as this exact refresh is
+        // Persist the next existing instruction as soon as this exact browser recovery is
         // acknowledged. Native readiness and the normal Send receipt still gate delivery.
         const inputFiled = await fileSilenceInputTicket(conversationId, Date.now());
         if (!inputFiled && (loopAfterTurnFor(conversationId) || (failedGrant && failedGrant.model !== 'pro'))) await fileSilenceTickets([conversationId], Date.now());

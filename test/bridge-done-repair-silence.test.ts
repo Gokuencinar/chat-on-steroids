@@ -101,7 +101,7 @@ async function events(items: unknown[]): Promise<any> {
 
 async function maintenance(
   repaired?: string,
-  action?: 'reloaded' | 'reopened'
+  action?: 'reloaded' | 'reopened' | 'resumed'
 ): Promise<{ conversationId: string; token: string; reason: string } | null> {
   const path = repaired
     ? `/status?repaired=${encodeURIComponent(repaired)}${action ? `&repairAction=${action}` : ''}`
@@ -168,7 +168,7 @@ beforeEach(async () => {
 });
 
 describe('silence after a confirmed assistant-error repair', () => {
-  it('still queues the silence reload when the same turn never ends', async () => {
+  it('still queues silence recovery when the same turn never ends', async () => {
     vi.useFakeTimers();
     try {
       await pair();
@@ -211,9 +211,10 @@ describe('silence after a confirmed assistant-error repair', () => {
 
       const silence = await maintenance();
       expect(silence).toMatchObject({ conversationId: CHAT, reason: 'silence' });
-      // Once the chat-scoped silence action itself is confirmed, the old one-shot rule still
-      // applies: without fresh activity there is no third reload.
-      expect(await maintenance(silence!.token, 'reloaded')).toBeNull();
+      // A responsive page can acknowledge the same chat-scoped recovery without a destructive
+      // reload. The old one-shot rule still applies: without fresh activity there is no third
+      // browser recovery action.
+      expect(await maintenance(silence!.token, 'resumed')).toBeNull();
       expect(await maintenance()).toBeNull();
     } finally {
       vi.useRealTimers();

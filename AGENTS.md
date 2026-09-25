@@ -2117,9 +2117,11 @@ not that attribution recovered. Other repair reasons retain their own delivery p
 Silence, missing-tab, stalled-tab and queued/Goal repairs also use that exact pre-action claim. Unclaimed
 offers retain one token; a claimed action is not reissued merely because its ACK is absent.
 A responsive page flushes native progress and Stop before the main claim, then rechecks its
-captured work/question/document after the claim. An explicit veto or navigation prevents the
-browser action. An unresponsive page supplies no new proof; the original main-process grant
-still requires independent validation. These checks use existing RPC and repair owners.
+captured work/question/document after the claim. For silence recovery, two matching safe checks
+resume the existing document instead of reloading it; this keeps very large but responsive chats
+from rebuilding their renderer solely because the provider went quiet. An explicit veto or navigation
+prevents the browser action. An unresponsive silence page supplies no new proof and may still use
+the original bounded reload grant. These checks use existing RPC and repair owners.
 The maintenance projection must retain each repair's reason. Compaction uses the same two
 document checks in draft-only mode: its exact ticket can recover its busy source, but an unsent
 text/attachment draft or a new user question vetoes the reload. Suspended shells are checked
