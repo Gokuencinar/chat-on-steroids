@@ -1558,6 +1558,11 @@ export function execRecoveryHints(
     // The batch runner parses each item with ScriptBlock.Create; PowerShell wraps its
     // parser diagnostic in this exception instead of emitting FullyQualifiedErrorId.
     POWERSHELL_SCRIPTBLOCK_PARSE_EXCEPTION.test(outputText) ||
+    // PowerShell localises that wrapper beyond the explicit languages above. The method name
+    // called by the batch runner and the parser's caret underline are stable, so they provide
+    // a locale-independent fallback without treating ordinary output that merely says Create
+    // as a parser failure.
+    (/"Create"/.test(outputText) && /(?:^|\n)\s*\+\s*~{2,}/.test(outputText)) ||
     /FullyQualifiedErrorId\s*:\s*(?:TerminatorExpectedAtEndOfString|MissingArgument|MissingExpressionAfterToken|MissingFileSpecification|RedirectionNotSupported|UnexpectedToken|EmptyPipeElement)/i.test(
       outputText
     );

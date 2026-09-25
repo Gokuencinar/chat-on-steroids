@@ -811,6 +811,18 @@ describe('saying what to do next', () => {
     expect(hints[0]).toMatch(/balance the quoted argument/i);
   });
 
+  it('recognises the batch parser diagnostic on another localized Windows', () => {
+    const output = [
+      'Ausnahme beim Aufrufen von "Create" mit 1 Argument(en):  "In Zeile:1 Zeichen:14',
+      "+ Write-Output 'unterminated",
+      '+              ~~~~~~~~~~~~~',
+      `Die Zeichenfolge hat kein Abschlusszeichen: '."`
+    ].join('\n');
+
+    expect(execRecoveryHints("Write-Output 'unterminated", output).join(' '))
+      .toMatch(/PowerShell parsed none of the command/i);
+  });
+
   it('stays silent on a shell where the operators work', () => {
     // PowerShell 7 runs `&&` without complaint, so there is no refusal text and no hint. The
     // hint keys off the shell's own error, never off the command containing the operator.
