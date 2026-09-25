@@ -7284,6 +7284,14 @@ function finishSilentChats(conversationIds: readonly string[]): void {
 const PICKUP_BACKOFF_MS = [2, 5, 10, 15].map((minutes) => minutes * 60_000) as [number, ...number[]];
 
 /**
+ * A responsive Goal page first gets non-destructive retries. If it still has not collected the
+ * same durable input by the third pickup, allow one real reload to reset React/content-script
+ * state. Later watchdog passes go back to soft retries instead of reloading the same large chat
+ * every fifteen minutes for the remainder of the twelve-hour pickup lifetime.
+ */
+const GOAL_HARD_RELOAD_ATTEMPT = 3;
+
+/**
  * One reload schedule per chat that still owes input or a Goal/Loop decision.
  *
  * Attempts advance through the backoff, then retain the fifteen-minute cadence.
@@ -8067,6 +8075,8 @@ async function takePendingRepairs(
     /** Raise the tab (or open the chat in front) before acting: a background tab is throttled. */
     focus: boolean;
     requiresClaim?: boolean;
+    /** A responsive Goal page should retry its existing document instead of being reloaded. */
+    preferResume?: boolean;
   }> = [];
   for (const [conversationId, repair] of repairsInFlight) {
     const unclaimed = repair.reason !== 'unattributed' && repairNeedsClaim(repair) && repair.state === 'handed' && !repair.claimed;
@@ -8119,8 +8129,10 @@ async function takePendingRepairs(
     if (allowed && repairsInFlight.get(conversationId) === repair && !isChatBlocked(conversationId) &&
         !stopRequestedFor(conversationId))
       {
+        const goalAttempt = repair.reason === 'goal' ? pickupWatch.get(conversationId)?.attempts : undefined;
         ready.push({ conversationId, token: repair.token, reason: repair.reason, focus: repair.reason === 'compaction',
-          ...(repairNeedsClaim(repair) ? { requiresClaim: true } : {}) });
+          ...(repairNeedsClaim(repair) ? { requiresClaim: true } : {}),
+          ...(repair.reason === 'goal' && goalAttempt !== GOAL_HARD_RELOAD_ATTEMPT ? { preferResume: true } : {}) });
       }
   }
   if (ready.length) logInfo(`bridge: handing the browser ${ready.length} repair(s): ` +

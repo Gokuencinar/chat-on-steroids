@@ -807,6 +807,38 @@ it.each(['still-frozen', 'woke', 'navigated', 'new-document'] as const)(
     expect(call.mock.calls.filter(([url]) => url.includes('repairFailed='))).toHaveLength(state === 'still-frozen' ? 0 : 1);
   });
 
+it.each([
+  ['soft retry', true, 'resumed', 0],
+  ['hard escalation', false, 'reloaded', 1]
+] as const)('uses a %s for a responsive Goal pickup', async (_label, preferResume, action, reloads) => {
+  const conversationId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+  const tab = { id: 71, url: `https://chatgpt.com/c/${conversationId}` };
+  const reload = vi.fn();
+  const create = vi.fn();
+  const call = vi.fn(async (url: string) => url === '/repairs/claim'
+    ? { ok: true, data: { allowed: true } }
+    : { ok: true });
+  const tabReply = vi.fn(async (_tabId: number, message: Record<string, unknown>) =>
+    message.type === 'clf-repair-check'
+      ? { safe: true, revision: 4, turnId: 'goal-turn', questionId: 'goal-question' }
+      : null);
+  const source = backgroundSource.slice(backgroundSource.indexOf('async function performBrowserRepairs('),
+    backgroundSource.indexOf('\nfunction conversationStillOpen('));
+  const repair = vm.runInNewContext(`${source}\nperformBrowserRepairs`, {
+    tabConversations: { '71': conversationId }, tabDocuments: { '71': 'goal-document' },
+    conversationForTab: (value: { url?: string }) => value.url?.split('/c/')[1] ?? null,
+    createChatTab: create, call, tabReply,
+    chrome: { tabs: { query: async () => [tab], reload, get: async () => tab } },
+    CHATGPT_TAB_URLS: ['https://chatgpt.com/*'], Set, encodeURIComponent
+  });
+
+  const resumed = await repair([{ conversationId, token: 'goal-repair', reason: 'goal', requiresClaim: true, preferResume }], {});
+  expect(reload).toHaveBeenCalledTimes(reloads);
+  expect(create).not.toHaveBeenCalled();
+  expect(call).toHaveBeenCalledWith(`/status?repaired=goal-repair&repairAction=${action}`);
+  expect([...resumed]).toEqual(preferResume ? [conversationId] : []);
+});
+
 describe('accepted helper tab cleanup', () => {
   it('shares pending diagnostic reads and discards a result after disconnect', async () => {
     const source = backgroundSource.slice(backgroundSource.indexOf('function publishCompanionDiagnostics()'),

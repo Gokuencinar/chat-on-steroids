@@ -11,6 +11,13 @@ the app refuses the extension and asks you to reload the matching copy.
 
 ## Unreleased
 
+## [2.1.20] — 2026-09-25
+
+- Recover uncollected Goal/after-turn pickups in place when the exact ChatGPT page is still responsive, and re-offer the durable input immediately instead of destructively reloading a healthy large conversation.
+- Escalate a repeatedly uncollected responsive pickup to one real reload on its third watchdog attempt, then return to soft recovery rather than reloading the same page every fifteen minutes for the rest of the twelve-hour watch.
+- Keep the existing hard reload/reopen path for genuinely unavailable, discarded, frozen or non-responsive pages, with the same claim and page-identity fences used by 2.1.19.
+- Publish personalized releases only for Windows x64, alongside the matching Chrome extension and SHA-256 checksums; macOS, Linux, Windows ARM64 and native-source release artifacts are no longer built by the release workflow.
+
 ## [2.1.19] — 2026-09-25
 
 - Refresh the bundled Chrome companion together with the app so the shipped extension contains the latest ChatGPT DOM, Fiber, prompt-frame and recovery fixes while remaining on bridge protocol 14.

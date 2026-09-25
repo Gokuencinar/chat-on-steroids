@@ -12230,8 +12230,8 @@ describe('the goal loop over the bridge', () => {
         await vi.advanceTimersByTimeAsync(minutes * 60_000);
         await sweepStaleSwarm(Date.now());
         const repair = (await request('GET', '/status')).body.repairs?.[0];
-        expect(repair).toMatchObject({ conversationId: chat, reason: 'goal' });
-        await request('GET', `/status?repaired=${repair.token}&repairAction=reloaded`);
+        expect(repair).toMatchObject({ conversationId: chat, reason: 'goal', preferResume: true });
+        await request('GET', `/status?repaired=${repair.token}&repairAction=resumed`);
       }
       const said = async (): Promise<number> => (await readEvents(session.id, { kinds: ['note'] }))
         .flatMap(event => event.kind === 'note' ? [event.message.text] : [])
@@ -12242,6 +12242,7 @@ describe('the goal loop over the bridge', () => {
       await sweepStaleSwarm(Date.now());
       const third = (await request('GET', '/status')).body.repairs?.[0];
       expect(third).toMatchObject({ conversationId: chat, reason: 'goal' });
+      expect(third.preferResume).not.toBe(true);
       await request('GET', `/status?repaired=${third.token}&repairAction=reloaded`);
 
       expect(await said(), 'the chat was left waiting without a word').toBe(1);
@@ -12250,7 +12251,7 @@ describe('the goal loop over the bridge', () => {
       await vi.advanceTimersByTimeAsync(15 * 60_000);
       await sweepStaleSwarm(Date.now());
       const fourth = (await request('GET', '/status')).body.repairs?.[0];
-      expect(fourth, 'the schedule gave up instead of carrying on').toMatchObject({ conversationId: chat, reason: 'goal' });
+      expect(fourth, 'the schedule gave up instead of carrying on').toMatchObject({ conversationId: chat, reason: 'goal', preferResume: true });
       expect(await said(), 'it repeated itself').toBe(1);
     } finally {
       await writeDurableNow('session-input', []);

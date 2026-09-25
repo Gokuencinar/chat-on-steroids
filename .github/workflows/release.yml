@@ -12,25 +12,6 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  sources:
-    name: Package native library sources
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
-        with:
-          node-version: 22
-      - name: Verify and archive corresponding native sources
-        run: node scripts/package-native-sources.mjs
-      - name: Upload source artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: package-native-sources
-          path: release/Chat-On-Steroids-Native-Sources.tar.gz
-          if-no-files-found: error
-          retention-days: 30
-
   package:
     name: Package ${{ matrix.name }}
     strategy:
@@ -44,49 +25,6 @@ jobs:
             script: dist:x64
             artifact: package-windows-x64
             files: release/Chat-On-Steroids-Setup-x64.exe
-          - name: Windows arm64
-            platform: win32
-            arch: arm64
-            runner: windows-11-arm
-            script: dist:arm64
-            artifact: package-windows-arm64
-            files: release/Chat-On-Steroids-Setup-arm64.exe
-          - name: macOS x64
-            platform: darwin
-            arch: x64
-            runner: macos-15-intel
-            script: dist:mac:x64
-            artifact: package-macos-x64
-            files: |
-              release/Chat-On-Steroids-macOS-x64.dmg
-              release/Chat-On-Steroids-macOS-x64.zip
-          - name: macOS arm64
-            platform: darwin
-            arch: arm64
-            runner: macos-15
-            script: dist:mac:arm64
-            artifact: package-macos-arm64
-            files: |
-              release/Chat-On-Steroids-macOS-arm64.dmg
-              release/Chat-On-Steroids-macOS-arm64.zip
-          - name: Linux x64
-            platform: linux
-            arch: x64
-            runner: ubuntu-24.04
-            script: dist:linux:x64
-            artifact: package-linux-x64
-            files: |
-              release/Chat-On-Steroids-Linux-x64.AppImage
-              release/Chat-On-Steroids-Linux-x64.deb
-          - name: Linux arm64
-            platform: linux
-            arch: arm64
-            runner: ubuntu-24.04-arm
-            script: dist:linux:arm64
-            artifact: package-linux-arm64
-            files: |
-              release/Chat-On-Steroids-Linux-arm64.AppImage
-              release/Chat-On-Steroids-Linux-arm64.deb
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 75
 
@@ -333,7 +271,7 @@ jobs:
 
   assemble:
     name: Assemble release candidate
-    needs: [package, sources]
+    needs: [package]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
 
@@ -362,32 +300,12 @@ jobs:
           set -euo pipefail
           files=(
             release/Chat-On-Steroids-Setup-x64.exe
-            release/Chat-On-Steroids-Setup-arm64.exe
-            release/Chat-On-Steroids-macOS-x64.dmg
-            release/Chat-On-Steroids-macOS-x64.zip
-            release/Chat-On-Steroids-macOS-arm64.dmg
-            release/Chat-On-Steroids-macOS-arm64.zip
-            release/Chat-On-Steroids-Linux-x64.AppImage
-            release/Chat-On-Steroids-Linux-x64.deb
-            release/Chat-On-Steroids-Linux-arm64.AppImage
-            release/Chat-On-Steroids-Linux-arm64.deb
             release/Chat-On-Steroids-Extension.zip
-            release/Chat-On-Steroids-Native-Sources.tar.gz
           )
           for file in "${files[@]}"; do test -f "$file" || { echo "Missing $file" >&2; exit 1; }; done
           (cd release && sha256sum \
             Chat-On-Steroids-Setup-x64.exe \
-            Chat-On-Steroids-Setup-arm64.exe \
-            Chat-On-Steroids-macOS-x64.dmg \
-            Chat-On-Steroids-macOS-x64.zip \
-            Chat-On-Steroids-macOS-arm64.dmg \
-            Chat-On-Steroids-macOS-arm64.zip \
-            Chat-On-Steroids-Linux-x64.AppImage \
-            Chat-On-Steroids-Linux-x64.deb \
-            Chat-On-Steroids-Linux-arm64.AppImage \
-            Chat-On-Steroids-Linux-arm64.deb \
-            Chat-On-Steroids-Extension.zip \
-            Chat-On-Steroids-Native-Sources.tar.gz > SHA256SUMS.txt)
+            Chat-On-Steroids-Extension.zip > SHA256SUMS.txt)
           cat release/SHA256SUMS.txt
 
       - name: Upload release candidate
@@ -398,17 +316,7 @@ jobs:
           name: chat-on-steroids-candidate-${{ github.run_id }}
           path: |
             release/Chat-On-Steroids-Setup-x64.exe
-            release/Chat-On-Steroids-Setup-arm64.exe
-            release/Chat-On-Steroids-macOS-x64.dmg
-            release/Chat-On-Steroids-macOS-x64.zip
-            release/Chat-On-Steroids-macOS-arm64.dmg
-            release/Chat-On-Steroids-macOS-arm64.zip
-            release/Chat-On-Steroids-Linux-x64.AppImage
-            release/Chat-On-Steroids-Linux-x64.deb
-            release/Chat-On-Steroids-Linux-arm64.AppImage
-            release/Chat-On-Steroids-Linux-arm64.deb
             release/Chat-On-Steroids-Extension.zip
-            release/Chat-On-Steroids-Native-Sources.tar.gz
             release/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 30

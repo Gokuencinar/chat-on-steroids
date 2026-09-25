@@ -2522,13 +2522,14 @@ async function maintainOnce() {
       token: entry && typeof entry.token === 'string' ? entry.token : '',
       reason: typeof entry?.reason === 'string' ? entry.reason : '',
       requiresClaim: entry?.requiresClaim === true,
+      preferResume: entry?.preferResume === true,
       suspended: entry?.reason === 'stalled',
       focus: Boolean(entry && entry.focus === true)
     }))
     .filter((entry) => entry.conversationId && entry.token);
   // Fulfilling a due repair must not wait behind window layout, input preparation
   // or serial idle-tab probes. Keep the same single maintenance owner and receipt.
-  await performBrowserRepairs(repairs, reply.data);
+  const resumedGoalRepairs = await performBrowserRepairs(repairs, reply.data);
   // Reuse this maintenance scan/cadence; recorder repair must never delay owed actions.
   void restoreSilentRecorders(observedTabs, intent).catch(() => undefined);
   await applyRequestedBrowserPreferences(reply.data.browserPreferenceRequest);
@@ -2546,7 +2547,9 @@ async function maintainOnce() {
   }
   inspectRequestedModels(reply.data.modelCatalogRequest);
   inspectRequestedPluginRefresh(reply.data.pluginRefreshRequests, reply.data.background === true, reply.data.browserOnly === true);
-  const repairConversations = new Set(repairs.map(entry => entry.conversationId));
+  const repairConversations = new Set(repairs
+    .filter(entry => !resumedGoalRepairs.has(entry.conversationId))
+    .map(entry => entry.conversationId));
   // Reloading the same document races its final input offer. Repair it now; the
   // still-durable app row is offered on the next status pass after the reload.
   const inputs = Array.isArray(reply.data.inputs)
@@ -2636,7 +2639,8 @@ async function maintainOnce() {
 }
 
 async function performBrowserRepairs(repairs, policy) {
-  for (const { conversationId, token, reason, focus, requiresClaim, suspended } of repairs) {
+  const resumedGoalRepairs = new Set();
+  for (const { conversationId, token, reason, focus, requiresClaim, preferResume, suspended } of repairs) {
     // Re-scanned per repair rather than reused from above. Earlier entries in this same batch
     // may have created a tab, and the scan has to be the state immediately before the action or
     // the duplicate rule below is deciding on a tab list that no longer exists.
@@ -2644,7 +2648,7 @@ async function performBrowserRepairs(repairs, policy) {
     try {
       live = await chrome.tabs.query({ url: CHATGPT_TAB_URLS });
     } catch {
-      return;
+      return resumedGoalRepairs;
     }
     const candidates = live.filter((tab) => conversationForTab(tab) === conversationId &&
       (!suspended || tab.discarded === true || tab.frozen === true));
@@ -2734,6 +2738,17 @@ async function performBrowserRepairs(repairs, policy) {
         await call(`/status?repaired=${encodeURIComponent(token)}&repairAction=resumed`);
         continue;
       }
+      if (target && reason === 'goal' && requiresClaim && responsiveRepair && preferResume) {
+        // The current document answered two fenced repair checks, so its recorder, route,
+        // question and turn are all still coherent. Reloading it here is counterproductive on
+        // very large chats: the reload can take minutes and recreate the exact missed pickup.
+        // A resumed Goal repair is allowed to receive the already-durable input again in this
+        // same maintenance pass. The third failed pickup deliberately omits preferResume and
+        // gets one real reload; later attempts return to this soft path.
+        await call(`/status?repaired=${encodeURIComponent(token)}&repairAction=resumed`);
+        resumedGoalRepairs.add(conversationId);
+        continue;
+      }
       if (target) await chrome.tabs.reload(target.id);
       else {
         await createChatTab(`https://chatgpt.com/c/${encodeURIComponent(conversationId)}`, policy.background === true, focus);
@@ -2747,6 +2762,7 @@ async function performBrowserRepairs(repairs, policy) {
     }
     await call(`/status?repaired=${encodeURIComponent(token)}&repairAction=${repairAction}`);
   }
+  return resumedGoalRepairs;
 }
 
 function conversationStillOpen(conversationId) {

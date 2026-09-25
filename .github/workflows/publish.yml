@@ -26,7 +26,7 @@ jobs:
       TAG: ${{ github.ref_name }}
 
     steps:
-      # Fail cheap before allocating the six native packaging runners. The final publish step
+      # Fail cheap before allocating the Windows x64 packaging runner. The final publish step
       # repeats the release-exists check to close the race while the candidate is building.
       - name: Refuse to publish from anything but a tag
         run: |
@@ -160,17 +160,7 @@ jobs:
           node scripts/check-release-absent.mjs
           gh release create "$TAG" \
             publish/Chat-On-Steroids-Setup-x64.exe \
-            publish/Chat-On-Steroids-Setup-arm64.exe \
-            publish/Chat-On-Steroids-macOS-x64.dmg \
-            publish/Chat-On-Steroids-macOS-x64.zip \
-            publish/Chat-On-Steroids-macOS-arm64.dmg \
-            publish/Chat-On-Steroids-macOS-arm64.zip \
-            publish/Chat-On-Steroids-Linux-x64.AppImage \
-            publish/Chat-On-Steroids-Linux-x64.deb \
-            publish/Chat-On-Steroids-Linux-arm64.AppImage \
-            publish/Chat-On-Steroids-Linux-arm64.deb \
             publish/Chat-On-Steroids-Extension.zip \
-            publish/Chat-On-Steroids-Native-Sources.tar.gz \
             publish/SHA256SUMS.txt \
             --title "$(sed -n 's/^## //p' "docs/release-notes/$TAG.md" | head -n 1)" \
             --notes-file "docs/release-notes/$TAG.md"
