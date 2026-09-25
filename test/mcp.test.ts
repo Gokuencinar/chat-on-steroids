@@ -2751,7 +2751,10 @@ describe('exec_command and write_stdin', () => {
           ? "Get-Command rg -CommandType Application | Select-Object -First 1 -ExpandProperty Source"
           : 'command -v rg',
         workdir: '/workspace',
-        yield_time_ms: 5_000
+        // A cold Windows PowerShell can exceed five seconds when the full CI matrix is under
+        // contention. This assertion is about the resolved bundled binary, not background-yield
+        // timing, so give the one-shot lookup enough time to finish before comparing its path.
+        yield_time_ms: 15_000
       }
     });
     expect(failed(rg), textOf(rg)).toBe(false);
