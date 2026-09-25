@@ -19,6 +19,7 @@ the app refuses the extension and asks you to reload the matching copy.
 - Bound browser-repair offers when a chat page is gone, allow cancelled unsent rescue turns to be retried, and fall back locally when a browser never opens a Compact & Resume replacement chat.
 - Let working oversized chats refile a refused automatic compaction and surface prolonged uncollected follow-up/Goal delivery instead of retrying silently for hours.
 - Recognize translated ChatGPT Stop controls and localized PowerShell parse failures, read escaped ChatGPT prompt frames correctly, and make Temporary Chat readiness follow the mounted React state when available.
+- Refresh the pinned OpenAI tunnel client to v0.0.15, with release-asset SHA-256 pins for every supported OS/CPU pair, so the fail-closed release preflight remains current.
 
 ## [2.1.18] — 2026-09-25
 

@@ -69,15 +69,15 @@ describe('cross-platform packaging targets', () => {
       });
 
     await expect(assertCurrentTunnelRelease({
-      pinnedVersion: 'v0.0.14',
-      fetchImpl: response({ tag_name: 'v0.0.14', draft: false, prerelease: false })
-    })).resolves.toMatchObject({ tag_name: 'v0.0.14' });
-    await expect(assertCurrentTunnelRelease({
-      pinnedVersion: 'v0.0.13',
-      fetchImpl: response({ tag_name: 'v0.0.14', draft: false, prerelease: false })
-    })).rejects.toThrow(/v0\.0\.13 is stale.*v0\.0\.14/);
+      pinnedVersion: 'v0.0.15',
+      fetchImpl: response({ tag_name: 'v0.0.15', draft: false, prerelease: false })
+    })).resolves.toMatchObject({ tag_name: 'v0.0.15' });
     await expect(assertCurrentTunnelRelease({
       pinnedVersion: 'v0.0.14',
+      fetchImpl: response({ tag_name: 'v0.0.15', draft: false, prerelease: false })
+    })).rejects.toThrow(/v0\.0\.14 is stale.*v0\.0\.15/);
+    await expect(assertCurrentTunnelRelease({
+      pinnedVersion: 'v0.0.15',
       fetchImpl: response({ message: 'rate limited' }, 403)
     })).rejects.toThrow(/refusing to publish without proving the pin is current/);
   });
