@@ -11,7 +11,14 @@ the app refuses the extension and asks you to reload the matching copy.
 
 ## Unreleased
 
+## [2.1.19] — 2026-09-25
+
+- Refresh the bundled Chrome companion together with the app so the shipped extension contains the latest ChatGPT DOM, Fiber, prompt-frame and recovery fixes while remaining on bridge protocol 14.
 - Avoid reloading a still-responsive ChatGPT tab during silence recovery; keep the existing document and reserve reloads for genuinely unresponsive, discarded or frozen pages to reduce renderer pressure on very large conversations.
+- Distinguish unreadable session metadata from genuinely empty history and flush session projections before publishing them, reducing recovery risk after transient filesystem failures or unclean shutdowns.
+- Bound browser-repair offers when a chat page is gone, allow cancelled unsent rescue turns to be retried, and fall back locally when a browser never opens a Compact & Resume replacement chat.
+- Let working oversized chats refile a refused automatic compaction and surface prolonged uncollected follow-up/Goal delivery instead of retrying silently for hours.
+- Recognize translated ChatGPT Stop controls and localized PowerShell parse failures, read escaped ChatGPT prompt frames correctly, and make Temporary Chat readiness follow the mounted React state when available.
 
 ## [2.1.18] — 2026-09-25
 
