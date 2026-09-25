@@ -2508,6 +2508,22 @@ describe('exec_command and write_stdin', () => {
     getConfig().commandAllowlist = { enabled: false, mode: 'allow', rules: [] };
   });
 
+  it('refuses to let exec_command terminate the Chat On Steroids host process', async () => {
+    const launch = vi.spyOn(unifiedExecManager, 'execCommand');
+    try {
+      const command = IS_WINDOWS ? `Stop-Process -Id ${process.pid} -Force` : `kill -9 ${process.pid}`;
+      const reply = await core('tools/call', {
+        name: 'exec_command', arguments: { cmd: command, workdir: '/workspace' }
+      });
+      expect(failed(reply)).toBe(true);
+      expect(textOf(reply)).toContain('HOST_PROCESS_PROTECTED');
+      expect(textOf(reply)).toContain('No command was run');
+      expect(launch).not.toHaveBeenCalled();
+    } finally {
+      launch.mockRestore();
+    }
+  });
+
   it('enforces the same optional policy at the shared handler before process launch', async () => {
     const command = IS_WINDOWS ? 'Write-Output allowlist-ok' : "printf '%s\\n' allowlist-ok";
     getConfig().commandAllowlist = { enabled: true, mode: 'allow', rules: [command] };

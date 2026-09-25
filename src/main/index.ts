@@ -79,6 +79,7 @@ import {
 import { trayGuidArgsForPlatform, trayImageSpec } from './tray-image.js';
 import { browserWindowIconPath } from './window-icon.js';
 import { editContextMenuTemplate } from './edit-context-menu.js';
+import { beginRuntimeMarker, clearRuntimeMarkerSync } from './runtime-marker.js';
 
 /** Durable state file holding the multi-agent run. Hashes only, never credentials. */
 const SWARM_STATE = 'swarm';
@@ -167,6 +168,9 @@ function createWindow(): void {
   window.webContents.on('did-fail-load', (_event, code, description) =>
     logError(`window failed to load (${code}): ${description}`)
   );
+  window.webContents.on('render-process-gone', (_event, details) => {
+    logError(`renderer process gone: reason=${details.reason} exitCode=${details.exitCode}`);
+  });
   // Renderer errors are otherwise invisible from here. Only errors, and only the
   // message text — never anything the page was working with.
   window.webContents.on('console-message', (details) => {
@@ -292,6 +296,17 @@ app.on('second-instance', (_event, argv) => {
   if (!isBackgroundLaunch(argv)) windowActivation.request();
 });
 
+// Native child failures do not necessarily reach JavaScript's uncaughtException monitor. Keep
+// enough bounded evidence in app.log to distinguish a GPU/network/utility crash from the main
+// process being terminated externally.
+app.on('child-process-gone', (_event, details) => {
+  logError(
+    `child process gone: type=${details.type} reason=${details.reason} exitCode=${details.exitCode}` +
+      `${details.serviceName ? ` service=${details.serviceName}` : ''}` +
+      `${details.name ? ` name=${details.name}` : ''}`
+  );
+});
+
 void app.whenReady().then(async () => {
   // This guard is intentionally before even app.getPath/init* calls. A secondary instance, or a
   // primary that was told to quit before ready, must never touch the primary's shared userData.
@@ -301,6 +316,18 @@ void app.whenReady().then(async () => {
   process.on('uncaughtExceptionMonitor', (error, origin) => {
     snapshotLogOnCrash(`${origin}: ${error.stack ?? error.message}`);
   });
+  try {
+    const previousRuntime = await beginRuntimeMarker(userData);
+    if (previousRuntime === 'unreadable') {
+      logWarn('previous runtime marker was unreadable; the prior process may not have completed normal shutdown');
+    } else if (previousRuntime) {
+      logWarn(
+        `previous runtime did not complete normal shutdown: pid=${previousRuntime.pid} startedAt=${previousRuntime.startedAt}`
+      );
+    }
+  } catch (error) {
+    logWarn(`runtime marker unavailable: ${error instanceof Error ? error.message : String(error)}`);
+  }
   initConfigPath(userData);
   initSecretsPath(userData);
   initSessionStore(userData);
@@ -524,6 +551,8 @@ app.on('will-quit', (event) => {
       // running with nothing to click and the single-instance lock still held.
       exit: () => {
         // The sequence has just logged its completion; a phase inside it would flush too early.
+        const markerError = clearRuntimeMarkerSync();
+        if (markerError) logWarn(`runtime marker cleanup failed: ${markerError}`);
         void flushLogBeforeExit().finally(() => {
           shutdownComplete = true;
           app.exit(0);

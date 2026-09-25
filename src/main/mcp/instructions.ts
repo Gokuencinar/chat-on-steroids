@@ -108,6 +108,7 @@ function coreInstructions(ctx: ToolContext, platform: NodeJS.Platform, skills: s
     lines.push(
       'Use rg or rg --files for searches; if unavailable, use the next best tool. Prefer rg -g \'*.ts\' src over shell globs.',
       'exec_command is enabled. Batch checks with exec_command cmds: [...]: one shell, per-command output and exit codes.',
+      'Chat On Steroids protects its own process and companion bridge ports 8765-8769. Never kill the app itself or sweep those ports for cleanup targets; identify an external process by executable/path before stopping it.',
       'Set workdir to the project; virtual paths work there. Inside cmd use relative or native paths.',
       'write_stdin accepts session_id (running) or completed_session_id (finished). Completed reads replay output without rerunning work. Inspect exit/output; benign_exit marks an expected non-zero result.',
       'If output is truncated, narrow the command or read the relevant region.'

@@ -11,7 +11,7 @@ the app refuses the extension and asks you to reload the matching copy.
 
 ## Unreleased
 
-## [2.1.18] — 2026-09-24
+## [2.1.18] — 2026-09-25
 
 - Preserve Compact & Resume continuity across recovery, including exact handoff state and stalled workers that hit the context ceiling.
 - Optionally wait for a chat's own sub-agents before the next Goal, Loop or automatic continuation step.
@@ -22,6 +22,9 @@ the app refuses the extension and asks you to reload the matching copy.
 - Add optional command allowlist and denylist policies for tighter command execution control.
 - Add Project Files Git Changes/Diff review with working-tree status, per-file diff previews and an agent-review action.
 - Recognize Spanish-localized Windows PowerShell parser failures in command recovery hints, and keep the corresponding shell regression check lightweight enough for busy CI runners.
+- Protect the running Chat On Steroids host from accidental `exec_command` cleanup that targets its own PID/name or derives kill targets from companion bridge ports 8765-8769.
+- Prevent an already-open interactive shell from bypassing that protection through `write_stdin`; process termination must go through a newly preflighted `exec_command`.
+- Record renderer and Electron child-process termination details in `app.log`, and retain a process-lifetime marker so the next start explicitly identifies a previous unclean main-process exit.
 - Keep the personalized 2.1.17 connector-schema reminder, bridge-protocol compatibility and Gokuencinar fork updater/release behavior intact.
 - Deliberately leave the larger GitHub Skills enhancements from upstream PR #345 out of this release because they are coupled to its broader workspace/composer redesign.
 
