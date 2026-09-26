@@ -11,6 +11,13 @@ the app refuses the extension and asks you to reload the matching copy.
 
 ## Unreleased
 
+## [2.1.21] — 2026-09-26
+
+- Isolate in-flight browser observation writes by conversation for repair claims, Goal activation and silence-input delivery, so activity in one chat no longer blocks recovery work in another while preserving the conservative family-wide cleanup guard.
+- Refuse to treat an incomplete session-ownership scan as a missing conversation. Temporary unreadable metadata now keeps observations retryable instead of authorizing creation of a second local session and splitting the chat history.
+- Add regression coverage for same-chat versus cross-chat recovery fencing and for unreadable session metadata without replacement-session creation.
+- Continue personalized release packaging for Windows x64 only, with the matching Chrome extension and SHA-256 checksums.
+
 ## [2.1.20] — 2026-09-25
 
 - Recover uncollected Goal/after-turn pickups in place when the exact ChatGPT page is still responsive, and re-offer the durable input immediately instead of destructively reloading a healthy large conversation.
