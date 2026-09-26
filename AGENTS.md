@@ -940,7 +940,11 @@ Native Stop prevents claiming/sending and durably extends listening by one/five 
 again if it remains busy. Only a full canonical final can consume the silence window; native
 control changes cannot bypass it or an existing native-busy delivery deferral.
 New work withdraws an unspent ticket/pre-send claim and rearms the model's silence clock. Authorized
-sends retain exclusive custody until their exact receipt or proven pre-send failure. Source work,
+ordinary browser sends permanently retain no-replay evidence. If their exact receipt remains
+ambiguous for five minutes, the outbox retires only the blocking wait to a cancelled tombstone while
+preserving the claim, authorization, payload and late-receipt identity; it never requeues or resends
+that message. Automatic Continue is stricter: it stays exclusive until an exact receipt or a committed
+session rebind proves its source chat departed, at which point only its old-chat wait is retired. Source work,
 document epoch, question, draft and native Send are rechecked across preparation awaits. An
 unclassified `stalled` end alone does not release a message; the refresh receipt is required.
 
@@ -1010,10 +1014,12 @@ receipts may settle a cancelled wait; that does not authorize a second message. 
 and history publication are independent: a recorder failure retries canonical history, not
 transport. Queued unclaimed input follows its durable session to the successor; already handed
 claims keep their original exact document until their outcome resolves.
-A generated Continue may stop blocking its session after a committed rebind proves its source
+A generated Continue may stop blocking its session only after a committed rebind proves its source
 chat is in that same session's history. The outbox cancels only its wait and retains the exact
-claim, authorization and late-receipt custody. An authored message, an unproved source or elapsed
-time alone cannot take this path. The same outbox expiry rule applies during normal use and restore.
+claim, authorization and late-receipt custody. Separately, an authorized non-recovery browser send
+whose ACK remains ambiguous for five minutes becomes a non-replayable cancelled tombstone so it no
+longer vetoes unrelated later session work. The same outbox expiry rule applies during normal use
+and restore; same-turn recovery still treats the spent authorization as permanent evidence.
 
 Desktop delivery captures the native user-message identity inside the same Send acceptance
 operation that proves its text and route. It must not discard that receipt and rediscover the

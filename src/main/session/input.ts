@@ -100,6 +100,10 @@ const entrySchema = inputArgs.extend({
 export type InputEntry = z.infer<typeof entrySchema>;
 const STATE = 'session-input';
 const TOOL_INPUT_TEXT_BYTES = 128000;
+// Native Send may have happened even when its ACK is lost. Never replay such a row, but do not
+// let one ambiguous receipt veto the entire session forever either. Keep it as a spent tombstone
+// after this window so an exact late receipt can still attach to it.
+const AUTHORIZED_BROWSER_AMBIGUITY_MS = 5 * 60_000;
 export const TOOL_INPUT_HEADER = '\n--- New instructions from the user ---\n';
 export interface ToolInputBatch {
   messages: Array<{ text: string; images: InputImage[] }>;
@@ -430,9 +434,16 @@ async function expireQueued(current: InputEntry[]): Promise<InputEntry[]> {
         (row.transportIntent === 'browser' || (!row.transportIntent && !row.sessionId)) &&
         Date.now() - Math.max(row.createdAt, row.dueAt) >= 60_000)
       return { ...row, state: 'failed', error: 'Not sent: the browser did not pick up this message within 60 seconds.' };
-    // Preparation can expire before Send. Once authorized, this exact claim owns
-    // the uncertain outcome until receipt or explicit cancellation, regardless of
-    // how long ChatGPT takes to assign its durable conversation identity.
+    // Send authorization is permanently spent: this exact row is never reissued. A lost ACK must
+    // not freeze every later message/recovery in the session forever, though. After a bounded
+    // ambiguity window, retire only the blocking state while retaining owner/conversation/auth/text
+    // so acknowledgeBrowserInput can still attach an exact late receipt without replaying anything.
+    if (!row.recovery && row.state === 'browser' && row.sendAuthorizedAt !== undefined &&
+        Date.now() - row.sendAuthorizedAt >= AUTHORIZED_BROWSER_AMBIGUITY_MS) {
+      return { ...row, state: 'cancelled',
+        error: 'Stopped blocking on delivery confirmation after five minutes. The message may already have been sent; it will not be resent.' };
+    }
+    // Preparation can expire before Send.
     const companion = current.find(other => other.id === row.companionInputId);
     if (row.state === 'browser' && row.sendAuthorizedAt === undefined && row.requiresAuthorization === true &&
         Date.now() - (row.offeredAt ?? row.createdAt) >= (row.attachments?.length || companion?.attachments?.length ? 720_000 : row.images?.length || companion?.images?.length ? 120_000 : 60_000)) {

@@ -136,6 +136,7 @@ describe('connection surface state', () => {
     mocks.config.readOnly = true;
     mocks.config.tunnel.kind = 'cloudflared';
     mocks.config.tunnel.tunnelId = '';
+    mocks.config.tunnel.desktopTunnelId = '';
     mocks.config.tunnel.pluginsTunnelId = '';
     mocks.config.tunnel.binaryPath = '';
     vi.resetModules();
@@ -159,6 +160,36 @@ describe('connection surface state', () => {
       await connection.disconnect();
       delete (mocks.config.tunnel as any).profileId; delete (mocks.config.tunnel as any).profileEpoch;
     }
+  });
+
+  it('refuses to publish two active connectors on the same OpenAI Secure Tunnel ID', async () => {
+    mocks.config.tunnel.kind = 'openai';
+    mocks.config.tunnel.tunnelId = 'same-queue';
+    mocks.config.tunnel.pluginsTunnelId = 'same-queue';
+    const connection = await import('../src/main/connection.js');
+    expect(connection.tunnelAssignmentConflict(mocks.config as any)).toContain('Plugins cannot use the same Secure Tunnel ID as Core');
+    try {
+      await connection.connect();
+      expect(mocks.starts).toBe(1);
+      expect(connection.getStatus().surfaces.find(surface => surface.id === 'plugins')).toMatchObject({
+        state: 'error',
+        publicUrl: null,
+        detail: expect.stringContaining('conflicts with Core')
+      });
+    } finally {
+      await connection.disconnect();
+    }
+  });
+
+  it('detects an optional Desktop/Plugins queue collision only while Desktop is active', async () => {
+    mocks.config.tunnel.kind = 'openai';
+    mocks.config.tunnel.tunnelId = 'core-queue';
+    mocks.config.tunnel.desktopTunnelId = 'shared-optional';
+    mocks.config.tunnel.pluginsTunnelId = 'shared-optional';
+    const connection = await import('../src/main/connection.js');
+    expect(connection.tunnelAssignmentConflict(mocks.config as any)).toBeNull();
+    mocks.caps.screen = true;
+    expect(connection.tunnelAssignmentConflict(mocks.config as any)).toContain('Plugins cannot use the same Secure Tunnel ID as Desktop');
   });
 
   it('ignores retired Plugins tunnel reports after changing only its tunnel', async () => {

@@ -889,6 +889,35 @@ describe('durable user input ownership', () => {
     expect(await cancelInput(row.id)).toBe(true);
     expect((await listInputs())[0]).toMatchObject({ state: 'cancelled', messageId: 'native-id', error: expect.stringContaining('later confirmed') });
   });
+  it('retires a lost authorized browser receipt without replay, unblocks the session, and still accepts its late exact ACK', async () => {
+    const row = await enqueueInput(input());
+    const claimed = await claimBrowserInput(row.id, 'owner', binding.conversationId);
+    expect(claimed).not.toBeNull();
+    expect(await authorizeBrowserInput(row.id, 'owner', binding.conversationId)).toBe(true);
+    const authorized = (await listInputs()).find(entry => entry.id === row.id)!;
+    expect(authorized).toMatchObject({ state: 'browser', owner: 'owner', sendAuthorizedAt: now });
+
+    now += 5 * 60_000 - 1;
+    expect((await listInputs()).find(entry => entry.id === row.id)).toMatchObject({ state: 'browser' });
+    now += 1;
+    resetInputForTests();
+    const retired = (await listInputs()).find(entry => entry.id === row.id)!;
+    expect(retired).toMatchObject({
+      state: 'cancelled', owner: 'owner', conversationId: binding.conversationId,
+      sendAuthorizedAt: authorized.sendAuthorizedAt,
+      error: expect.stringContaining('will not be resent')
+    });
+    expect(await pendingBrowserInputs()).toEqual([]);
+    expect(await claimBrowserInput(row.id, 'owner', binding.conversationId)).toBeNull();
+    expect(await authorizeBrowserInput(row.id, 'owner', binding.conversationId)).toBe(false);
+
+    const later = await enqueueInput(input({ id: randomUUID() }));
+    expect(await claimBrowserInput(later.id, 'later-owner', binding.conversationId)).not.toBeNull();
+    expect(await acknowledgeBrowserInput(row.id, 'owner', binding.conversationId, 'late-native-id')).toBe(true);
+    const settled = (await listInputs()).find(entry => entry.id === row.id)!;
+    expect(settled).toMatchObject({ state: 'cancelled', messageId: 'late-native-id', deliveredAt: now,
+      sendAuthorizedAt: authorized.sendAuthorizedAt });
+  });
   it('does not publish a rejected enqueue through a background durable retry', async () => {
     vi.spyOn(fs, 'rename').mockRejectedValueOnce(new Error('disk busy'));
     await expect(enqueueInput(input())).rejects.toThrow('disk busy');

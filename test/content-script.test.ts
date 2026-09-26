@@ -925,6 +925,63 @@ describe('desktop input delivery and helper ownership', () => {
       messages: [{ role: 'assistant', messageId: 'late-temp-message', rawMessageId: 'late-temp-message', rawText: canonical }] } }]);
     expect(live.sent.filter(message => message.response)).toEqual([expect.objectContaining({ response: canonical })]);
   });
+  it('completes a temporary planner when its accepted user row keeps the previous Fiber scan stamp', async () => {
+    const canonical = '{"action":"continue","reply":"cross-scan temporary result"}';
+    live = await harness(`https://chatgpt.com/?temporary-chat=true&cos-input=${inputId}`, {
+      desktop_input: message => ({ ok: true, data: message.authorize || message.ack || message.response
+        ? { ok: true } : { input: claimed({ purpose: 'decision', lifetime: 'temporary-planner' }) } })
+    });
+    const toggle = live.document.createElement('button'); toggle.setAttribute('aria-label', 'Temporary chat');
+    toggle.innerHTML = '<svg><use href="/sprite.svg#chat-temp-checked"></use></svg>';
+    Object.defineProperty(toggle, 'getClientRects', { value: () => [{}] }); live.document.body.append(toggle);
+    live.document.querySelector('[data-testid="send-button"]')!.addEventListener('click', () => {
+      userTurn(live!.document, 'cross-scan-user', text);
+      live!.document.querySelector('#prompt-textarea')!.textContent = '';
+    });
+    expect(await live.runtimeMessage({ type: 'clf-desktop-input', id: inputId, conversationId: null })).toEqual({ ok: true });
+    const userSection = live.document.querySelector('[data-turn-id="cross-scan-user"]') as HTMLElement;
+    const provider = 'WEB:f0f00020-1111-4111-8111-111111111111';
+    await bindFiberTurns([{ section: userSection, turn: { conversationId: provider,
+      messages: [{ role: 'user', messageId: 'm-cross-scan-user', rawMessageId: 'm-cross-scan-user', rawText: text }] } }]);
+    expect(live.sent.filter(message => message.response)).toEqual([]);
+
+    const section = assistantTurn(live.document, 'cross-scan-final', []);
+    prose(live.document, section, 'cross-scan-message', canonical);
+    const turn = (live.window as any).CLF_DOM.turns().find((item: any) => item.id === 'cross-scan-final');
+    live.hook.noteGoalTurn(turn, 'completed', 'cross-scan-final');
+    await bindFiberTurns([{ section, turn: { turnId: 'cross-scan-final', conversationId: provider,
+      endMessageId: 'cross-scan-message', messages: [{ role: 'assistant', messageId: 'cross-scan-message',
+        rawMessageId: 'cross-scan-message', rawText: canonical }] } }], false, new Set([userSection]));
+    expect(live.sent.filter(message => message.response)).toEqual([expect.objectContaining({ response: canonical })]);
+  });
+  it('does not use the stale temporary-planner Fiber fallback when the accepted user text changed', async () => {
+    const canonical = '{"action":"continue","reply":"must stay unpublished"}';
+    live = await harness(`https://chatgpt.com/?temporary-chat=true&cos-input=${inputId}`, {
+      desktop_input: message => ({ ok: true, data: message.authorize || message.ack || message.response
+        ? { ok: true } : { input: claimed({ purpose: 'decision', lifetime: 'temporary-planner' }) } })
+    });
+    const toggle = live.document.createElement('button'); toggle.setAttribute('aria-label', 'Temporary chat');
+    toggle.innerHTML = '<svg><use href="/sprite.svg#chat-temp-checked"></use></svg>';
+    Object.defineProperty(toggle, 'getClientRects', { value: () => [{}] }); live.document.body.append(toggle);
+    live.document.querySelector('[data-testid="send-button"]')!.addEventListener('click', () => {
+      userTurn(live!.document, 'cross-scan-changed-user', text);
+      live!.document.querySelector('#prompt-textarea')!.textContent = '';
+    });
+    expect(await live.runtimeMessage({ type: 'clf-desktop-input', id: inputId, conversationId: null })).toEqual({ ok: true });
+    const userSection = live.document.querySelector('[data-turn-id="cross-scan-changed-user"]') as HTMLElement;
+    const provider = 'WEB:f0f00021-1111-4111-8111-111111111111';
+    await bindFiberTurns([{ section: userSection, turn: { conversationId: provider,
+      messages: [{ role: 'user', messageId: 'm-cross-scan-changed-user', rawMessageId: 'm-cross-scan-changed-user', rawText: text }] } }]);
+    userSection.querySelector('.whitespace-pre-wrap')!.textContent = 'Different user text';
+    const section = assistantTurn(live.document, 'cross-scan-changed-final', []);
+    prose(live.document, section, 'cross-scan-changed-message', canonical);
+    const turn = (live.window as any).CLF_DOM.turns().find((item: any) => item.id === 'cross-scan-changed-final');
+    live.hook.noteGoalTurn(turn, 'completed', 'cross-scan-changed-final');
+    await bindFiberTurns([{ section, turn: { turnId: 'cross-scan-changed-final', conversationId: provider,
+      endMessageId: 'cross-scan-changed-message', messages: [{ role: 'assistant', messageId: 'cross-scan-changed-message',
+        rawMessageId: 'cross-scan-changed-message', rawText: canonical }] } }], false, new Set([userSection]));
+    expect(live.sent.filter(message => message.response)).toEqual([]);
+  });
   it.each([null, 'WEB:f0f00010-1111-4111-8111-111111111111'])('completes a temporary planner with provider identity %s without journaling', async providerId => {
     const canonical = '{"action":"continue","reply":"temporary result"}';
     live = await harness(`https://chatgpt.com/?temporary-chat=true&cos-input=${inputId}`, {
@@ -1997,7 +2054,8 @@ async function replyFiber(
   // Describe blocks that keep their own harness variable pass it; everything else uses the
   // shared one.
   harnessed: Harness | null = null,
-  observeOnly = false
+  observeOnly = false,
+  preserveTurnStamps: ReadonlySet<HTMLElement> = new Set()
 ): Promise<void> {
   const active = harnessed ?? live!;
   const window = active.window as any;
@@ -2016,7 +2074,7 @@ async function replyFiber(
       for (const node of window.document.querySelectorAll(selector)) {
         const attr = selector === '[data-clf-fiber]' ? 'data-clf-fiber' : 'data-clf-fiber-turn';
         const value = node.getAttribute(attr);
-        if (!restamp || !value) continue;
+        if (!restamp || !value || (attr === 'data-clf-fiber-turn' && preserveTurnStamps.has(node as HTMLElement))) continue;
         const split = value.lastIndexOf(':');
         const rawIndex = split >= 0 ? value.slice(split + 1) : value;
         if (!/^\d+$/.test(rawIndex)) continue;
@@ -3306,7 +3364,8 @@ function renderingOn(): void {
  */
 async function bindFiberTurns(
   bindings: Array<{ section: HTMLElement; turn: Record<string, unknown> }>,
-  observeOnly = false
+  observeOnly = false,
+  preserveTurnStamps: ReadonlySet<HTMLElement> = new Set()
 ): Promise<void> {
   bindings.forEach(({ section }, index) => section.setAttribute('data-clf-fiber-turn', String(index)));
   await replyFiber(
@@ -3318,7 +3377,7 @@ async function bindFiberTurns(
       messages: [],
       activities: [],
       ...turn
-    })), null, true, null, observeOnly
+    })), null, true, null, observeOnly, preserveTurnStamps
   );
   await settle();
 }
@@ -9341,6 +9400,20 @@ describe('how a turn is recorded as having ended', () => {
     expect(terminal).toContainEqual(expect.objectContaining({ turnId: started.turnId, outcome: 'failed' }));
   });
 
+  it('treats ChatGPT stream recovery polling timeout as a recoverable transport failure', async () => {
+    live = await harness();
+    startGenerating(live.document);
+    assistantTurn(live.document, 'stream-recovery-timeout', []);
+    live.hook.observe(); await settle();
+    alertBanner(live.document, 'ChatGPT stream recovery polling timed out');
+    live.hook.observe(); await settle();
+    const [failure] = emitted(live.sent, 'chat_error').map((entry) => entry.event);
+    const [started] = emitted(live.sent, 'turn_start').map((entry) => entry.event);
+    expect(failure).toMatchObject({
+      text: 'ChatGPT stream recovery polling timed out', recoverable: true, turnId: started.turnId
+    });
+  });
+
   /**
    * Live 2026-09-03 shape: the red full-width card contained the complete help-center
    * message and a Retry button, but had neither role=alert nor assistant markdown. The
@@ -13447,6 +13520,37 @@ describe('the fresh chat the app opened', () => {
     ]);
   });
 
+  it('retries a lost pre-destination redeem response and sends that command exactly once', async () => {
+    let redeemCalls = 0, sends = 0;
+    live = await harness(
+      'https://chatgpt.com/?clf=cmd-redeem-retry#clf=cmd-redeem-retry',
+      {
+        redeem: () => {
+          redeemCalls++;
+          if (redeemCalls === 1) return new Promise(() => {});
+          return { ok: true, command: { id: 'cmd-redeem-retry', type: 'resume',
+            text: '[[CLF-RESUME:0123456789abcdef0123456789abcdef]]\n\nRetry the same durable claim.', agent: null } };
+        },
+        ack: () => ({ ok: true })
+      },
+      (document, dom) => {
+        document.querySelector('[data-testid="send-button"]')!.addEventListener('click', () => {
+          sends++;
+          dom.reconfigure({ url: 'https://chatgpt.com/c/21212121-3434-5656-8787-909090909090' });
+          userTurn(document, 'redeem-retry-user', '[[CLF-RESUME:0123456789abcdef0123456789abcdef]]\n\nRetry the same durable claim.', { sent: false });
+        });
+      }
+    );
+    // The redeem watchdog intentionally uses the same real-ordering 30s timer as native Send in
+    // this harness: let that macrotask fire after the unresolved first runtime message.
+    await new Promise(resolve => globalThis.setTimeout(resolve, 0));
+    await settle(500);
+    expect(redeemCalls).toBe(2);
+    expect(live.sent.filter(message => message.type === 'redeem')).toHaveLength(2);
+    expect(live.sent.filter(message => message.type === 'compact' && message.destinationAttempt === true)).toHaveLength(1);
+    expect(sends).toBe(1);
+    expect(live.sent.filter(message => message.type === 'ack' && message.status === 'sent')).toHaveLength(1);
+  });
   /**
    * The same acquisition, inside a Project.
    *

@@ -739,6 +739,16 @@ describe('ChatGPT browser settings', () => {
 });
 
 describe('settings writes from more than one UI', () => {
+  it('rejects duplicate active OpenAI Secure Tunnel IDs before they can share one request queue', async () => {
+    const base = defaultConfig(); await saveConfig(base);
+    const tunnelId = `tunnel_${'c'.repeat(32)}`;
+    const proposed = { ...base, tunnel: { ...base.tunnel, kind: 'openai' as const, tunnelId, pluginsTunnelId: tunnelId } };
+    const result = await save(proposed, base);
+    expect(result).toMatchObject({ ok: false, error: expect.stringContaining('same Secure Tunnel ID') });
+    expect(getConfig().tunnel.tunnelId).toBe('');
+    expect(getConfig().tunnel.pluginsTunnelId).toBe('');
+  });
+
   it('validates and persists the Plugins tunnel id through Settings, including explicit clearing', async () => {
     const base = defaultConfig(); await saveConfig(base);
     const tunnelId = `tunnel_${'a'.repeat(32)}`;

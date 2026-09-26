@@ -11,6 +11,17 @@ the app refuses the extension and asks you to reload the matching copy.
 
 ## Unreleased
 
+## [2.1.22] — 2026-09-26
+
+- Recover Compact & Resume replacements when the durable `redeem` succeeds but its page-side response is lost before `destinationAttempt`. Only the same live document and marker may retry, and the bootstrap still crosses the irreversible Send fence exactly once.
+- Let completed temporary planners publish their answer when the accepted user row legitimately remains on the previous Fiber scan while the final assistant is current, without accepting missing, current-conflicting, ID-mismatched or text-mismatched user evidence.
+- Recognize ChatGPT's `stream recovery polling timed out` banner as a recoverable transport failure while keeping explicit provider access limits such as `Too many requests` blocking and non-reloadable.
+- Prevent Core, Desktop and Plugins from consuming the same OpenAI Secure Tunnel request queue; new conflicting settings are rejected and legacy conflicts fail closed instead of publishing two different MCP catalogs on one tunnel ID.
+- Stop a lost ACK for an already-authorized ordinary browser send from blocking all later session work forever. After five minutes it becomes a non-replayable tombstone that can still accept its exact late receipt.
+- Preserve the token weight of the complete payload actually sent to ChatGPT even when the page later projects only the authored user text, keeping CoS context estimates closer to the real conversation context.
+- Bring in eight additional upstream reliability fixes covering successor opening, split request-id evidence, localized Send controls, long-silence handling above High reasoning, stale React `in_progress` state, shell turn identity, delivery over CoS-owned residue and fallback when a saved reasoning effort disappears.
+- Keep the personalized Windows x64-only release: installer, matching Chrome extension and SHA-256 checksums.
+
 ## [2.1.21] — 2026-09-26
 
 - Isolate in-flight browser observation writes by conversation for repair claims, Goal activation and silence-input delivery, so activity in one chat no longer blocks recovery work in another while preserving the conservative family-wide cleanup guard.

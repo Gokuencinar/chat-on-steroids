@@ -779,6 +779,31 @@
     return typeof actual === 'string' && actual.length <= 256000 ? { text: actual, canonical: authored.length === 1,
       ...(authored[0]?.attachments?.length ? { attachments: authored[0].attachments } : {}) } : null;
   }
+  /**
+   * Temporary-planner-only reproof for the user row that native Send already accepted.
+   *
+   * A completed helper can legitimately have its accepted user section left on Fiber scan A while
+   * React remounts/stamps the terminal assistant on scan B. Requiring the older row to join B is a
+   * second ownership test that can never succeed in that state. The irreversible Send receipt has
+   * already frozen the exact native message id; re-prove that same connected row, this decision's
+   * document lifetime, and byte-normalized submitted text. No ordinary transcript/receipt path may
+   * use this relaxation, and a changed id/text still fails closed.
+   */
+  function acceptedTemporaryDecisionUser(message, decision) {
+    if (!decision?.temporary || !decision.onTarget() || !message || message.role !== 'user' ||
+        message.id !== decision.messageId || !message.node?.isConnected || isStale(message.node) ||
+        retiredMessages.has(message.id) || epoch !== decision.epoch) return false;
+    // This exception is only for the measured cross-scan state. No stamp means no provider
+    // reproof at all; a current-scan stamp that failed stampedFiberTurn() means contradictory
+    // current evidence. Both remain fail-closed. Only a syntactically valid older scan is allowed
+    // to rely on the already-witnessed native Send receipt below.
+    const stampedNode = sectionOf(message.node) || message.node;
+    const stamp = stampedNode.getAttribute?.('data-clf-fiber-turn') || '';
+    const split = stamp.lastIndexOf(':');
+    if (split <= 0 || !/^\d+$/.test(stamp.slice(split + 1)) || stamp.slice(0, split) === fiberScanToken) return false;
+    return sendText(message.text) === sendText(decision.text) ||
+      sendText(unescapeMarkdown(message.text)) === sendText(decision.text);
+  }
   function userMessagePresent(message) {
     if (message.role !== 'user' || !message.id) return false;
     const source = userMessageSource(message);
@@ -10830,13 +10855,37 @@
     // From here onward a competing fresh wake must not supersede this attempt: the bridge may
     // persist this document as owner before the response gets back to us.
     if (attempt) attempt.phase = 'redeeming';
-    const reply = await ask({
+    const redeemEpoch = epoch;
+    const redeemRequest = {
       type: 'redeem',
       id,
       client: RUN_ID,
       ...(fromUrl && OPENED_PROJECT_ENTRY ? { projectEntry: true } : {}),
       ...(openedConversation ? { conversationId: openedConversation } : {})
+    };
+    const redeemStillCurrent = () => alive && epoch === redeemEpoch && !attempt?.cancelled &&
+      (!attempt || commandAttempt === attempt) &&
+      (!fromUrl || markerId() === id) &&
+      (openedConversation ? CLF_DOM.conversationId() === openedConversation : !CLF_DOM.conversationId());
+    const redeemOnce = () => new Promise(resolve => {
+      let done = false;
+      const finish = value => { if (done) return; done = true; clearTimeout(timer); resolve(value); };
+      // A runtime message can disappear after the app durably assigned this exact RUN_ID as owner.
+      // Bound only this pre-Send handshake; a later destination checkpoint has separate no-replay
+      // custody and never enters this retry loop.
+      // Match the existing native Send receipt horizon. In the test harness 30s timers also keep
+      // real browser ordering (microtask reply before timeout) instead of being collapsed into
+      // the same tick, which is exactly the race this boundary is meant to model.
+      const timer = setTimeout(() => finish(null), 30_000);
+      void ask(redeemRequest).then(finish, () => finish(null));
     });
+    let reply = await redeemOnce();
+    for (let retry = 0; retry < 2 && (!reply || (reply.ok !== true && reply.retryable === true)); retry++) {
+      if (!redeemStillCurrent()) break;
+      await new Promise(resolve => setTimeout(resolve, 1_000));
+      if (!redeemStillCurrent()) break;
+      reply = await redeemOnce();
+    }
     if (!reply || reply.ok !== true) {
       // The app could not be reached at all, so there is nothing to acknowledge and nothing
       // to acknowledge it to. Its own deadline ends the command; this page stops here.
@@ -11442,9 +11491,11 @@
       const userTurn = CLF_DOM.turns().find(candidate => candidate.role === 'user' &&
         (candidate.nodes || [candidate.node]).some(node => node?.contains(messages[userIndex].node)));
       const user = stampedFiberTurn(userTurn, [...fiberTurns.values()], fiberScanToken);
-      if (!user || user.conversationConflict || user.conversationId !== turn.conversationId ||
-          !(user.messages || []).some(message => message.role === 'user' &&
-            (message.rawMessageId === decision.messageId || message.messageId === decision.messageId))) return;
+      if (user) {
+        if (user.conversationConflict || user.conversationId !== turn.conversationId ||
+            !(user.messages || []).some(message => message.role === 'user' &&
+              (message.rawMessageId === decision.messageId || message.messageId === decision.messageId))) return;
+      } else if (!acceptedTemporaryDecisionUser(messages[userIndex], decision)) return;
     } else if (turn.conversationId !== decision.conversationId) return;
     const terminal = (turn.messages || []).filter(message => message.role === 'assistant' &&
       (message.rawMessageId === turn.endMessageId || message.messageId === turn.endMessageId));

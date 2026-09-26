@@ -6,7 +6,7 @@
  * Optional tunnel failures stay on their own Settings cards and cannot fail Core.
  */
 
-import type { ConnectionStatus, SurfaceStatus, TunnelSettings } from '../shared/types.js';
+import type { Config, ConnectionStatus, SurfaceStatus, TunnelSettings } from '../shared/types.js';
 import { requiresApprovedFilesystemRoot } from '../shared/capabilities.js';
 import { prewarmComputerHelper } from './computer/index.js';
 import { effectiveCapabilities, getConfig } from './config.js';
@@ -35,6 +35,41 @@ const optionalTunnels = new Map<OptionalSurface, { handle: TunnelHandle | null; 
 const optionalSurfaces: OptionalSurface[] = ['desktop', 'plugins'];
 const optionalTunnelId = (settings: TunnelSettings, id: OptionalSurface): string =>
   (id === 'desktop' ? settings.desktopTunnelId : settings.pluginsTunnelId) ?? '';
+const surfaceLabel = (id: SurfaceId): string => id === 'core' ? 'Core' : id === 'desktop' ? 'Desktop' : 'Plugins';
+
+/**
+ * One OpenAI Secure Tunnel id is one shared request queue. Different MCP surfaces expose
+ * different catalogs, so two useful connectors may never consume that same queue.
+ * Return only connector names; tunnel ids are credentials/configuration and never belong in logs.
+ */
+export function tunnelAssignmentConflict(config: Config): string | null {
+  if (config.tunnel.kind !== 'openai') return null;
+  const caps = effectiveCapabilities(config);
+  const assignments: Array<{ id: SurfaceId; value: string }> = [
+    { id: 'core', value: config.tunnel.tunnelId }
+  ];
+  if (surfaceIsUseful('desktop', caps)) assignments.push({ id: 'desktop', value: config.tunnel.desktopTunnelId ?? '' });
+  if (surfaceIsUseful('plugins', caps)) assignments.push({ id: 'plugins', value: config.tunnel.pluginsTunnelId ?? '' });
+  const seen = new Map<string, SurfaceId>();
+  for (const row of assignments.filter(entry => entry.value)) {
+    const previous = seen.get(row.value);
+    if (previous) return `${surfaceLabel(row.id)} cannot use the same Secure Tunnel ID as ${surfaceLabel(previous)}. Each active connector needs its own tunnel.`;
+    seen.set(row.value, row.id);
+  }
+  return null;
+}
+
+/** Core wins legacy conflicts, then Desktop, then Plugins. */
+function optionalTunnelConflict(settings: TunnelSettings, id: OptionalSurface): SurfaceId | null {
+  const value = optionalTunnelId(settings, id);
+  if (!value) return null;
+  if (settings.tunnelId === value) return 'core';
+  if (id === 'plugins') {
+    const config = getConfig();
+    if (surfaceIsUseful('desktop', effectiveCapabilities(config)) && optionalTunnelId(settings, 'desktop') === value) return 'desktop';
+  }
+  return null;
+}
 /** Core-affecting transport settings the current run actually started with. */
 let activeCoreTransport: Pick<TunnelSettings, 'kind' | 'tunnelId' | 'binaryPath' | 'profileEpoch'> | null = null;
 let status: ConnectionStatus = {
@@ -375,6 +410,13 @@ async function startOptionalTunnel(
     });
     return;
   }
+  const conflict = optionalTunnelConflict(settings, id);
+  if (conflict) {
+    const detail = `${surfaceLabel(id)} is not published because its Secure Tunnel ID conflicts with ${surfaceLabel(conflict)}. Give each active connector its own tunnel.`;
+    logWarn(`${id} connector not published: Secure Tunnel ID conflicts with ${conflict}`);
+    updateSurface(id, { state: 'error', detail, publicUrl: null });
+    return;
+  }
 
   updateSurface(id, { state: 'starting', detail: 'Connecting…' });
   const lifetime = { handle: null as TunnelHandle | null, tunnelId };
@@ -463,14 +505,16 @@ async function applySettingsImpl(): Promise<void> {
     return;
   }
 
-  for (const id of optionalSurfaces) {
-    if (!surfaceIsUseful(id, caps)) {
-      await stopOptionalTunnel(id, 'Turn a desktop permission back on to publish this connector.');
-      continue;
-    }
-    if (optionalTunnels.get(id)?.tunnelId === optionalTunnelId(config.tunnel, id)) continue;
-    await stopOptionalTunnel(id, 'Reconnecting with the new tunnel…');
-    await startOptionalTunnel(id, connectionGeneration, config.tunnel, await getSecret(setupApiKeySlot(config.tunnel.profileId)));
+  const changed = optionalSurfaces.filter(id => !surfaceIsUseful(id, caps) ||
+    optionalTunnels.get(id)?.tunnelId !== optionalTunnelId(config.tunnel, id));
+  // Retire every changed optional queue before starting any replacement. In particular, a
+  // Desktop↔Plugins ID swap must never momentarily run a new consumer beside the old owner.
+  for (const id of changed) await stopOptionalTunnel(id, surfaceIsUseful(id, caps)
+    ? 'Reconnecting with the new tunnel…' : 'Turn a desktop permission back on to publish this connector.');
+  if (changed.some(id => surfaceIsUseful(id, caps))) {
+    const apiKey = await getSecret(setupApiKeySlot(config.tunnel.profileId));
+    for (const id of changed) if (surfaceIsUseful(id, caps))
+      await startOptionalTunnel(id, connectionGeneration, config.tunnel, apiKey);
   }
 }
 

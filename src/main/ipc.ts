@@ -51,7 +51,7 @@ import {
 } from '../shared/types.js';
 import { MAX_GOAL_SYSTEM_PROMPT_CHARS } from '../shared/goal.js';
 import { MAX_HANDOFF_PROMPT_CHARS } from '../shared/handoff.js';
-import { applySettings, connect, disconnect, getStatus, onStatusChange } from './connection.js';
+import { applySettings, connect, disconnect, getStatus, onStatusChange, tunnelAssignmentConflict } from './connection.js';
 import { effectiveCapabilities, getConfig, updateConfig, MAX_MCP_INSTRUCTIONS_CHARS, browserBridgePortSchema } from './config.js';
 import { bridgePortSelection } from './bridge-ports.js';
 import { clearAllGoalSwitches, draftTaskPlan, listGoalModels, MODEL_PAGE_SIZE, retireGoalDrafts, goalBackendFor, goalSwitchFor, setGoalSwitchNow, setGoalReplyActiveNow, setGoalObjectiveNow } from './goal.js';
@@ -477,9 +477,14 @@ export function registerIpc(getWindow: () => BrowserWindow | null, quitToInstall
       z.object({ action: z.literal('select'), id: z.string().min(1).max(64) }),
       z.object({ action: z.literal('remove'), id: z.string().min(1).max(64) })
     ]).parse(payload);
-    await updateConfig(config => request.action === 'add'
-      ? addSetupProfile(config, request.name)
-      : request.action === 'remove' ? removeSetupProfile(config, request.id) : switchSetupProfile(config, request.id),
+    await updateConfig(config => {
+      const proposed = request.action === 'add'
+        ? addSetupProfile(config, request.name)
+        : request.action === 'remove' ? removeSetupProfile(config, request.id) : switchSetupProfile(config, request.id);
+      const conflict = tunnelAssignmentConflict(proposed);
+      if (conflict) throw new Error(conflict);
+      return proposed;
+    },
     async () => {
       // The committed profile owns the connection even if credential cleanup fails.
       try { if (request.action === 'remove') await setSecret(setupApiKeySlot(request.id), ''); }
@@ -507,6 +512,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null, quitToInstall
         throw new Error('Browser bridge port is controlled by CLF_BRIDGE_PORTS.');
       }
       const proposed = { ...config, ...mergeSettings(config, request.base, request.patch) };
+      const tunnelConflict = tunnelAssignmentConflict(proposed);
+      if (tunnelConflict) throw new Error(tunnelConflict);
       // If an earlier Off retirement failed, On must retry it before admission.
       if (!config.ui.finishTool && proposed.ui.finishTool) await cancelFinishInputs(false);
       else if (!config.goal.impulseMinutes && (proposed.goal.impulseMinutes ?? 0) > 0) await cancelFinishInputs(true);
