@@ -712,7 +712,10 @@ describe('session store', () => {
     }) as typeof fs.readFile);
     try {
       expect(await findSessionByConversation('catalog-readable', { requireUnique: true })).not.toBeNull();
-      expect(await findSessionByConversation('catalog-blocked', { requireUnique: true })).toBeNull();
+      await expect(findSessionByConversation('catalog-blocked', { requireUnique: true })).rejects.toThrow('could not be read');
+      const folders = await fs.readdir(sessionsRoot());
+      await expect(sessionForConversation('catalog-blocked')).rejects.toThrow('could not be read');
+      expect(await fs.readdir(sessionsRoot())).toEqual(folders);
     } finally {
       spy.mockRestore();
     }

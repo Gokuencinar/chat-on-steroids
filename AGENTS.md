@@ -1210,6 +1210,11 @@ chronological anchors across revisions. Metadata coalesces ordinary updates but 
 at ownership boundaries; it can rebuild history-derived fields without inventing an empty session
 when recovery lacks proof. Legacy files overlay lazily rather than triggering a whole-history rewrite.
 
+An incomplete ownership lookup caused by unreadable session metadata throws when no owner can
+be established; it must not return the null that permits recorder session creation. Known readable
+owners remain available. Browser observations retain their retry custody until storage recovers,
+preventing a transient read failure from splitting one conversation into a second local session.
+
 Native image-only user messages keep their exact message identity, empty authored text and
 bounded attachment metadata. They participate in the same turn/receipt chronology as text and
 render an attachment placeholder immediately. Native metadata grants no local file custody;
@@ -2188,6 +2193,11 @@ Handout rechecks current binding, supersession, block and pending Stop. Extensio
 is single-flight with coalesced reruns, so wake/alarm/tab-close paths do not independently elect
 the same work. The remaining handout-to-browser-action cancellation gap is called out in §21.
 Trying → failed → later confirmed updates the same progress identity in the transcript.
+
+In-flight observation writes fence repair claims, Goal activation and silence-input filing by
+exact conversation. A different chat's slow recording cannot block these operations. Multiple
+overlapping batches for the same chat retain the fence until all finish. Family-wide orphan
+cleanup keeps its conservative aggregate recorder guard.
 
 ### Stop and Block must retire the relevant authority
 

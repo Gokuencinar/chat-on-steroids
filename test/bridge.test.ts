@@ -8305,6 +8305,38 @@ describe('unattributed activity recovery', () => {
     expect(await maintenance(repair!.token)).toBeNull();
   });
 
+  it.each(['same', 'other'])('isolates a repair claim from %s-chat observation writes', async scope => {
+    await pair();
+    await events(OTHER, [openTurn('independent-observer')]);
+    await events(PRIME, [openTurn('observation-claim'), {
+      kind: 'chat_error', time: Date.now(), turnId: 'observation-claim',
+      text: 'Connection interrupted', recoverable: true
+    }]);
+    const repair = await maintenance();
+    expect(repair?.reason).toBe('assistant-error');
+    const recorder = await import('../src/main/session/recorder.js');
+    const original = recorder.recordChatObservations;
+    const gate = faultGate();
+    const target = scope === 'same' ? PRIME : OTHER;
+    const spy = vi.spyOn(recorder, 'recordChatObservations').mockImplementation(async (...args) => {
+      if (args[0] === target) await gate.hold();
+      return original(...args);
+    });
+    const pending = events(target, []);
+    try {
+      await gate.entered;
+      const claim = await request('POST', '/repairs/claim', { body: { token: repair!.token } });
+      expect(claim.body.allowed).toBe(scope === 'other');
+    } finally {
+      gate.release();
+      await pending;
+      spy.mockRestore();
+    }
+    if (scope === 'same') {
+      expect((await request('POST', '/repairs/claim', { body: { token: repair!.token } })).body.allowed).toBe(true);
+    }
+  });
+
   it('offers one stale-composer recovery for a completed ordinary chat after 69 idle seconds', async () => {
     vi.useFakeTimers();
     try {

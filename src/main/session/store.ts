@@ -2765,7 +2765,10 @@ export async function findSessionByConversation(
     return current[0] ?? null;
   }
   if (options.includeHistorical !== true) {
-    if (!unreadable) rememberMissingCurrentConversation(conversationId);
+    // Null authorizes the recorder to create a session. An incomplete read must
+    // retain the browser's retryable observations, not split this chat's history.
+    if (unreadable) throw new Error('Session ownership could not be read completely; retry when storage is available.');
+    rememberMissingCurrentConversation(conversationId);
     return null;
   }
   const historicalIds = new Set(catalog.historical.get(conversationId) ?? []);
@@ -2778,6 +2781,9 @@ export async function findSessionByConversation(
   if (historical.length === 1) return historical[0] ?? null;
   if (historical.length > 1) {
     logWarn(`session store: conversation ${conversationId} appears in ${historical.length} session lineages; refusing to guess`);
+  }
+  if (historical.length === 0 && unreadable) {
+    throw new Error('Session ownership could not be read completely; retry when storage is available.');
   }
   return null;
 }

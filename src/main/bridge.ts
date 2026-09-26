@@ -231,7 +231,9 @@ export const STALE_SWARM_MS = 2 * 60_000;
 export const BROWSER_RECOVERY_COOLDOWN_MS = 3 * 60_000;
 const STALE_SWARM_SWEEP_MS = 30_000;
 /** /events batches currently between parse and durable/session+worker lifecycle completion. */
-let observationWritesInFlight = 0;
+// An observation can revoke only its own chat's repair or delivery boundary. Retain
+// the aggregate size for family-wide cleanup, which still needs a quiet recorder.
+const observationWritesInFlight = new Map<string, number>();
 /** Requests allowed per rolling minute, across all routes. */
 const RATE_LIMIT = 900;
 
@@ -1572,7 +1574,7 @@ function activateConversationGoalReply(id: string, active: boolean): Promise<boo
     const live = liveConversation(id);
     return activeUntil.get(id) === grant && runningToolCalls(id) === 0 &&
       (!chatIsWorking(id) || (!!silenceSourceTurnId && live?.activeTurnId === silenceSourceTurnId)) &&
-      observationWritesInFlight === 0 && (!grant || grant.until <= Date.now());
+      !observationWritesInFlight.has(id) && (!grant || grant.until <= Date.now());
   };
   return setGoalReplyActiveNow(id, active, idle);
 }
@@ -2094,7 +2096,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       compactionRepairCurrent(conversationId, repair);
     // An observation still publishing can revoke this handout. Refuse this
     // claim transiently; the same unclaimed token remains eligible to be checked.
-    const allowed = current && observationWritesInFlight === 0 && repairsInFlight.get(conversationId) === repair && repair.state === 'handed' && !repair.claimed;
+    const allowed = current && !observationWritesInFlight.has(conversationId) && repairsInFlight.get(conversationId) === repair && repair.state === 'handed' && !repair.claimed;
     if (allowed) {
       repair.claimed = true;
       if (repair.reason === 'assistant-error' && repair.assistantSource)
@@ -2196,7 +2198,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     const revived = noteAgentAlive(id, 'page');
     if (revived?.report) await recordAgentMessage(revived.report, 'sent', id);
     const observations = parseObservations(body['events']);
-    observationWritesInFlight += 1;
+    observationWritesInFlight.set(id, (observationWritesInFlight.get(id) ?? 0) + 1);
     let committed: { sessionId: string | null; stored: number; wake: boolean } | undefined;
     try {
       const agent = agentForOwnedConversation(id);
@@ -2285,7 +2287,9 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       // the extension's idle maintenance poll. Claims still recheck exact state.
       committed = { sessionId: result.sessionId, stored: result.stored, wake: !superseded && result.activity.terminal };
     } finally {
-      observationWritesInFlight -= 1;
+      const remaining = (observationWritesInFlight.get(id) ?? 1) - 1;
+      if (remaining > 0) observationWritesInFlight.set(id, remaining);
+      else observationWritesInFlight.delete(id);
     }
     // A replacement page may discover Thinking failed after this source's ordinary
     // silence ticket was already filed. Publish its receipt-anchored listening
@@ -4412,7 +4416,7 @@ export async function sweepStaleSwarm(now = Date.now()): Promise<boolean> {
   // unrelated MCP request must not hold every worker's slot; the broker checks each
   // worker's running calls separately. Do not race a recorder batch being committed.
   let brokerChanged = false;
-  if (observationWritesInFlight === 0) {
+  if (observationWritesInFlight.size === 0) {
     // A user block is explicit terminal authority even if ambiguous silence already parked the
     // ceiling worker's family. Dormant histories are not in activeRunIds(), so resolve this
     // narrow state by exact blocked conversation before sweeping active runs.
@@ -4519,7 +4523,7 @@ async function sweepOwnedSwarm(runId: string, now: number): Promise<boolean> {
   )) {
     if (!worker.conversationId) continue;
     const proof = await durableQuiescence(worker.conversationId, now);
-    if (!swarmRunning(runId) || swarmTransferActive(runId) || inFlightMcpRequests() > 0 || observationWritesInFlight > 0) return false;
+    if (!swarmRunning(runId) || swarmTransferActive(runId) || inFlightMcpRequests() > 0 || observationWritesInFlight.size > 0) return false;
     if (!proof.quiescent) continue;
 
     if (proof.lastOutcome === 'completed') {
@@ -4549,7 +4553,7 @@ async function sweepOwnedSwarm(runId: string, now: number): Promise<boolean> {
 
   await wakeQueuedStoppedWorkers(stoppedWorkers, runId);
 
-  if (!swarmRunning(runId) || swarmTransferActive(runId) || inFlightMcpRequests() > 0 || observationWritesInFlight > 0) return false;
+  if (!swarmRunning(runId) || swarmTransferActive(runId) || inFlightMcpRequests() > 0 || observationWritesInFlight.size > 0) return false;
   return releaseQuiescentRun({}, runId) || stoppedWorkers.length > 0;
 }
 
@@ -6115,10 +6119,10 @@ async function fileSilenceInputTicket(conversationId: string, now: number, liste
   const current = () => activeUntil.get(conversationId) === grant && repairsInFlight.get(conversationId) === repair &&
     !stopRequestedFor(conversationId) && !isChatBlocked(conversationId) &&
     !continuationForSession(grant.sessionId) && runningToolCalls(conversationId) === 0 &&
-    // Ordinary silence needs a quiet recorder. An exact failed-source receipt can
-    // publish its existing listening deadline while an unrelated chat is recording;
-    // grant identity and the outbox's source/work checks still fence renewed work.
-    (observationWritesInFlight === 0 || (grant.thinkingFailed === true && repair.progress?.turnId === grant.turnId));
+    // Ordinary silence needs this chat's recorder to settle. Preserve the exact
+    // failed-source receipt exception; grant identity and the outbox's source/work
+    // checks still fence renewed work. Other chats cannot hold this boundary.
+    (!observationWritesInFlight.has(conversationId) || (grant.thinkingFailed === true && repair.progress?.turnId === grant.turnId));
   if (await fileSilenceInput(grant.sessionId, conversationId, grant.turnId, current,
     grant.thinkingFailed || grant.model !== 'pro' ? grant.until : listenUntil)) return true;
   return recoveryInputAllowed(grant.sessionId, conversationId) &&
