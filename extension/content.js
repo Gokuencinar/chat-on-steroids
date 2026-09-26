@@ -262,6 +262,8 @@
   }
 
   let conversationId = null;
+  let temporaryStateReported = null;
+  let temporaryStateInFlight = false;
   let agent = null;
   /** The worker this chat is, as the app's durable session origin names it; label only. */
   let bootstrapAgent = null;
@@ -1728,6 +1730,7 @@
   }
 
   function resetConversation() {
+    temporaryStateReported = null;
     // Native suppression is document presentation, not conversation state. Give every mounted
     // row back before clearing the Fiber/stream proof that selected it; otherwise an SPA A -> B
     // transition can leave chat A's notification layout hidden until React happens to remount it.
@@ -2367,6 +2370,16 @@
     CLF_DOM.presentUserPrompts?.(message => userMessageSource(message)?.text ?? null);
     publishDesktopDecisionPartial();
     const id = CLF_DOM.conversationId();
+    const temporaryState = CLF_DOM.temporaryChatState?.();
+    if (id && id === conversationId && typeof temporaryState === 'boolean' && !temporaryStateInFlight &&
+        temporaryStateReported !== temporaryState) {
+      const ownerEpoch = epoch;
+      temporaryStateInFlight = true;
+      void ask({ type: 'temporary_state', conversationId: id, temporary: temporaryState },
+        () => alive && epoch === ownerEpoch && conversationId === id).then(reply => {
+        if (reply?.ok === true && alive && epoch === ownerEpoch && conversationId === id) temporaryStateReported = temporaryState;
+      }).catch(() => undefined).finally(() => { temporaryStateInFlight = false; });
+    }
     // One DOM turn snapshot per observation, created lazily because a transient id-less route
     // returns before transcript work. Everything below this stack frame that needs `turns()`
     // receives the same array explicitly; it is never cached across an await or another tick.

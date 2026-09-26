@@ -96,6 +96,7 @@ import {
   liveConversation,
   liveConversations,
   noteChatOrigin,
+  forgetSession,
   recordAgentMessage,
   recordChatObservations,
   recordRequestEvidence,
@@ -111,6 +112,7 @@ import {
   automaticCompactionAllowed,
   conversationWasSuperseded,
   findSessionByConversation,
+  deleteSession,
   getSession,
   readSessionPlan,
   listUsageSessions,
@@ -123,7 +125,8 @@ import {
   readHydratedActivityCall,
   sessionDurableModifiedAt,
   turnEndedDurably,
-  requestTurnOwnershipCutoff
+  requestTurnOwnershipCutoff,
+  setSessionTemporaryChat
 } from './session/store.js';
 import { inFlightMcpRequests, runningToolCalls, runningToolProgress, settlingToolCalls } from './mcp/call-context.js';
 import { nativeHandoffPrompt } from './session/handoff-prompt.js';
@@ -2310,6 +2313,23 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     return json(res, 200, { sessionId: committed!.sessionId, stored: committed!.stored }, origin);
   }
 
+  if (route === '/temporary-state' && req.method === 'POST') {
+    let body: Record<string, unknown>;
+    try {
+      body = (await readBody(req)) as Record<string, unknown>;
+    } catch (err) {
+      if ((err as Error).message === 'body_too_large') return tooLarge(res, origin);
+      return json(res, 400, { error: 'bad_request' }, origin);
+    }
+    const id = conversationId(body['conversationId']);
+    if (!id || typeof body['temporary'] !== 'boolean') return json(res, 400, { error: 'bad_request' }, origin);
+    const session = await findSessionByConversation(id, { requireUnique: true });
+    if (!session && body['temporary'] === false) return json(res, 200, { ok: true }, origin);
+    if (!session) return json(res, 409, { error: 'session_not_ready' }, origin);
+    await setSessionTemporaryChat(session.id, id, body['temporary']);
+    return json(res, 200, { ok: true }, origin);
+  }
+
   if (route === '/closed' && req.method === 'POST') {
     let body: Record<string, unknown>;
     try {
@@ -2329,6 +2349,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       const live = liveConversation(id);
       const working = Boolean(live && (live.generating || live.activeTurnId)) || (activeUntil.get(id)?.until ?? 0) > Date.now();
       const manual = body['manual'] === true;
+      const temporaryOwner = manual ? await findSessionByConversation(id, { requireUnique: true }) : null;
       if (manual) {
         // User departure withdraws activity and pending browser actions. Preserve
         // confirmed receipts so returning cannot refund a reload already carried out.
@@ -2358,6 +2379,11 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
         if (session) await revokeSilenceInputs(session.id);
         if (repairsInFlight.get(id)?.state !== 'done') repairsInFlight.delete(id);
         logInfo(`bridge: ${id} was closed deliberately; automatic browser recovery is paused until its page returns`);
+        if (temporaryOwner?.temporaryChatId === id && temporaryOwner.chatIds.length === 1 &&
+            temporaryOwner.chatIds[0] === id) {
+          forgetSession(temporaryOwner.id);
+          await deleteSession(temporaryOwner.id);
+        }
       } else await queueMissingTab(id, working);
     }
     return json(res, 200, { ok: true }, origin);
@@ -7114,6 +7140,10 @@ async function browserTabPolicy(openConversations: Set<string>) {
     const at = chatBlockedAt(id);
     if (at !== null) lastActivity.set(id, at);
   }
+  // The local recording of a Temporary Chat is removed when its last browser view
+  // closes; automatic tab cleanup must not turn that into an implicit deletion.
+  for (const row of summaries) if (row.temporaryChatId === row.conversationId && row.conversationId)
+    protectedChats.add(row.conversationId);
   const terminal = new Set([...blocked, ...cancelledDecisionClaims.map(row => row.conversationId!)]);
   const latestDesktopReceipt = new Map<string, (typeof inputs)[number]>();
   for (const row of inputs) {
@@ -7139,7 +7169,10 @@ async function browserTabPolicy(openConversations: Set<string>) {
     if (agent?.role === 'worker') return agent.state === 'sleeping' && agent.revivable;
     const row = summariesByChat.get(id);
     // An old open turn or mere creation timestamp cannot establish a quiet chat.
-    return row?.activeTurnId === null && Math.max(row.lastTurnEndAt ?? 0, row.lastAssistantFinalAt ?? 0) > 0;
+    // A failed/interrupted turn may have an older successful final in the summary.
+    // That older final cannot make the current broken page safe to reuse or close.
+    return row?.activeTurnId === null && row.lastTurnOutcome === 'completed' &&
+      Math.max(row.lastTurnEndAt ?? 0, row.lastAssistantFinalAt ?? 0) > 0;
   });
   const quietFor = (id: string, ms: number) => Date.now() - lastActivity.get(id)! >= ms;
   const idlePages = available.filter(id => quietFor(id, 300_000));

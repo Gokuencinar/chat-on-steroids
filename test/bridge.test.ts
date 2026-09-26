@@ -733,6 +733,49 @@ describe('provisioning', () => {
 });
 
 describe('active agent tab discard projection', () => {
+  it('removes a page-proven temporary chat recording only after its final browser view departs', async () => {
+    await pair();
+    const conversationId = randomUUID();
+    const session = await createSession({ conversationId, origin: { kind: 'desktop', fromSessionId: null, agentId: null, task: '' } });
+    expect((await request('POST', '/temporary-state', { body: { conversationId, temporary: true } })).status).toBe(200);
+    expect((await getSession(session.id))?.temporaryChatId).toBe(conversationId);
+    const status = (await request('POST', '/status', { body: { openConversations: [conversationId] } })).body;
+    expect(status.nonDiscardableConversations).toContain(conversationId);
+    expect(status.closableConversations).not.toContain(conversationId);
+    await request('POST', '/closed', { body: { conversationId, manual: true } });
+    expect(await getSession(session.id)).toBeNull();
+  });
+
+  it('retains a saved temporary chat when the page proves it became regular', async () => {
+    await pair();
+    const conversationId = randomUUID();
+    const session = await createSession({ conversationId });
+    await request('POST', '/temporary-state', { body: { conversationId, temporary: true } });
+    await request('POST', '/temporary-state', { body: { conversationId, temporary: false } });
+    await request('POST', '/closed', { body: { conversationId, manual: true } });
+    expect((await getSession(session.id))?.temporaryChatId).toBeNull();
+  });
+
+  it('keeps an interrupted chat page even when an older turn has a final answer', async () => {
+    await pair();
+    const conversationId = randomUUID();
+    await createSession({ conversationId, origin: { kind: 'desktop', fromSessionId: null, agentId: null, task: '' } });
+    const at = Date.now();
+    await request('POST', '/events', { body: { conversationId, events: [
+      { kind: 'turn_start', time: at, turnId: 'earlier' },
+      { kind: 'assistant_message', time: at + 1, turnId: 'earlier', messageId: randomUUID(), text: 'Earlier answer', state: 'final', final: true },
+      { kind: 'turn_end', time: at + 2, turnId: 'earlier', outcome: 'completed' },
+      { kind: 'turn_start', time: at + 3, turnId: 'interrupted' },
+      { kind: 'turn_end', time: at + 4, turnId: 'interrupted', outcome: 'failed' }
+    ] } });
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(at + 301_000);
+    try {
+      const status = (await request('POST', '/status', { body: { openConversations: [conversationId] } })).body;
+      expect(status.reusableConversations).not.toContain(conversationId);
+      expect(status.closableConversations).not.toContain(conversationId);
+    } finally { clock.mockRestore(); }
+  });
+
   it('reuses sleeping workers after two minutes and releases their pages after five without retiring them', async () => {
     const previous = getConfig();
     await saveConfig({ ...previous, multiAgent: { ...previous.multiAgent, maxWorkers: 3 }, ui: { ...previous.ui, tabsToKeepOpen: 1 } });

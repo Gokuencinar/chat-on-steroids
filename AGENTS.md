@@ -99,6 +99,11 @@ losing the project, history, workers or queued instructions when a chat grows to
   checks remain mandatory; selected or recently accessed Chrome tabs veto idle closure, and pins veto closure and
   New Chat reuse. Terminal, blocked, cancelled, superseded and duplicate cleanup retains its
   separate authority. Unknown/personal ownership, live work and pending delivery are not idle.
+- A failed, interrupted or otherwise non-completed latest turn is not a settled page even if
+  an earlier turn has a final answer. A page-proven Temporary Chat keeps its local recording
+  while open; when its final browser view closes or navigates away, CoS removes that recording.
+  A page-proven conversion to a regular chat clears that temporary marker. Unknown mode never
+  grants temporary-chat deletion.
 - Unknown identity fails closed where a wrong choice could mutate, attribute or message the
   wrong owner. Presentation can degrade visibly; execution must not guess.
 - Every async result proves its original owner and epoch still apply. A → B → A navigation

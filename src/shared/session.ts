@@ -566,6 +566,8 @@ export interface SessionSummary {
    * commit, and nothing else ever changes it.
    */
   conversationId: string | null;
+  /** Current frontend positively observed in ChatGPT Temporary Chat mode. */
+  temporaryChatId?: string | null;
   /**
    * Every ChatGPT conversation this session has lived in, oldest first, current last.
    *

@@ -3012,6 +3012,20 @@ export async function observeSessionModel(
   });
 }
 
+/** Record only page-proven Temporary Chat mode for the current frontend. */
+export async function setSessionTemporaryChat(id: string, conversationId: string, temporary: boolean): Promise<void> {
+  const entry = await ensureOpen(id);
+  await enqueueSessionOperation(entry, 'temporary-chat', async () => {
+    if (entry.summary.conversationId !== conversationId) return;
+    const temporaryChatId = temporary ? conversationId : null;
+    if ((entry.summary.temporaryChatId ?? null) === temporaryChatId) return;
+    const staged = { ...entry.summary, temporaryChatId };
+    await writeSummary(staged, entry.historySeq);
+    entry.summary = staged;
+    publishAttachmentSummary(staged);
+  });
+}
+
 /** Bind once before publishing project work; a task never silently changes folders. */
 export async function bindSessionProject(id: string, projectId: string): Promise<void> {
   if (!/^[a-f0-9-]{36}$/i.test(projectId)) throw new Error('Invalid project id');

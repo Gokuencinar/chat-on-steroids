@@ -2863,6 +2863,14 @@ var CLF_DOM = (() => {
     pluginInstalledButtons,
     pluginManagementIdle,
     selectModelSettings,
+    temporaryChatState: () => safe(() => {
+      const temporary = [...document.querySelectorAll(`${SHELL_TURN}[data-clf-temporary-chat]`)]
+        .some(node => node.getAttribute('data-clf-temporary-chat') === location.pathname);
+      const regular = [...document.querySelectorAll(`${SHELL_TURN}[data-clf-regular-chat]`)]
+        .some(node => node.getAttribute('data-clf-regular-chat') === location.pathname);
+      if (temporary !== regular) return temporary;
+      return null;
+    }, null),
     temporaryChatReady: () => safe(() => {
       // The page's own state, where a mounted turn has published it. The glyph below is the only
       // evidence an empty document has, and a layout that stops drawing it stops proving the

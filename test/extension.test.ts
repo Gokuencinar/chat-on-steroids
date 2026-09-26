@@ -951,6 +951,27 @@ describe('automatic Continue shares scheduled reload custody', () => {
  * too: this worker asks on the maintenance alarm it already runs, and reloads the exact tab.
  */
 describe('exact chat recovery from a fresh Chrome tab scan', () => {
+  it('reports temporary mode only from the exact current chat document', async () => {
+    const chat = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+    const sent: unknown[] = [];
+    const worker = loadWorker({ local: new FakeStorageArea({ port: 8765, token: 'paired-token' }),
+      session: new FakeStorageArea(),
+      tabsGet: async () => ({ id: 41, url: `https://chatgpt.com/c/${chat}` }),
+      fetch: vi.fn(async (input: string, init?: Record<string, unknown>) => {
+        const path = new URL(input).pathname;
+        if (path === '/hello') return response(200, { app: 'chat-on-steroids', paired: true });
+        if (path === '/temporary-state') sent.push(JSON.parse(String(init?.body)));
+        return response(200, { ok: true });
+      }) });
+    await worker.registerTab(41);
+    await worker.send({ type: 'bind', conversationId: chat }, 41);
+    expect(await worker.send({ type: 'temporary_state', conversationId: chat, temporary: true }, 41)).toMatchObject({ ok: true });
+    expect(sent).toEqual([{ conversationId: chat, temporary: true }]);
+    expect(await worker.send({ type: 'temporary_state', conversationId: '11111111-2222-4333-8444-555555555555', temporary: true }, 41))
+      .toMatchObject({ ok: false });
+    expect(sent).toHaveLength(1);
+  });
+
   const paired = { port: 8765, token: 'paired-token' };
   const CHAT = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
   const OTHER = '11111111-2222-4333-8444-555555555555';

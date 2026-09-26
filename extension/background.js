@@ -3346,6 +3346,15 @@ const HANDLERS = {
       return { ok: false, error: 'stale_document' };
     return { ok: true, bound, ackBound, projectBound: binding.projectBound };
   },
+  async temporary_state(message, _sender, source) {
+    await load();
+    const conversationId = cleanConversationId(message.conversationId);
+    if (!conversationId || typeof message.temporary !== 'boolean' ||
+        !(await currentConversationDocument(source, conversationId))) return { ok: false, error: 'stale_document' };
+    const result = await call('/temporary-state', { method: 'POST',
+      body: JSON.stringify({ conversationId, temporary: message.temporary }) });
+    return ownsDocument(source) && result.ok ? { ok: true } : { ok: false };
+  },
   async drain() {
     return drain();
   },
@@ -3791,6 +3800,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     'usage_observation',
     'events',
     'bind',
+    'temporary_state',
     'activity',
     'activity_detail',
     'correlate',
