@@ -11649,7 +11649,24 @@
       // This exact claimed bootstrap owns replacement text; existing chats and
       // attachment drafts remain protected. Re-evaluate after model selection,
       // since React can hydrate that autosaved text while the picker is open.
-      if ((!ownsFreshPage() && (composer.textContent || '').trim()) || CLF_DOM.hasComposerAttachments()) return fail(t(
+      /*
+       * The one draft this may overwrite is its own.
+       *
+       * Refusing to clobber typing is right, but the guard could not tell the user's draft from the
+       * residue of a previous attempt by this same delivery: insert the text, fail to press Send,
+       * release the claim — and from then on the composer holds exactly what the next attempt would
+       * type, so every attempt refuses. Measured on 2026-09-26: a recovery ticket claimed 181 times
+       * against its own 352 characters, alternating `After-turn pickup was withdrawn before Send.`
+       * and this refusal, for thirteen hours. Its original Send failed because the send control was
+       * unfindable on the new composer shell; the deadlock outlived that cause by a whole day.
+       *
+       * Byte-identical text is not a draft to protect — inserting would produce it again. Compared
+       * with the same `sendText` normaliser the pre-Send check below uses, so the two agree on what
+       * "the same message" means. Attachments still block regardless: an attachment draft is not
+       * something this delivery could have produced.
+       */
+      const ownResidue = sendText(composer.textContent) === sendText(input.text);
+      if ((!ownsFreshPage() && (composer.textContent || '').trim() && !ownResidue) || CLF_DOM.hasComposerAttachments()) return fail(t(
         'content_delivery_existing_draft',
         'ChatGPT already contains an unsent draft. Send or clear that draft in Chrome before trying again.'
       ));
@@ -11704,7 +11721,13 @@
         'content_delivery_editor_not_writable',
         'The ChatGPT editor did not become writable before sending.'
       ));
-      if (!onTarget() || CLF_DOM.generating() || (!ownsFreshPage() && (CLF_DOM.composer()?.textContent || '').trim()) || CLF_DOM.hasComposerAttachments()) return fail(t(
+      // Same allowance as the draft check above, for the same reason: text this delivery itself left
+      // behind is not a composer that "changed". Re-read rather than reusing `ownResidue`, because
+      // model selection and the writability wait sit between the two and can replace the editor.
+      if (!onTarget() || CLF_DOM.generating() ||
+          (!ownsFreshPage() && (CLF_DOM.composer()?.textContent || '').trim() &&
+            sendText(CLF_DOM.composer()?.textContent) !== sendText(input.text)) ||
+          CLF_DOM.hasComposerAttachments()) return fail(t(
         'content_delivery_composer_changed',
         'The ChatGPT composer changed before sending'
       ));
