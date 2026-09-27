@@ -2755,6 +2755,15 @@ async function performBrowserRepairs(repairs, policy) {
         resumedGoalRepairs.add(conversationId);
         continue;
       }
+      if (target && (reason === 'unattributed' || reason === 'blind')) {
+        // Do not cut off a stream that the page can still confirm is active. A reload
+        // mid-generation can make ChatGPT report "Resume stream unavailable" and lose the turn.
+        const status = await tabReply(target.id, { type: 'clf-page-status' });
+        if (status?.ok === true && status.streaming === true) {
+          await call(`/status?repairFailed=${encodeURIComponent(token)}&repairAction=${repairAction}`);
+          continue;
+        }
+      }
       if (target) await chrome.tabs.reload(target.id);
       else {
         await createChatTab(`https://chatgpt.com/c/${encodeURIComponent(conversationId)}`, policy.background === true, focus);

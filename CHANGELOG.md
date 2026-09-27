@@ -11,6 +11,12 @@ the app refuses the extension and asks you to reload the matching copy.
 
 ## Unreleased
 
+## [2.1.24] — Reliable ChatGPT stream recovery
+
+- Recognize ChatGPT's “Resume stream unavailable” and full network-error banners as recoverable transport failures.
+- Before blind or unattributed browser recovery, check whether the exact chat is still streaming and avoid reloading it while generation is active.
+- Continue publishing the matching Windows x64 app and standalone Chrome extension with SHA-256 checksums.
+
 ## [2.1.23] — 2026-09-27
 
 - Keep an interrupted or failed latest ChatGPT turn out of automatic browser reuse/closure even when an older turn in the same conversation has a successful final answer.
