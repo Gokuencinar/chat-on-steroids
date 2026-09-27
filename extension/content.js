@@ -11854,12 +11854,12 @@
       }, (user, conversation) => {
         if ((!conversation && !temporary) || (target && !onTarget())) return false;
         const users = CLF_DOM.messages().filter(row => row.role === 'user');
-        if ((!target && users.length !== 1) || users.at(-1)?.id !== user.id || user.id === previousUserId || !matchesSubmittedUser(user, submittedText)) return false;
+        if ((!target && users.length !== 1) || users.at(-1)?.id !== user.id || user.id === previousUserId || !matchesSubmittedBootstrap(user, submittedText)) return false;
         // Freeze only identity while native Send still holds the proven row. React
         // may replace it before this async operation resumes; do not rediscover it.
         receipt = { conversation, user: { id: user.id } };
         return true;
-      }))) return false;
+      }, matchesSubmittedBootstrap))) return false;
       if (!receipt || !sendingTarget()) return false;
       // Native Send listeners refresh the receipt; pin only that witnessed object.
       const witnessedSendReceipt = userSendReceipt;

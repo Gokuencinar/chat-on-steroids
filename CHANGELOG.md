@@ -11,6 +11,11 @@ the app refuses the extension and asks you to reload the matching copy.
 
 ## Unreleased
 
+## [2.1.25] — Confirm first messages in new chats
+
+- Confirm the first CoS-delivered message in a new ChatGPT chat even when ChatGPT's newer composer stores the text with Markdown escapes, preventing an already-delivered instruction from remaining in CoS as an unsent duplicate.
+- Continue publishing the matching Windows x64 app and standalone Chrome extension with SHA-256 checksums.
+
 ## [2.1.24] — Reliable ChatGPT stream recovery
 
 - Recognize ChatGPT's “Resume stream unavailable” and full network-error banners as recoverable transport failures.
