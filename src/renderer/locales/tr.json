@@ -748,6 +748,8 @@
   " · extension {0}": " · uzantı {0}",
   "Up to date! Chat On Steroids {0}{1}": "Güncel! Chat On Steroids {0}{1}",
   "Update your browser extension: {0} → {1}. ": "Tarayıcı uzantınızı güncelleyin: {0} → {1}. ",
+  "The browser extension {0} is incompatible with this app. ": "{0} tarayıcı uzantısı bu uygulamayla uyumlu değil. ",
+  "The browser extension is incompatible with this app. Reload the matching extension, then refresh ChatGPT.": "Tarayıcı uzantısı bu uygulamayla uyumlu değil. Eşleşen uzantıyı yeniden yükleyin, ardından ChatGPT'yi yenileyin.",
   "Reload the extension from this app’s folder, then refresh ChatGPT.": "Uzantıyı bu uygulamanın klasöründen yeniden yükleyin, ardından ChatGPT'yi yenileyin.",
   "Browser extension not connected. Open ChatGPT and check the companion in Setup to load models and send messages.": "Tarayıcı uzantısı bağlı değil. Modelleri yüklemek ve mesaj göndermek için ChatGPT'yi açıp Kurulum'daki yardımcı uzantıyı kontrol edin.",
   "Check extension": "Uzantıyı kontrol et",

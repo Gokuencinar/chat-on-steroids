@@ -534,6 +534,7 @@ const commandRedeems = new Map<string, Promise<void>>();
 let requestWindow = { start: Date.now(), count: 0 };
 const listeners = new Set<() => void>();
 let extensionVersion: string | null = null;
+let observedExtensionProtocol: number | null = null;
 /**
  * When each (version, build) pair was last announced. Two browsers with the extension installed
  * alternate requests, and a single "current" pair would turn every alternation into a fresh
@@ -756,6 +757,7 @@ export async function bridgeStatus(): Promise<BridgeStatus> {
     paired: stored !== null && stored !== BROWSER_DISCONNECTED,
     present: browserPresent(),
     lastSeenAt,
+    extensionCompatible: observedExtensionProtocol === null ? null : observedExtensionProtocol === BRIDGE_PROTOCOL,
     extensionVersion
   };
 }
@@ -890,13 +892,23 @@ function noteExtensionVersion(req: http.IncomingMessage): void {
   const version = req.headers['x-extension-version'];
   const protocol = extensionProtocol(req);
   const stamp = extensionBuildOf(req);
+  let statusChanged = false;
+  if (protocol !== null && protocol !== observedExtensionProtocol) {
+    observedExtensionProtocol = protocol;
+    statusChanged = true;
+  }
   if (stamp) {
     extensionBuildSeenAt.delete(stamp);
     extensionBuildSeenAt.set(stamp, Date.now());
     if (extensionBuildSeenAt.size > 16) extensionBuildSeenAt.delete(extensionBuildSeenAt.keys().next().value!);
   }
-  if (typeof version !== 'string') return warnProtocol(protocol);
-  extensionVersion = version.slice(0, 32);
+  if (typeof version !== 'string') {
+    if (statusChanged) changed();
+    return warnProtocol(protocol);
+  }
+  const nextVersion = version.slice(0, 32);
+  if (nextVersion !== extensionVersion) statusChanged = true;
+  extensionVersion = nextVersion;
   const key = `${extensionVersion}\u0000${stamp ?? ''}`;
   const announcedAt = announcedExtensions.get(key);
   if (announcedAt === undefined || Date.now() - announcedAt >= EXTENSION_ANNOUNCE_MS) {
@@ -916,10 +928,10 @@ function noteExtensionVersion(req: http.IncomingMessage): void {
           'chrome://extensions to pick up the shipped code.'
       );
     }
-    // Even an incompatible peer reports its version before the protocol fence.
-    // Publish that evidence without falsely granting compatible browser presence.
-    changed();
   }
+  // Even an incompatible peer reports version/protocol evidence before the protocol fence.
+  // Missing protocol headers never erase a result already observed from the companion.
+  if (statusChanged) changed();
   warnProtocol(protocol);
 }
 
@@ -9550,6 +9562,7 @@ export function resetBridgeForTests(): void {
   lastBrowserLaunchAt = 0;
   lastSeenAt = null;
   extensionVersion = null;
+  observedExtensionProtocol = null;
   announcedExtensions.clear();
   extensionBuildSeenAt.clear();
   versionWarned = false;

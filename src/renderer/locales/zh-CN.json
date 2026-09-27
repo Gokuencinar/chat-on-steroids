@@ -831,6 +831,8 @@
   " · extension {0}": " · 扩展 {0}",
   "Up to date! Chat On Steroids {0}{1}": "已是最新版本！Chat On Steroids {0}{1}",
   "Update your browser extension: {0} → {1}. ": "请更新浏览器扩展：{0} → {1}。",
+  "The browser extension {0} is incompatible with this app. ": "浏览器扩展 {0} 与此应用不兼容。",
+  "The browser extension is incompatible with this app. Reload the matching extension, then refresh ChatGPT.": "浏览器扩展与此应用不兼容。请重新加载匹配的扩展，然后刷新 ChatGPT。",
   "Reload the extension from this app’s folder, then refresh ChatGPT.": "从本应用的文件夹重新加载扩展，然后刷新 ChatGPT。",
   "Browser extension not connected. Open ChatGPT and check the companion in Setup to load models and send messages.": "浏览器扩展未连接。请打开 ChatGPT，并在连接设置中检查配套扩展，以加载模型和发送消息。",
   "Check extension": "检查扩展",

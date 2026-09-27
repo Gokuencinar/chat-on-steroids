@@ -748,6 +748,8 @@
   " · extension {0}": " · extensión {0}",
   "Up to date! Chat On Steroids {0}{1}": "¡Actualizado! Chat On Steroids {0}{1}",
   "Update your browser extension: {0} → {1}. ": "Actualiza la extensión del navegador: {0} → {1}. ",
+  "The browser extension {0} is incompatible with this app. ": "La extensión del navegador {0} es incompatible con esta aplicación. ",
+  "The browser extension is incompatible with this app. Reload the matching extension, then refresh ChatGPT.": "La extensión del navegador es incompatible con esta aplicación. Recarga la extensión correspondiente y después actualiza ChatGPT.",
   "Reload the extension from this app’s folder, then refresh ChatGPT.": "Vuelve a cargar la extensión desde la carpeta de esta aplicación y después actualiza ChatGPT.",
   "Browser extension not connected. Open ChatGPT and check the companion in Setup to load models and send messages.": "La extensión del navegador no está conectada. Abre ChatGPT y revisa la extensión complementaria en Conexión para cargar modelos y enviar mensajes.",
   "Check extension": "Comprobar extensión",

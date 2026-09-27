@@ -831,6 +831,8 @@
   " · extension {0}": " · 拡張機能 {0}",
   "Up to date! Chat On Steroids {0}{1}": "最新です！ Chat On Steroids {0}{1}",
   "Update your browser extension: {0} → {1}. ": "ブラウザー拡張機能を更新してください：{0} → {1}。",
+  "The browser extension {0} is incompatible with this app. ": "ブラウザー拡張機能 {0} はこのアプリと互換性がありません。",
+  "The browser extension is incompatible with this app. Reload the matching extension, then refresh ChatGPT.": "ブラウザー拡張機能はこのアプリと互換性がありません。対応する拡張機能を再読み込みしてから ChatGPT を更新してください。",
   "Reload the extension from this app’s folder, then refresh ChatGPT.": "このアプリのフォルダーから拡張機能を再読み込みし、その後 ChatGPT を更新してください。",
   "Browser extension not connected. Open ChatGPT and check the companion in Setup to load models and send messages.": "ブラウザー拡張機能が接続されていません。モデルの読み込みやメッセージの送信には、ChatGPT を開き、セットアップで連携用拡張機能を確認してください。",
   "Check extension": "拡張機能を確認",

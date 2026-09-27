@@ -485,6 +485,12 @@ export interface BridgeStatus {
   /** Epoch ms of the last message from the extension, or null. */
   lastSeenAt: number | null;
   /**
+   * Compatibility of the last extension protocol observed by this app process.
+   * Null means no protocol has been observed yet. This, not release semver, decides
+   * whether the companion can use the current bridge contract.
+   */
+  extensionCompatible?: boolean | null;
+  /**
    * Version of the connected browser extension, learned from its own authenticated requests.
    *
    * This is the only place that fact lives. It is null before an extension has ever spoken to

@@ -938,6 +938,8 @@
   " · extension {0}": " · 擴充功能 {0}",
   "Up to date! Chat On Steroids {0}{1}": "已是最新版本！Chat On Steroids {0}{1}",
   "Update your browser extension: {0} → {1}. ": "請更新瀏覽器擴充功能：{0} → {1}。",
+  "The browser extension {0} is incompatible with this app. ": "瀏覽器擴充功能 {0} 與此應用程式不相容。",
+  "The browser extension is incompatible with this app. Reload the matching extension, then refresh ChatGPT.": "瀏覽器擴充功能與此應用程式不相容。請重新載入相符的擴充功能，然後重新整理 ChatGPT。",
   "Reload the extension from this app’s folder, then refresh ChatGPT.": "從本應用程式的資料夾重新載入擴充功能，然後重新整理 ChatGPT。",
   "Browser extension not connected. Open ChatGPT and check the companion in Setup to load models and send messages.": "瀏覽器擴充功能未連線。請開啟 ChatGPT，並在連線設定中檢查配套擴充功能，以載入模型和傳送訊息。",
   "Check extension": "檢查擴充功能",

@@ -359,6 +359,13 @@ describe('cross-platform packaging targets', () => {
 
     const packageScript = readFileSync(path.join(root, 'scripts', 'package.mjs'), 'utf8');
     expect(packageScript).toContain('COS_PACKAGE_ARCH: arch');
+    const verifyMetadata = packageScript.indexOf('verifyReleaseMetadata();');
+    const firstBuildSideEffect = packageScript.indexOf("scripts/generate-third-party-notices.mjs");
+    expect(verifyMetadata).toBeGreaterThan(-1);
+    expect(verifyMetadata).toBeLessThan(firstBuildSideEffect);
+    for (const source of ['package-lock.json root', 'extension/manifest.json', 'src/main/version.ts']) {
+      expect(packageScript).toContain(source);
+    }
     const releaseWorkflow = readFileSync(path.join(root, '.github', 'workflows', 'release.yml'), 'utf8');
     expect(releaseWorkflow).toContain('HOME="$deb_smoke_root/home"');
     expect(releaseWorkflow).toContain('HOME="$smoke_root/home"');
