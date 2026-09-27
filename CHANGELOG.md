@@ -11,6 +11,16 @@ the app refuses the extension and asks you to reload the matching copy.
 
 ## Unreleased
 
+## [2.1.23] — 2026-09-27
+
+- Keep an interrupted or failed latest ChatGPT turn out of automatic browser reuse/closure even when an older turn in the same conversation has a successful final answer.
+- Persist page-proven Temporary Chat state on the exact bound local session, without inferring temporary mode from URL or stale/ambiguous page state.
+- Protect Temporary Chats from automatic tab cleanup so CoS does not turn its own maintenance into an implicit deletion of the local recording.
+- Remove a page-proven Temporary Chat recording only when its final browser view is deliberately closed or navigated away and the session still belongs exclusively to that conversation.
+- Clear the temporary marker when ChatGPT positively proves that the conversation became a regular saved chat, so its local history is retained normally.
+- Add exact-document companion checks and regressions for temporary/regular mode reporting, interrupted-turn tab policy and temporary-session cleanup.
+- Continue the personalized Windows x64-only release with the matching Chrome extension and SHA-256 checksums.
+
 ## [2.1.22] — 2026-09-26
 
 - Recover Compact & Resume replacements when the durable `redeem` succeeds but its page-side response is lost before `destinationAttempt`. Only the same live document and marker may retry, and the bootstrap still crosses the irreversible Send fence exactly once.
