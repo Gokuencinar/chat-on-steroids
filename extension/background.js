@@ -2768,6 +2768,7 @@ async function performBrowserRepairs(repairs, policy) {
     const repairAction = target ? 'reloaded' : 'reopened';
     try {
       const documentId = target ? tabDocuments[String(target.id)] : null;
+      let responsiveRepair = false;
       // Suspension grants a reload of a still-suspended shell, never a new tab.
       if (suspended) {
         if (!target) continue;
@@ -2810,6 +2811,7 @@ async function performBrowserRepairs(repairs, policy) {
             await call(`/status?repairFailed=${encodeURIComponent(token)}&repairAction=${repairAction}`);
             continue;
           }
+          responsiveRepair = check?.safe === true && latest?.safe === true;
         }
       }
       if (target && suspended && requiresClaim) {
@@ -2832,6 +2834,13 @@ async function performBrowserRepairs(repairs, policy) {
           await call(`/status?repaired=${encodeURIComponent(token)}&repairAction=resumed`);
           continue;
         }
+      }
+      if (target && reason === 'silence' && requiresClaim && responsiveRepair) {
+        // Two matching repair checks prove the same page is alive and unchanged around the
+        // claim. Keep that responsive document instead of rebuilding a large conversation just
+        // because it was quiet; a page that cannot answer the check still follows the reload path.
+        await call(`/status?repaired=${encodeURIComponent(token)}&repairAction=resumed`);
+        continue;
       }
       if (target && (reason === 'unattributed' || reason === 'blind')) {
         // An attribution refresh exists to make a live page report again, not to rescue a
@@ -3447,6 +3456,15 @@ const HANDLERS = {
       return { ok: false, error: 'stale_document' };
     return { ok: true, bound, ackBound, projectBound: binding.projectBound };
   },
+  async temporary_state(message, _sender, source) {
+    await load();
+    const conversationId = cleanConversationId(message.conversationId);
+    if (!conversationId || typeof message.temporary !== 'boolean' ||
+        !(await currentConversationDocument(source, conversationId))) return { ok: false, error: 'stale_document' };
+    const result = await call('/temporary-state', { method: 'POST',
+      body: JSON.stringify({ conversationId, temporary: message.temporary }) });
+    return ownsDocument(source) && result.ok ? { ok: true } : { ok: false };
+  },
   async drain() {
     return drain();
   },
@@ -3896,6 +3914,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     'usage_observation',
     'events',
     'bind',
+    'temporary_state',
     'activity',
     'activity_detail',
     'correlate',

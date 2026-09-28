@@ -2810,7 +2810,10 @@ export async function findSessionByConversation(
     return current[0] ?? null;
   }
   if (options.includeHistorical !== true) {
-    if (!unreadable) rememberMissingCurrentConversation(conversationId);
+    // Null authorizes the recorder to create a session. An incomplete read did not prove that
+    // this conversation has no owner, so fail closed instead of splitting its durable history.
+    if (unreadable) throw new Error('Session ownership could not be read completely; retry when storage is available.');
+    rememberMissingCurrentConversation(conversationId);
     return null;
   }
   const historicalIds = new Set(catalog.historical.get(conversationId) ?? []);
@@ -2823,6 +2826,9 @@ export async function findSessionByConversation(
   if (historical.length === 1) return historical[0] ?? null;
   if (historical.length > 1) {
     logWarn(`session store: conversation ${conversationId} appears in ${historical.length} session lineages; refusing to guess`);
+  }
+  if (historical.length === 0 && unreadable) {
+    throw new Error('Session ownership could not be read completely; retry when storage is available.');
   }
   return null;
 }
@@ -3045,6 +3051,20 @@ export async function observeSessionModel(
     const selectedModel = { conversationId, model, observedAt, ...(reasoningEffort ? { reasoningEffort } : {}) };
     if (JSON.stringify(entry.summary.selectedModel) === JSON.stringify(selectedModel)) return;
     const staged = { ...entry.summary, selectedModel };
+    await writeSummary(staged, entry.historySeq);
+    entry.summary = staged;
+    publishAttachmentSummary(staged);
+  });
+}
+
+/** Record only page-proven Temporary Chat mode for the current frontend. */
+export async function setSessionTemporaryChat(id: string, conversationId: string, temporary: boolean): Promise<void> {
+  const entry = await ensureOpen(id);
+  await enqueueSessionOperation(entry, 'temporary-chat', async () => {
+    if (entry.summary.conversationId !== conversationId) return;
+    const temporaryChatId = temporary ? conversationId : null;
+    if ((entry.summary.temporaryChatId ?? null) === temporaryChatId) return;
+    const staged = { ...entry.summary, temporaryChatId };
     await writeSummary(staged, entry.historySeq);
     entry.summary = staged;
     publishAttachmentSummary(staged);

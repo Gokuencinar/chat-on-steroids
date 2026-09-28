@@ -102,6 +102,7 @@ import {
   withExecNotes
 } from '../exec-hints.js';
 import { childEnv } from '../exec.js';
+import { execSelfProtectionFailure, writeStdinSelfProtectionFailure } from '../exec-protection.js';
 import { locateRipgrep } from '../ripgrep.js';
 import { ensureDevToolchain } from '../toolchain.js';
 import {
@@ -705,6 +706,15 @@ export function registerCoreTools(reg: SurfaceRegistrar): void {
                 'No command was run. Omit shell to use the configured default, or provide an existing recognised shell binary.'
             );
           }
+          const selfProtection = execSelfProtectionFailure(rawCommands);
+          if (selfProtection) {
+            const location = isBatch ? ` in command ${selfProtection.commandIndex + 1}` : '';
+            return fail(
+              `HOST_PROCESS_PROTECTED${location}: ${selfProtection.detail}. No command was run. ` +
+              'Do not terminate Chat On Steroids or kill processes by sweeping its reserved bridge ports 8765-8769. ' +
+              'Identify the external process by executable/path and stop only that exact process.'
+            );
+          }
           // One preflight owns direct calls and code-mode children. It runs before command
           // normalization, patch interception, process-id allocation or process launch, and a
           // batch is admitted only after every user-authored command passes.
@@ -983,6 +993,13 @@ export function registerCoreTools(reg: SurfaceRegistrar): void {
             }[denied];
             const message = `write_stdin failed for session ${input.session_id}: ${reason} No input was sent and no output was read. This refusal concerns this process id, not Read-only mode or permission to edit files or launch other authorized work.`;
             return denied === 'unidentified' ? failIdentity(message) : fail(message);
+          }
+          const stdinProtection = writeStdinSelfProtectionFailure(input.chars ?? '');
+          if (stdinProtection) {
+            return fail(
+              `HOST_PROCESS_PROTECTED: ${stdinProtection}. No input was sent. ` +
+              'Run a new exec_command that identifies the exact external process by PID/executable/path instead.'
+            );
           }
           // Both sides of the wait. An empty poll blocks for seconds by design, and a caller
           // sitting in one is attending its session rather than neglecting it.

@@ -12,8 +12,14 @@ const app = z.string().regex(/^asdk_app_[a-zA-Z0-9_-]{1,160}$/);
 const LEGACY_PLUGIN_MAX_TOOLS = 64;
 const rowSchema = z.object({ surface: z.enum(['core', 'desktop', 'plugins']), schemaId: z.string(), id: z.string().uuid(), appId: app.nullable(), completedSchemaId: z.string().nullable(), attempted: z.boolean(), manual: z.boolean().optional().default(false), error: z.string().max(200).optional(), versionId: z.string().max(200).optional(), failures: z.number().int().nonnegative().optional(), parked: z.boolean().optional(), parkedBy: z.string().max(40).optional() });
 type Row = z.infer<typeof rowSchema>;
+export interface PluginConnectorPresence {
+  connectorName: string;
+  connectorId: string;
+}
 const publications = new Map<PluginSurface, PluginPublication>();
 const settling = new Map<PluginSurface, { schemaId: string; readyAt: number; timer?: ReturnType<typeof setTimeout> }>();
+let corePresenceCache: PluginConnectorPresence | null | undefined;
+const processRearmed = new Set<PluginSurface>();
 export const PLUGIN_REFRESH_DEBOUNCE_MS = 20_000;
 /**
  * How long a surface's tunnel must have been live before its refresh is handed to the browser.
@@ -102,6 +108,7 @@ export function publishPluginSurface(surface: PluginSurface, connectorName: stri
   const changed = previous?.schemaId !== publication.schemaId;
   const restored = !publications.has(surface);
   publications.set(surface, publication);
+  if (surface === 'core') corePresenceCache = undefined;
   const due = (next: { readyAt: number; timer?: ReturnType<typeof setTimeout> }, delayMs: number) => {
     if (next.timer) clearTimeout(next.timer);
     next.timer = undefined;
@@ -132,8 +139,26 @@ export function publishPluginSurface(surface: PluginSurface, connectorName: stri
     due(previous, Math.max(0, previous.readyAt - Date.now()));
   }
 }
-export function unpublishPluginSurface(surface: PluginSurface): void { publications.delete(surface); }
+export function unpublishPluginSurface(surface: PluginSurface): void {
+  publications.delete(surface);
+  if (surface === 'core') corePresenceCache = undefined;
+}
 export function pluginRefreshPublications(): PluginPublication[] { return structuredClone([...publications.values()]); }
+
+/** Exact installed Core identity already proven by ChatGPT's plugin settings page. */
+export function coreConnectorPresence(): Promise<PluginConnectorPresence | null> {
+  if (corePresenceCache !== undefined) return Promise.resolve(structuredClone(corePresenceCache));
+  return serial(async () => {
+    if (corePresenceCache !== undefined) return structuredClone(corePresenceCache);
+    const current = await rows();
+    const row = current.find(entry => entry.surface === 'core');
+    const publication = publications.get('core');
+    corePresenceCache = row?.appId && publication
+      ? { connectorName: publication.connectorName, connectorId: `plugin_${row.appId}` }
+      : null;
+    return structuredClone(corePresenceCache);
+  });
+}
 /** One fresh browser attempt after an explicit Restart, only before any Refresh claim. */
 export function rearmPluginRefresh(surface: PluginSurface): Promise<boolean> {
   return serial(async () => {
@@ -158,7 +183,20 @@ export function pendingPluginRefreshes(): Promise<PluginRefreshRequest[]> {
     let changed = false;
     for (const publication of publications.values()) {
       const found = current.find(row => row.surface === publication.surface);
-      if (found?.schemaId === publication.schemaId) continue;
+      if (found?.schemaId === publication.schemaId) {
+        // One stale service-worker owner from the previous app runtime must not strand a
+        // first-time enrollment forever. Give each still-unenrolled surface one fresh request id
+        // per app process; normal polling keeps that id stable afterwards.
+        if (!processRearmed.has(publication.surface) && found.appId === null && !found.attempted &&
+            !found.manual && !found.parked && found.completedSchemaId !== found.schemaId) {
+          found.id = randomUUID();
+          delete found.error;
+          delete found.failures;
+          changed = true;
+        }
+        processRearmed.add(publication.surface);
+        continue;
+      }
       // A click for `found` that never confirmed its outcome leaves ChatGPT's schema unknown: it may
       // hold that newer schema, so the older completion no longer says what ChatGPT has. Measured
       // 2026-09-27: 11 -> 8 tools clicked, app quit before completion, back to 11 was then taken
@@ -166,17 +204,19 @@ export function pendingPluginRefreshes(): Promise<PluginRefreshRequest[]> {
       const unconfirmed = found?.attempted === true && found.completedSchemaId !== found.schemaId;
       const next: Row = { surface: publication.surface, schemaId: publication.schemaId, id: randomUUID(), appId: found?.appId ?? null, completedSchemaId: unconfirmed ? null : found?.completedSchemaId ?? null, attempted: false, manual: false };
       if (found) current[current.indexOf(found)] = next; else current.push(next);
+      processRearmed.add(publication.surface);
       changed = true;
     }
     if (changed) {
       await writeDurableNow('plugin-refresh', current);
       logInfo(`plugin refresh pending observed ${current.filter(row => !row.manual && row.completedSchemaId !== row.schemaId).map(row => `surface=${row.surface} schema=${row.schemaId.slice(0, 12)} dueInMs=${Math.max(0, (settling.get(row.surface)?.readyAt ?? 0) - Date.now())}`).join(' ')}`);
     }
+    const priority: Record<PluginSurface, number> = { core: 0, desktop: 1, plugins: 2 };
     return current.flatMap(row => {
       const publication = publications.get(row.surface);
       return publication && (settling.get(row.surface)?.readyAt ?? 0) <= Date.now() && publication.schemaId === row.schemaId && !row.attempted && !row.manual && !row.parked && row.completedSchemaId !== row.schemaId
         ? [{ ...structuredClone(publication), id: row.id, appId: row.appId }] : [];
-    });
+    }).sort((a, b) => priority[a.surface] - priority[b.surface]);
   });
 }
 type Identity = { id: string; appId: string };
@@ -212,6 +252,7 @@ export function claimPluginRefresh(input: Identity & Enrollment & { alreadyCurre
     const isCurrent = matches(input.tools, publication.tools, row.surface);
     if (input.alreadyCurrent === true ? !isCurrent : isCurrent) return false;
     row.appId = input.appId; row.attempted = true;
+    if (row.surface === 'core') corePresenceCache = undefined;
     delete row.error;
     // Enrollment/migration may find the installed declaration already current. Record
     // that observation without clicking Refresh or manufacturing a new plugin version.
@@ -235,6 +276,7 @@ export function requireManualPluginRefresh(input: Identity & Enrollment & { erro
     if (row.appId ? row.appId !== input.appId : !enrolls(row, publication, input)) return false;
     if (current.some(other => other !== row && other.appId === input.appId) || matches(input.tools, publication.tools, row.surface)) return false;
     row.appId = input.appId;
+    if (row.surface === 'core') corePresenceCache = undefined;
     row.manual = true;
     row.error = input.error.slice(0, 200);
     await writeDurableNow('plugin-refresh', current);
@@ -269,4 +311,7 @@ export function failPluginRefresh(input: { id: string; error: string }): Promise
 }
 /** Tests that are not about tunnel timing publish surfaces as if their tunnel were long live. */
 export function setPluginRefreshTunnelGraceForTests(ms: number): void { tunnelGraceMs = ms; }
-export function resetPluginRefreshForTests(): void { for (const row of settling.values()) if (row.timer) clearTimeout(row.timer); settling.clear(); publications.clear(); chain = Promise.resolve(); }
+export function resetPluginRefreshForTests(): void {
+  for (const row of settling.values()) if (row.timer) clearTimeout(row.timer);
+  settling.clear(); publications.clear(); processRearmed.clear(); corePresenceCache = undefined; chain = Promise.resolve();
+}

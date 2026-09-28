@@ -9,6 +9,7 @@ interface DomApi {
   composerActions(): { host: HTMLElement; before: HTMLElement | null } | null;
   generating(): boolean;
   sendButton(): HTMLButtonElement | null;
+  temporaryChatState(): boolean | null;
   temporaryChatReady(): boolean;
   confirmTemporaryChatIntroduction(): void;
   errors(): Array<{ text: string; recoverable: boolean; blocking?: boolean }>;
@@ -816,6 +817,12 @@ describe('rendered temporary-chat state independent of language', () => {
 
     turn.setAttribute('data-clf-temporary-chat', dom.window.location.pathname);
     expect(api.temporaryChatReady()).toBe(true);
+    expect(api.temporaryChatState()).toBe(true);
+    turn.removeAttribute('data-clf-temporary-chat');
+    turn.setAttribute('data-clf-regular-chat', dom.window.location.pathname);
+    expect(api.temporaryChatState()).toBe(false);
+    dom.reconfigure({ url: 'https://chatgpt.com/c/another-chat' });
+    expect(api.temporaryChatState()).toBeNull();
   });
 
   it('does not mistake a hidden checked glyph, English wording or URL intent for active mode', () => {

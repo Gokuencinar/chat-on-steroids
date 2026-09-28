@@ -11,7 +11,7 @@ import { supportsFinishAutomation } from '../shared/finish.js';
 import { injectedUserMessage, recordedRequestTurn, responseTurnId, type TimelineTurns } from '../shared/chronology.js';
 import type { SessionSummary } from '../shared/session.js';
 import { publishBrowserDecision, authorizeBrowserInput, sessionInputPolicy, collectRecordedBrowserDecision, type InputActivity } from './session/input.js';
-import { pluginRefreshPublications, pendingPluginRefreshes, claimPluginRefresh, requireManualPluginRefresh, completePluginRefresh, failPluginRefresh } from './plugin-refresh.js';
+import { pluginRefreshPublications, coreConnectorPresence, pendingPluginRefreshes, claimPluginRefresh, requireManualPluginRefresh, completePluginRefresh, failPluginRefresh } from './plugin-refresh.js';
 import { attachBrowserWake, wakeBrowserWork } from './browser-wake.js';
 import { wakeBrowserUrl } from './browser-startup.js';
 let browserWake: ReturnType<typeof attachBrowserWake> | null = null;
@@ -94,6 +94,7 @@ import {
 import { logInfo, logWarn } from './logger.js';
 import {
   closeConversation,
+  forgetSession,
   liveConversations,
   noteChatOrigin,
   recordAgentMessage,
@@ -111,6 +112,7 @@ import {
   autoCompactionReady,
   automaticCompactionAllowed,
   conversationWasSuperseded,
+  deleteSession,
   findSessionByConversation,
   getSession,
   readSessionPlan,
@@ -124,7 +126,8 @@ import {
   readHydratedActivityCall,
   sessionDurableModifiedAt,
   turnEndedDurably,
-  requestTurnOwnershipCutoff
+  requestTurnOwnershipCutoff,
+  setSessionTemporaryChat
 } from './session/store.js';
 import { inFlightMcpRequests, runningToolCalls, runningToolProgress, settlingToolCalls } from './mcp/call-context.js';
 import { nativeHandoffPrompt } from './session/handoff-prompt.js';
@@ -232,8 +235,14 @@ export const STALE_SWARM_MS = 2 * 60_000;
 /** Per-conversation floor between browser reload/open actions, regardless of why they were requested. */
 export const BROWSER_RECOVERY_COOLDOWN_MS = 3 * 60_000;
 const STALE_SWARM_SWEEP_MS = 30_000;
-/** /events batches currently between parse and durable/session+worker lifecycle completion. */
-let observationWritesInFlight = 0;
+/**
+ * /events batches currently between parse and durable/session+worker lifecycle completion.
+ *
+ * Repair and delivery authority is conversation-scoped: an observation being committed for
+ * chat B must not transiently block chat A. Family-wide cleanup still checks the aggregate map
+ * because it really does require the recorder to be globally quiet.
+ */
+const observationWritesInFlight = new Map<string, number>();
 /** Requests allowed per rolling minute, across all routes. */
 const RATE_LIMIT = 900;
 
@@ -1672,7 +1681,7 @@ function activateConversationGoalReply(id: string, active: boolean): Promise<boo
     const live = liveConversations().find(row => row.conversationId === id);
     return activeUntil.get(id) === grant && runningToolCalls(id) === 0 &&
       (!chatIsWorking(id) || (!!silenceSourceTurnId && live?.activeTurnId === silenceSourceTurnId)) &&
-      observationWritesInFlight === 0 && (!grant || grant.until <= Date.now());
+      !observationWritesInFlight.has(id) && (!grant || grant.until <= Date.now());
   };
   return setGoalReplyActiveNow(id, active, idle);
 }
@@ -2220,7 +2229,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       compactionRepairCurrent(conversationId, repair);
     // An observation still publishing can revoke this handout. Refuse this
     // claim transiently; the same unclaimed token remains eligible to be checked.
-    const allowed = current && observationWritesInFlight === 0 && repairsInFlight.get(conversationId) === repair && repair.state === 'handed' && !repair.claimed;
+    const allowed = current && !observationWritesInFlight.has(conversationId) && repairsInFlight.get(conversationId) === repair && repair.state === 'handed' && !repair.claimed;
     if (allowed) {
       repair.claimed = true;
       if (repair.reason === 'assistant-error' && repair.assistantSource)
@@ -2317,7 +2326,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     const revived = noteAgentAlive(id, 'page');
     if (revived?.report) await recordAgentMessage(revived.report, 'sent', id);
     const observations = parseObservations(body['events']);
-    observationWritesInFlight += 1;
+    observationWritesInFlight.set(id, (observationWritesInFlight.get(id) ?? 0) + 1);
     let committed: { sessionId: string | null; stored: number; wake: boolean } | undefined;
     try {
       const agent = agentForOwnedConversation(id);
@@ -2406,7 +2415,9 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       // the extension's idle maintenance poll. Claims still recheck exact state.
       committed = { sessionId: result.sessionId, stored: result.stored, wake: !superseded && result.activity.terminal };
     } finally {
-      observationWritesInFlight -= 1;
+      const remaining = (observationWritesInFlight.get(id) ?? 1) - 1;
+      if (remaining > 0) observationWritesInFlight.set(id, remaining);
+      else observationWritesInFlight.delete(id);
     }
     // A replacement page may discover Thinking failed after this source's ordinary
     // silence ticket was already filed. Publish its receipt-anchored listening
@@ -2414,6 +2425,23 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     if (activeUntil.get(id)?.thinkingFailed) await fileSilenceInputTicket(id, Date.now());
     if (committed?.wake) wakeBrowserWork();
     return json(res, 200, { sessionId: committed!.sessionId, stored: committed!.stored }, origin);
+  }
+
+  if (route === '/temporary-state' && req.method === 'POST') {
+    let body: Record<string, unknown>;
+    try {
+      body = (await readBody(req)) as Record<string, unknown>;
+    } catch (err) {
+      if ((err as Error).message === 'body_too_large') return tooLarge(res, origin);
+      return json(res, 400, { error: 'bad_request' }, origin);
+    }
+    const id = conversationId(body['conversationId']);
+    if (!id || typeof body['temporary'] !== 'boolean') return json(res, 400, { error: 'bad_request' }, origin);
+    const session = await findSessionByConversation(id, { requireUnique: true });
+    if (!session && body['temporary'] === false) return json(res, 200, { ok: true }, origin);
+    if (!session) return json(res, 409, { error: 'session_not_ready' }, origin);
+    await setSessionTemporaryChat(session.id, id, body['temporary']);
+    return json(res, 200, { ok: true }, origin);
   }
 
   if (route === '/closed' && req.method === 'POST') {
@@ -2437,6 +2465,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
           (entry) => entry.conversationId === id && (entry.generating || Boolean(entry.activeTurnId))
         ) || (activeUntil.get(id)?.until ?? 0) > Date.now();
       const manual = body['manual'] === true;
+      const temporaryOwner = manual ? await findSessionByConversation(id, { requireUnique: true }) : null;
       if (manual) {
         // User departure withdraws activity and pending browser actions. Preserve
         // confirmed receipts so returning cannot refund a reload already carried out.
@@ -2466,6 +2495,11 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
         if (session) await revokeSilenceInputs(session.id);
         if (repairsInFlight.get(id)?.state !== 'done') repairsInFlight.delete(id);
         logInfo(`bridge: ${id} was closed deliberately; automatic browser recovery is paused until its page returns`);
+        if (temporaryOwner?.temporaryChatId === id && temporaryOwner.chatIds.length === 1 &&
+            temporaryOwner.chatIds[0] === id) {
+          forgetSession(temporaryOwner.id);
+          await deleteSession(temporaryOwner.id);
+        }
       } else await queueMissingTab(id, working);
     }
     return json(res, 200, { ok: true }, origin);
@@ -2848,6 +2882,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       200,
       {
         sessionId: live.sessionId,
+        coreConnector: await coreConnectorPresence(),
         generating: hasActivityDeadline ? activityCurrent && live.generating : live.generating,
         // What the *currently attached* chat is carrying, not what the local session has
         // accumulated over its whole life. A session that has been compacted keeps its
@@ -4547,7 +4582,7 @@ export async function sweepStaleSwarm(now = Date.now()): Promise<boolean> {
   // unrelated MCP request must not hold every worker's slot; the broker checks each
   // worker's running calls separately. Do not race a recorder batch being committed.
   let brokerChanged = false;
-  if (observationWritesInFlight === 0) {
+  if (observationWritesInFlight.size === 0) {
     // A user block is explicit terminal authority even if ambiguous silence already parked the
     // ceiling worker's family. Dormant histories are not in activeRunIds(), so resolve this
     // narrow state by exact blocked conversation before sweeping active runs.
@@ -4654,7 +4689,7 @@ async function sweepOwnedSwarm(runId: string, now: number): Promise<boolean> {
   )) {
     if (!worker.conversationId) continue;
     const proof = await durableQuiescence(worker.conversationId, now);
-    if (!swarmRunning(runId) || swarmTransferActive(runId) || inFlightMcpRequests() > 0 || observationWritesInFlight > 0) return false;
+    if (!swarmRunning(runId) || swarmTransferActive(runId) || inFlightMcpRequests() > 0 || observationWritesInFlight.size > 0) return false;
     if (!proof.quiescent) continue;
 
     if (proof.lastOutcome === 'completed') {
@@ -4684,7 +4719,7 @@ async function sweepOwnedSwarm(runId: string, now: number): Promise<boolean> {
 
   await wakeQueuedStoppedWorkers(stoppedWorkers, runId);
 
-  if (!swarmRunning(runId) || swarmTransferActive(runId) || inFlightMcpRequests() > 0 || observationWritesInFlight > 0) return false;
+  if (!swarmRunning(runId) || swarmTransferActive(runId) || inFlightMcpRequests() > 0 || observationWritesInFlight.size > 0) return false;
   return releaseQuiescentRun({}, runId) || stoppedWorkers.length > 0;
 }
 
@@ -6267,10 +6302,10 @@ async function fileSilenceInputTicket(conversationId: string, now: number, liste
   const current = () => activeUntil.get(conversationId) === grant && repairsInFlight.get(conversationId) === repair &&
     !stopRequestedFor(conversationId) && !isChatBlocked(conversationId) &&
     !continuationForSession(grant.sessionId) && runningToolCalls(conversationId) === 0 &&
-    // Ordinary silence needs a quiet recorder. An exact failed-source receipt can
-    // publish its existing listening deadline while an unrelated chat is recording;
-    // grant identity and the outbox's source/work checks still fence renewed work.
-    (observationWritesInFlight === 0 || (grant.thinkingFailed === true && repair.progress?.turnId === grant.turnId));
+    // Ordinary silence needs this chat's recorder to settle. Preserve the exact
+    // failed-source receipt exception; grant identity and the outbox's source/work checks still
+    // fence renewed work. Observations from another chat do not own this boundary.
+    (!observationWritesInFlight.has(conversationId) || (grant.thinkingFailed === true && repair.progress?.turnId === grant.turnId));
   if (await fileSilenceInput(grant.sessionId, conversationId, grant.turnId, current,
     grant.thinkingFailed || grant.model !== 'pro' ? grant.until : listenUntil)) return true;
   return recoveryInputAllowed(grant.sessionId, conversationId) &&
@@ -7301,6 +7336,10 @@ async function browserTabPolicy(openConversations: Set<string>) {
     const at = chatBlockedAt(id);
     if (at !== null) lastActivity.set(id, at);
   }
+  // A Temporary Chat is intentionally ephemeral: its local recording is removed only when the
+  // user closes its final browser view. Automatic tab cleanup must therefore never close it.
+  for (const row of summaries) if (row.temporaryChatId === row.conversationId && row.conversationId)
+    protectedChats.add(row.conversationId);
   const terminal = new Set([...blocked, ...cancelledDecisionClaims.map(row => row.conversationId!)]);
   const latestDesktopReceipt = new Map<string, (typeof inputs)[number]>();
   for (const row of inputs) {
@@ -7326,7 +7365,8 @@ async function browserTabPolicy(openConversations: Set<string>) {
     if (agent?.role === 'worker') return agent.state === 'sleeping' && agent.revivable;
     const row = summariesByChat.get(id);
     // An old open turn or mere creation timestamp cannot establish a quiet chat.
-    return row?.activeTurnId === null && Math.max(row.lastTurnEndAt ?? 0, row.lastAssistantFinalAt ?? 0) > 0;
+    return row?.activeTurnId === null && row.lastTurnOutcome === 'completed' &&
+      Math.max(row.lastTurnEndAt ?? 0, row.lastAssistantFinalAt ?? 0) > 0;
   });
   const quietFor = (id: string, ms: number) => Date.now() - lastActivity.get(id)! >= ms;
   const idlePages = available.filter(id => quietFor(id, 300_000));
@@ -8432,7 +8472,10 @@ async function confirmRepair(token: string, action: 'reloaded' | 'reopened' | 'r
       if (repair.attribution && repair.attribution.incident.firstAttemptAt === null)
         repair.attribution.incident.firstAttemptAt = Date.now();
       lastBrowserRecoveryAt.set(conversationId, Date.now());
-      awaitingReturn.add(conversationId);
+      // A resumed repair kept the existing responsive document. Only a real reload/reopen owns
+      // a replacement page whose return must be observed before another browser repair.
+      if (action === 'resumed') awaitingReturn.delete(conversationId);
+      else awaitingReturn.add(conversationId);
       if (repair.reason === 'silence') {
         const failedGrant = activeUntil.get(conversationId);
         if (failedGrant) failedGrant.until = Date.now() + recoveryBusyMs(failedGrant.model === 'pro');

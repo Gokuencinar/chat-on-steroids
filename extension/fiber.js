@@ -2060,6 +2060,9 @@
           const temporary = shell.entry.isTemporaryChat === true ? location.pathname : null;
           if (temporary && section.getAttribute('data-clf-temporary-chat') !== temporary) section.setAttribute('data-clf-temporary-chat', temporary);
           else if (!temporary) section.removeAttribute('data-clf-temporary-chat');
+          const regular = shell.entry.isTemporaryChat === false ? location.pathname : null;
+          if (regular && section.getAttribute('data-clf-regular-chat') !== regular) section.setAttribute('data-clf-regular-chat', regular);
+          else if (!regular) section.removeAttribute('data-clf-regular-chat');
         }
         if (!conversation.conflict) for (const [node, id] of exactAnchors) {
           desiredMessageStamps.set(node, `${scanToken}:${index}:${encodeURIComponent(id)}`);
@@ -2119,6 +2122,7 @@
         if (!desiredTurnStamps.has(section)) {
           section.removeAttribute('data-clf-shell-running');
           section.removeAttribute('data-clf-temporary-chat');
+          section.removeAttribute('data-clf-regular-chat');
         }
         for (const stamped of [section, ...section.querySelectorAll('[data-content-search-unit-key], [data-chatgpt-search-unit-key]')]) {
           const wanted = desiredTurnStamps.get(stamped);
