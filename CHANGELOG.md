@@ -11,7 +11,7 @@ the app refuses the extension and asks you to reload the matching copy.
 
 ## [2.1.26] — Official sync and fork reliability
 
-This release keeps the customized fork on the current official development line through PR #559, while preserving the fork's recovery, safety and Windows release behavior. It includes the official 2.1.17 workspace, Skills, Usage, setup, extension-update, Pets and Goal/Loop fixes together with the later finish-loop reliability changes.
+This release keeps the customized fork on the current official development line through PR #560, while preserving the fork's recovery, safety and Windows release behavior. It includes the official 2.1.17 workspace, Skills, Usage, setup, extension-update, Pets and Goal/Loop fixes together with the later finish-loop reliability changes.
 
 Fork-specific reliability remains on top: CoS protects its own host process from accidental termination, repair writes are isolated per conversation, a responsive silent chat is resumed without a destructive reload, Temporary Chat recordings follow their ephemeral lifetime, first-time plugin enrollment gets one clean retry after an app restart, and manual follow-ups automatically attach the proven Chat On Steroids Core connector before Send.
 
