@@ -566,8 +566,10 @@ export interface SessionSummary {
    * The local session is the durable identity; a ChatGPT chat is only the frontend
    * currently attached to it. Compact & Resume moves this from chat A to chat B in one
    * commit, and nothing else ever changes it.
-   */
+  */
   conversationId: string | null;
+  /** Current frontend positively observed in ChatGPT Temporary Chat mode. */
+  temporaryChatId?: string | null;
   /**
    * Every ChatGPT conversation this session has lived in, oldest first, current last.
    *

@@ -9,11 +9,11 @@ The app and the `extension/` companion are versioned together. **Reload the
 extension after updating the app**. If their bridge protocols are incompatible,
 the app refuses the extension and asks you to reload the matching copy.
 
-## Unreleased
+## [2.1.26] — Official sync and fork reliability
 
-Draft for 2.1.17 — Workspace and self-updating extension. The release sets the version heading.
+This release rebases the customized fork on the current official development line through PR #552, while preserving the fork's recovery, safety and Windows release behavior. It includes the official workspace, Skills, Usage, setup, extension-update, Goal/Loop and current ChatGPT compatibility work accumulated after 2.1.16.
 
-A feature update. The app gets a workspace next to your chat, pets on your desktop, and an extension that keeps itself up to date. CoS now speaks German and Brazilian Portuguese.
+Fork-specific reliability is retained on top: CoS protects its own host process from accidental termination, repair writes are isolated per conversation, a responsive silent chat is resumed without a destructive reload, Temporary Chat recordings follow their ephemeral lifetime, first-time plugin enrollment gets one clean retry after an app restart, and manual follow-ups automatically attach the proven Chat On Steroids Core connector before Send.
 
 ### New
 

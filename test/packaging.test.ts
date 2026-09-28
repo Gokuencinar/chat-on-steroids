@@ -148,39 +148,15 @@ describe('cross-platform packaging targets', () => {
     expect(installer).not.toMatch(/(?:no-sandbox|disable-gpu-sandbox)/i);
   });
 
-  it('assembles every platform artifact in the reusable release workflow', () => {
+  it('assembles the fork Windows x64 artifact in the reusable release workflow', () => {
     const workflow = readFileSync(path.join(root, '.github', 'workflows', 'release.yml'), 'utf8');
     const parsed = yamlFile('.github/workflows/release.yml');
     const matrix = parsed.jobs.package.strategy.matrix.include;
-    expect(matrix).toHaveLength(6);
+    expect(matrix).toHaveLength(1);
     expect(matrix).toEqual([
       {
         name: 'Windows x64', platform: 'win32', arch: 'x64', runner: 'windows-2025',
         script: 'dist:x64', artifact: 'package-windows-x64', files: 'release/Chat-On-Steroids-Setup-x64.exe'
-      },
-      {
-        name: 'Windows arm64', platform: 'win32', arch: 'arm64', runner: 'windows-11-arm',
-        script: 'dist:arm64', artifact: 'package-windows-arm64', files: 'release/Chat-On-Steroids-Setup-arm64.exe'
-      },
-      {
-        name: 'macOS x64', platform: 'darwin', arch: 'x64', runner: 'macos-15-intel',
-        script: 'dist:mac:x64', artifact: 'package-macos-x64',
-        files: 'release/Chat-On-Steroids-macOS-x64.dmg\nrelease/Chat-On-Steroids-macOS-x64.zip\n'
-      },
-      {
-        name: 'macOS arm64', platform: 'darwin', arch: 'arm64', runner: 'macos-15',
-        script: 'dist:mac:arm64', artifact: 'package-macos-arm64',
-        files: 'release/Chat-On-Steroids-macOS-arm64.dmg\nrelease/Chat-On-Steroids-macOS-arm64.zip\n'
-      },
-      {
-        name: 'Linux x64', platform: 'linux', arch: 'x64', runner: 'ubuntu-24.04',
-        script: 'dist:linux:x64', artifact: 'package-linux-x64',
-        files: 'release/Chat-On-Steroids-Linux-x64.AppImage\nrelease/Chat-On-Steroids-Linux-x64.deb\n'
-      },
-      {
-        name: 'Linux arm64', platform: 'linux', arch: 'arm64', runner: 'ubuntu-24.04-arm',
-        script: 'dist:linux:arm64', artifact: 'package-linux-arm64',
-        files: 'release/Chat-On-Steroids-Linux-arm64.AppImage\nrelease/Chat-On-Steroids-Linux-arm64.deb\n'
       }
     ]);
     expect(parsed.jobs.package['runs-on']).toBe('${{ matrix.runner }}');
@@ -359,7 +335,7 @@ describe('cross-platform packaging targets', () => {
     expect(builder.linux.syncDesktopName).toBe(true);
     expect(builder.linux.maintainer).toMatch(/^Chat On Steroids <[^>]+@users\.noreply\.github\.com>$/);
     expect(pkg.desktopName).toBe('com.chatonsteroids.app.desktop');
-    expect(pkg.homepage).toBe('https://github.com/totec448-spec/chat-on-steroids');
+    expect(pkg.homepage).toBe('https://github.com/Gokuencinar/chat-on-steroids');
     expect(iconScript).toContain("build', 'icon.png'), pngFor(1024)");
 
     const packageScript = readFileSync(path.join(root, 'scripts', 'package.mjs'), 'utf8');
@@ -653,16 +629,8 @@ Load command 11
 
     const artifacts = [
       'Chat-On-Steroids-Setup-x64.exe',
-      'Chat-On-Steroids-Setup-arm64.exe',
-      'Chat-On-Steroids-macOS-x64.dmg',
-      'Chat-On-Steroids-macOS-x64.zip',
-      'Chat-On-Steroids-macOS-arm64.dmg',
-      'Chat-On-Steroids-macOS-arm64.zip',
-      'Chat-On-Steroids-Linux-x64.AppImage',
-      'Chat-On-Steroids-Linux-x64.deb',
-      'Chat-On-Steroids-Linux-arm64.AppImage',
-      'Chat-On-Steroids-Linux-arm64.deb',
       'Chat-On-Steroids-Extension.zip',
+      'Chat-On-Steroids-Native-Sources.tar.gz',
       'SHA256SUMS.txt'
     ];
     const checksumStep = release.slice(

@@ -721,6 +721,49 @@ describe('provisioning', () => {
 });
 
 describe('active agent tab discard projection', () => {
+  it('removes a page-proven temporary chat recording only after its final browser view departs', async () => {
+    await pair();
+    const conversationId = randomUUID();
+    const session = await createSession({ conversationId, origin: { kind: 'desktop', fromSessionId: null, agentId: null, task: '' } });
+    expect((await request('POST', '/temporary-state', { body: { conversationId, temporary: true } })).status).toBe(200);
+    expect((await getSession(session.id))?.temporaryChatId).toBe(conversationId);
+    const status = (await request('POST', '/status', { body: { openConversations: [conversationId] } })).body;
+    expect(status.nonDiscardableConversations).toContain(conversationId);
+    expect(status.closableConversations).not.toContain(conversationId);
+    await request('POST', '/closed', { body: { conversationId, manual: true } });
+    expect(await getSession(session.id)).toBeNull();
+  });
+
+  it('retains a saved temporary chat when the page proves it became regular', async () => {
+    await pair();
+    const conversationId = randomUUID();
+    const session = await createSession({ conversationId });
+    await request('POST', '/temporary-state', { body: { conversationId, temporary: true } });
+    await request('POST', '/temporary-state', { body: { conversationId, temporary: false } });
+    await request('POST', '/closed', { body: { conversationId, manual: true } });
+    expect((await getSession(session.id))?.temporaryChatId).toBeNull();
+  });
+
+  it('keeps an interrupted chat page even when an older turn has a final answer', async () => {
+    await pair();
+    const conversationId = randomUUID();
+    await createSession({ conversationId, origin: { kind: 'desktop', fromSessionId: null, agentId: null, task: '' } });
+    const at = Date.now();
+    await request('POST', '/events', { body: { conversationId, events: [
+      { kind: 'turn_start', time: at, turnId: 'earlier' },
+      { kind: 'assistant_message', time: at + 1, turnId: 'earlier', messageId: randomUUID(), text: 'Earlier answer', state: 'final', final: true },
+      { kind: 'turn_end', time: at + 2, turnId: 'earlier', outcome: 'completed' },
+      { kind: 'turn_start', time: at + 3, turnId: 'interrupted' },
+      { kind: 'turn_end', time: at + 4, turnId: 'interrupted', outcome: 'failed' }
+    ] } });
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(at + 301_000);
+    try {
+      const status = (await request('POST', '/status', { body: { openConversations: [conversationId] } })).body;
+      expect(status.reusableConversations).not.toContain(conversationId);
+      expect(status.closableConversations).not.toContain(conversationId);
+    } finally { clock.mockRestore(); }
+  });
+
   it('reuses sleeping workers after two minutes and releases their pages after five without retiring them', async () => {
     const previous = getConfig();
     await saveConfig({ ...previous, multiAgent: { ...previous.multiAgent, maxWorkers: 3 }, ui: { ...previous.ui, tabsToKeepOpen: 1 } });
@@ -8745,6 +8788,38 @@ describe('unattributed activity recovery', () => {
     expect(await maintenance()).toBeNull();
     expect((await request('POST', '/repairs/claim', { body: { token: repair!.token } })).body.allowed).toBe(false);
     expect(await maintenance(repair!.token)).toBeNull();
+  });
+
+  it.each(['same', 'other'])('isolates a repair claim from %s-chat observation writes', async scope => {
+    await pair();
+    await events(OTHER, [openTurn('independent-observer')]);
+    await events(PRIME, [openTurn('observation-claim'), {
+      kind: 'chat_error', time: Date.now(), turnId: 'observation-claim',
+      text: 'Connection interrupted', recoverable: true
+    }]);
+    const repair = await maintenance();
+    expect(repair?.reason).toBe('assistant-error');
+    const recorder = await import('../src/main/session/recorder.js');
+    const original = recorder.recordChatObservations;
+    const gate = faultGate();
+    const target = scope === 'same' ? PRIME : OTHER;
+    const spy = vi.spyOn(recorder, 'recordChatObservations').mockImplementation(async (...args) => {
+      if (args[0] === target) await gate.hold();
+      return original(...args);
+    });
+    const pending = events(target, []);
+    try {
+      await gate.entered;
+      const claim = await request('POST', '/repairs/claim', { body: { token: repair!.token } });
+      expect(claim.body.allowed).toBe(scope === 'other');
+    } finally {
+      gate.release();
+      await pending;
+      spy.mockRestore();
+    }
+    if (scope === 'same') {
+      expect((await request('POST', '/repairs/claim', { body: { token: repair!.token } })).body.allowed).toBe(true);
+    }
   });
 
   it('offers one stale-composer recovery for a completed ordinary chat after 69 idle seconds', async () => {
