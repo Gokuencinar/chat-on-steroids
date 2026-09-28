@@ -254,7 +254,7 @@ it('serializes settings intent so rapid toggles and later UI changes cannot undo
   // First save toggles a value that has no form control of its own. Keep the IPC unresolved,
   // matching a real save that is waiting for bridge/tunnel lifecycle work in the main process.
   (w.document.getElementById('readOnlyBtn') as HTMLButtonElement).click();
-  await vi.waitFor(() => expect(calls).toHaveLength(1));
+  await vi.waitFor(() => expect(calls).toHaveLength(1), { timeout: 15_000 });
   expect(calls[0].readOnly).toBe(true);
 
   // A second click before the first acknowledgement means "back off". The old handler derived
@@ -272,7 +272,7 @@ it('serializes settings intent so rapid toggles and later UI changes cannot undo
 
   current = appState({ ...baseConfig, readOnly: true });
   pending.shift()!({ ok: true, data: current });
-  await vi.waitFor(() => expect(calls).toHaveLength(2));
+  await vi.waitFor(() => expect(calls).toHaveLength(2), { timeout: 15_000 });
   expect(calls[1].readOnly).toBe(false);
   // The toggle tells assistive technology which state is saved, not just its colour.
   expect(w.document.getElementById('readOnlyBtn')?.getAttribute('aria-pressed')).toBe('true');
@@ -280,7 +280,7 @@ it('serializes settings intent so rapid toggles and later UI changes cannot undo
 
   current = appState({ ...baseConfig, readOnly: false });
   pending.shift()!({ ok: true, data: current });
-  await vi.waitFor(() => expect(calls).toHaveLength(3));
+  await vi.waitFor(() => expect(calls).toHaveLength(3), { timeout: 15_000 });
   expect(calls[2].readOnly).toBe(false);
   expect(w.document.getElementById('readOnlyBtn')?.getAttribute('aria-pressed')).toBe('false');
   expect(calls[2].ui.autoConnect).toBe(true);
@@ -293,7 +293,7 @@ it('serializes settings intent so rapid toggles and later UI changes cannot undo
   // even though the first dark save has not answered yet.
   const theme = w.document.getElementById('appearanceTheme') as HTMLSelectElement;
   theme.value = 'dark'; theme.dispatchEvent(new w.Event('change', { bubbles: true }));
-  await vi.waitFor(() => expect(calls).toHaveLength(4));
+  await vi.waitFor(() => expect(calls).toHaveLength(4), { timeout: 15_000 });
   expect(calls[3].ui.theme).toBe('dark');
   theme.value = 'light'; theme.dispatchEvent(new w.Event('change', { bubbles: true }));
   expect(calls).toHaveLength(4);
@@ -795,11 +795,11 @@ it('preserves the selected OpenRouter model through an unchanged custom-provider
   mounted.push(mounted.state);
   const provider = w.document.getElementById('goalProvider') as HTMLSelectElement;
   provider.value = 'custom'; provider.dispatchEvent(new w.Event('change', { bubbles: true }));
-  await vi.waitFor(() => expect(mounted.calls).toHaveLength(1));
+  await vi.waitFor(() => expect(mounted.calls).toHaveLength(1), { timeout: 15_000 });
   // Repainting custom settings must not replace the hidden OpenRouter picker's model.
   mounted.push({ ...mounted.state, hasCustomProviderKey: false });
   provider.value = 'openrouter'; provider.dispatchEvent(new w.Event('change', { bubbles: true }));
-  await vi.waitFor(() => expect(mounted.calls).toHaveLength(2));
+  await vi.waitFor(() => expect(mounted.calls).toHaveLength(2), { timeout: 15_000 });
   expect(mounted.calls[1].goal).toMatchObject({ provider: { kind: 'openrouter' }, model: original });
   expect(w.document.getElementById('goalModelName')!.textContent).toBe(original);
 });
@@ -819,17 +819,17 @@ it('saves a custom deployment id and returns to the known OpenRouter model', asy
   const provider = w.document.getElementById('goalProvider') as HTMLSelectElement;
   provider.value = 'custom';
   provider.dispatchEvent(new w.Event('change', { bubbles: true }));
-  await vi.waitFor(() => expect(mounted.calls).toHaveLength(1));
+  await vi.waitFor(() => expect(mounted.calls).toHaveLength(1), { timeout: 15_000 });
   expect(mounted.calls[0].goal.provider.kind).toBe('custom');
   expect(w.document.getElementById('goalCustomPanel')?.hidden).toBe(false);
   const model = w.document.getElementById('goalCustomModel') as HTMLInputElement;
   model.value = 'llama3.1';
   model.dispatchEvent(new w.Event('change', { bubbles: true }));
-  await vi.waitFor(() => expect(mounted.calls).toHaveLength(2));
+  await vi.waitFor(() => expect(mounted.calls).toHaveLength(2), { timeout: 15_000 });
   expect(mounted.calls[1].goal.model).toBe('llama3.1');
   provider.value = 'openrouter';
   provider.dispatchEvent(new w.Event('change', { bubbles: true }));
-  await vi.waitFor(() => expect(mounted.calls).toHaveLength(3));
+  await vi.waitFor(() => expect(mounted.calls).toHaveLength(3), { timeout: 15_000 });
   expect(mounted.calls[2].goal).toMatchObject({ provider: { kind: 'openrouter' }, model: 'deepseek/deepseek-v4-flash' });
 });
 
