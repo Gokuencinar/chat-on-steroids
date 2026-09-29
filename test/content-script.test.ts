@@ -15241,7 +15241,7 @@ describe('per-message Core attachment', () => {
     expect(live.document.querySelector('.clf-connector-warning')).toBeNull();
   });
 
-  it('fails closed when Core selection cannot be proved and preserves the draft', async () => {
+  it('falls back to the native send when Core selection cannot be proved and the draft stayed intact', async () => {
     let sends = 0;
     live = await harness(undefined, { activity: () => activity }, document => {
       document.querySelector('[data-testid="send-button"]')!.addEventListener('click', () => { sends++; });
@@ -15251,13 +15251,36 @@ describe('per-message Core attachment', () => {
     api.connectorMentionSelected = () => false;
     api.selectConnectorMention = async () => false;
     const composer = live.document.querySelector('#prompt-textarea')!;
-    composer.textContent = 'do not lose this draft';
+    composer.textContent = 'do not trap this draft';
+
+    live.trustedClick(live.document.querySelector('[data-testid="send-button"]')!);
+    await settle(100);
+
+    expect(sends).toBe(1);
+    expect(composer.textContent).toBe('do not trap this draft');
+    expect(live.document.querySelector('.clf-connector-warning')).toBeNull();
+  });
+
+  it('still fails closed if a failed Core attachment leaves the draft changed', async () => {
+    let sends = 0;
+    live = await harness(undefined, { activity: () => activity }, document => {
+      document.querySelector('[data-testid="send-button"]')!.addEventListener('click', () => { sends++; });
+    });
+    await live.hook.pullActivity();
+    const api = (live.window as any).CLF_DOM;
+    api.connectorMentionSelected = () => false;
+    const composer = live.document.querySelector('#prompt-textarea')!;
+    composer.textContent = 'protect the original draft';
+    api.selectConnectorMention = async () => {
+      composer.textContent = 'protect the original draft @Chat On Steroids Core';
+      return false;
+    };
 
     live.trustedClick(live.document.querySelector('[data-testid="send-button"]')!);
     await settle(100);
 
     expect(sends).toBe(0);
-    expect(composer.textContent).toBe('do not lose this draft');
+    expect(composer.textContent).toContain('@Chat On Steroids Core');
     expect(live.document.querySelector('.clf-connector-warning')?.textContent).toContain('draft was not sent');
   });
 
