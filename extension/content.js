@@ -944,10 +944,10 @@
     for (const name of events) host.addEventListener(name, interrupt, true);
     const stillCurrent = () => alive && connectorAttachBusy && !interrupted &&
       CLF_DOM.composer() === box && box.isConnected && CLF_DOM.conversationId() === route &&
-      !generating && !CLF_DOM.generating();
+      !CLF_DOM.generating();
     void CLF_DOM.selectConnectorMention(core.connectorName, core.connectorId, stillCurrent).then(selected => {
       const current = alive && CLF_DOM.composer() === box && box.isConnected &&
-        CLF_DOM.conversationId() === route && !generating && !CLF_DOM.generating();
+        CLF_DOM.conversationId() === route && !CLF_DOM.generating();
       if (!selected || !current || !CLF_DOM.connectorMentionSelected(core.connectorName, core.connectorId)) {
         showConnectorWarning('Chat On Steroids Core could not be attached to this message. Your draft was not sent.');
         return;

@@ -15213,6 +15213,34 @@ describe('per-message Core attachment', () => {
     expect(live.document.querySelector('.clf-connector-warning')).toBeNull();
   });
 
+  it('does not let stale local generation ownership block a native-ready manual follow-up', async () => {
+    let sends = 0;
+    live = await harness(undefined, { activity: () => activity }, document => {
+      document.querySelector('[data-testid="send-button"]')!.addEventListener('click', () => { sends++; });
+    });
+    await live.hook.pullActivity();
+    const api = (live.window as any).CLF_DOM;
+    let selected = false, selects = 0;
+    api.connectorMentionSelected = () => selected;
+    api.selectConnectorMention = async () => { selects++; selected = true; return true; };
+
+    // Open one recorded generation, then let ChatGPT's native composer return to Send without
+    // giving the recorder its quiet-window observation yet. This is the live race that used to
+    // make manual Core attachment fail even though the page itself was ready for another send.
+    startGenerating(live.document);
+    live.hook.observe();
+    await settle();
+    stopGenerating(live.document);
+    live.document.querySelector('#prompt-textarea')!.textContent = 'manual follow-up while recorder catches up';
+
+    live.trustedClick(live.document.querySelector('[data-testid="send-button"]')!);
+    await settle(100);
+
+    expect(selects).toBe(1);
+    expect(sends).toBe(1);
+    expect(live.document.querySelector('.clf-connector-warning')).toBeNull();
+  });
+
   it('fails closed when Core selection cannot be proved and preserves the draft', async () => {
     let sends = 0;
     live = await harness(undefined, { activity: () => activity }, document => {

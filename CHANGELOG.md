@@ -9,6 +9,13 @@ The app and the `extension/` companion are versioned together. **Reload the
 extension after updating the app**. If their bridge protocols are incompatible,
 the app refuses the extension and asks you to reload the matching copy.
 
+## [2.1.29] — Manual Core attachment follows native composer readiness
+
+- Fixed a second cause of “Chat On Steroids Core could not be attached to this message” when CoS was open.
+- Manual follow-up attachment no longer lets a stale internal recorder `generating` flag veto a user send after ChatGPT has already returned to its native Send state.
+- The page-owned ChatGPT generation state, exact conversation/editor identity and final native Send readiness remain mandatory, so the flow still fails closed if the page itself is busy or changed.
+- Added a regression for the live race where the recorder still owns an open turn while ChatGPT is already ready for the next manual message.
+
 ## [2.1.28] — Core mention attachment hotfix
 
 - Fixed manual follow-up sends failing with “Chat On Steroids Core could not be attached to this message”.
