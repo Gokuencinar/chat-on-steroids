@@ -1,0 +1,53 @@
+name: Bootstrap publish v2.1.30
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/bootstrap-publish-v2.1.30.yml
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  tag-and-dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_SHA: 8f88dc00c67aaf06ec44ea33efee51123e60eaf9
+      TAG: v2.1.30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+
+      - name: Verify target
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$TARGET_SHA^{commit}"
+          git show "$TARGET_SHA:package.json" > "$RUNNER_TEMP/package.json"
+          version="$(node -p "require(process.env.RUNNER_TEMP + '/package.json').version")"
+          test "$version" = "2.1.30"
+          if git ls-remote --exit-code origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists" >&2
+            exit 1
+          fi
+
+      - name: Create release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "$TAG" "$TARGET_SHA"
+          git push origin "refs/tags/$TAG"
+
+      - name: Dispatch normal publish workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run publish.yml --ref "$TAG"
