@@ -931,7 +931,8 @@
     const box = CLF_DOM.composer(), route = CLF_DOM.conversationId();
     if (!box?.isConnected) return false;
     const draft = typeof box.innerText === 'string' ? box.innerText : box.textContent || '';
-    if (!draft.trim() && !CLF_DOM.composerAttachmentNames().length) return false;
+    const draftAttachments = CLF_DOM.composerAttachmentNames();
+    if (!draft.trim() && !draftAttachments.length) return false;
 
     event.preventDefault?.();
     event.stopImmediatePropagation?.();
@@ -945,22 +946,45 @@
     const stillCurrent = () => alive && connectorAttachBusy && !interrupted &&
       CLF_DOM.composer() === box && box.isConnected && CLF_DOM.conversationId() === route &&
       !CLF_DOM.generating();
-    void CLF_DOM.selectConnectorMention(core.connectorName, core.connectorId, stillCurrent).then(selected => {
+    const nativeSendReady = () => {
       const current = alive && CLF_DOM.composer() === box && box.isConnected &&
         CLF_DOM.conversationId() === route && !CLF_DOM.generating();
-      if (!selected || !current || !CLF_DOM.connectorMentionSelected(core.connectorName, core.connectorId)) {
-        showConnectorWarning('Chat On Steroids Core could not be attached to this message. Your draft was not sent.');
+      if (!current) return null;
+      const button = CLF_DOM.sendButton?.();
+      if (!button || button.disabled || button.getAttribute('aria-disabled') === 'true') return null;
+      return button;
+    };
+    const originalDraftRestored = () => {
+      const now = typeof box.innerText === 'string' ? box.innerText : box.textContent || '';
+      if (now.replace(/\r\n/g, '\n') !== draft.replace(/\r\n/g, '\n')) return false;
+      const attachments = CLF_DOM.composerAttachmentNames();
+      return attachments.length === draftAttachments.length &&
+        attachments.every((name, index) => name === draftAttachments[index]);
+    };
+    const fallbackNativeSend = () => {
+      const button = nativeSendReady();
+      if (!button || !originalDraftRestored()) return false;
+      clearConnectorWarning();
+      button.click();
+      return true;
+    };
+    void CLF_DOM.selectConnectorMention(core.connectorName, core.connectorId, stillCurrent).then(selected => {
+      const button = nativeSendReady();
+      const attached = selected && CLF_DOM.connectorMentionSelected(core.connectorName, core.connectorId);
+      if (!attached) {
+        if (fallbackNativeSend()) return;
+        showConnectorWarning('Chat On Steroids Core could not be attached safely. Your draft was not sent.');
         return;
       }
-      const button = CLF_DOM.sendButton?.();
-      if (!button || button.disabled || button.getAttribute('aria-disabled') === 'true') {
+      if (!button) {
         showConnectorWarning('Chat On Steroids Core was attached, but ChatGPT Send is not ready. Your draft was not sent.');
         return;
       }
       clearConnectorWarning();
       button.click();
     }).catch(() => {
-      showConnectorWarning('Chat On Steroids Core could not be attached to this message. Your draft was not sent.');
+      if (fallbackNativeSend()) return;
+      showConnectorWarning('Chat On Steroids Core could not be attached safely. Your draft was not sent.');
     }).finally(() => {
       for (const name of events) host.removeEventListener(name, interrupt, true);
       connectorAttachBusy = false;
