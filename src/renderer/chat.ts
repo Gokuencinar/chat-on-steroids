@@ -1,3 +1,4 @@
+import { hasProviderDirective, resolvedCapture, withoutProviderDirectives } from '../shared/content-reference.js';
 import { createWorkspaceTerminal } from './workspace-terminal.js';
 import { createWorkspaceDocks } from './workspace-docks.js';
 import { ui, t } from './i18n.js';
@@ -1584,7 +1585,14 @@ export function renderedMarkdown(source: string, capture?: StoredText): HTMLElem
   // Fiber's canonical text can be complete while a background provider tab still
   // paints its first words. Render this revision directly; captured DOM HTML is
   // never evidence that it contains the current message revision.
-  const text = withoutMessageReaction(source).slice(0, MAX_RENDERED_HTML_CHARS);
+  let text = withoutMessageReaction(source).slice(0, MAX_RENDERED_HTML_CHARS);
+  // A ChatGPT directive this app cannot draw (#574 and whatever ChatGPT adds next): the page's own
+  // recorded rendering is the faithful presentation; without one, the directive lines are dropped.
+  if (hasProviderDirective(text)) {
+    const plain = withoutProviderDirectives(text);
+    if (resolvedCapture(capture)) return renderedMessage(capture, plain);
+    text = plain || t('This reply points to content from another message that was not recorded.');
+  }
   const citations = text.includes('\uE200') ? citationLabels(text, capture) : new Map<string, string>();
   // An inline tokenizer leaves literal citation examples inside code spans/fences intact.
   const parser = new Marked({ gfm: true, extensions: [WRITING_BLOCK, {
@@ -1765,13 +1773,28 @@ function toolBody(event: Extract<SessionEvent, { kind: 'tool_call' }>, context?:
   const project = context ? null : selectedLocalProject();
   const sessionId = context ? null : selectedId;
   const reviewIndices = call.outcome === 'ok' ? (call.changes ?? []).flatMap((change, index) =>
-    change.reviewAssetId ? [index] : []).slice(0, 8) : [];
+    change.reviewAssetId ? [index] : []).slice(0, 32) : [];
+  const unavailable = call.outcome === 'ok' ? (call.changes ?? []).filter(change => change.reviewUnavailable) : [];
+  if (project && sessionId && !reviewIndices.length && unavailable.length) {
+    // Say why there is nothing to review instead of leaving the row without an action.
+    const missing = el('button', 'tool-open-diff is-unavailable') as HTMLButtonElement;
+    missing.type = 'button'; missing.setAttribute('aria-disabled', 'true');
+    missing.addEventListener('click', click => { click.preventDefault(); click.stopPropagation(); });
+    missing.append(icon('i-git-diff'));
+    const reason = () => unavailable.some(change => change.reviewUnavailable === 'too-large')
+      ? t('Diff unavailable: this edit was too large to keep') : t('Diff unavailable: this edit was not kept');
+    ui(missing, 'title', reason);
+    ui(missing, 'aria-label', reason);
+    head.append(missing);
+  }
   if (project && sessionId && reviewIndices.length) {
     const review = el('button', 'tool-open-diff') as HTMLButtonElement;
     review.type = 'button';
     review.append(icon('i-git-diff'));
-    ui(review, 'title', () => t('Review this edit'));
-    ui(review, 'aria-label', () => t('Review this edit'));
+    const total = reviewIndices.length + unavailable.length;
+    const label = () => unavailable.length ? t('Review this edit ({0} of {1} files)', [reviewIndices.length, total]) : t('Review this edit');
+    ui(review, 'title', label);
+    ui(review, 'aria-label', label);
     review.addEventListener('click', click => {
       click.preventDefault();
       click.stopPropagation();

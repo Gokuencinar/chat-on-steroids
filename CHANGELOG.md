@@ -9,11 +9,75 @@ The app and the `extension/` companion are versioned together. **Reload the
 extension after updating the app**. If their bridge protocols are incompatible,
 the app refuses the extension and asks you to reload the matching copy.
 
+## [2.1.27] — Upstream 2.1.20 sync with fork reliability preserved
+
+This fork release brings in all official changes through upstream 2.1.20 while keeping the fork-specific Windows updater, connector URLs, recovery behavior, temporary-chat handling, Goal/Loop durability and host self-protection.
+
+### Integrated from upstream
+
+- Recommended Skills install correctly again, including descriptions containing colons.
+- The browser extension pairs and reconnects automatically after being reloaded or updated.
+- Review keeps larger edits and explains when a diff cannot be retained.
+- Project chats recover their real title and worker queue reporting is more accurate.
+- OpenRouter API keys are normalized so hidden copied characters no longer break authentication.
+- ChatGPT content-reference replies resolve to their actual content for display, Goal and worker reports.
+- Unknown ChatGPT directives are rendered like ChatGPT instead of leaking raw directive syntax.
+
+### Fork-specific behavior retained
+
+- Windows x64-only packaging and fork-only update/release URLs.
+- Host-process execution protection and bridge-port safeguards.
+- Per-conversation recovery and non-destructive silent-chat resume.
+- Temporary Chat lifecycle/recording semantics.
+- Connector refresh rearm and structured Core connector attachment.
+- Goal/Loop durability and session-ownership hardening from the 2.1.26 fork.
+
 ## [2.1.26] — Official sync and fork reliability
 
-This release keeps the customized fork on the current official development line through PR #560, while preserving the fork's recovery, safety and Windows release behavior. It includes the official 2.1.17 workspace, Skills, Usage, setup, extension-update, Pets and Goal/Loop fixes together with the later finish-loop reliability changes.
+This release keeps the customized fork on the official development line through upstream 2.1.17 while preserving the fork's recovery, safety and Windows release behavior. It includes the official 2.1.17 workspace, Skills, Usage, setup, extension-update, Pets and Goal/Loop fixes together with the later finish-loop reliability changes.
 
 Fork-specific reliability remains on top: CoS protects its own host process from accidental termination, repair writes are isolated per conversation, a responsive silent chat is resumed without a destructive reload, Temporary Chat recordings follow their ephemeral lifetime, first-time plugin enrollment gets one clean retry after an app restart, and manual follow-ups automatically attach the proven Chat On Steroids Core connector before Send.
+
+## [2.1.20] — Cleaner replies and working OpenRouter keys
+
+A quality update. Replies from every ChatGPT account show properly, OpenRouter keys work however they were pasted, and CoS copes with new ChatGPT formats on its own.
+
+### Fixed
+
+- **OpenRouter keys work even when pasted with hidden characters.** A key copied together with an invisible character was sent unchanged, and OpenRouter rejected it with "Missing Authentication header". CoS now removes such characters from API keys, including keys you already stored.
+- **Replies that point to earlier content show properly.** Sometimes ChatGPT answers by pointing to content from another message, for example when you send the same short message again. CoS showed that pointer as raw text (`::chatgpt-content-reference{…}`); it now shows the reply as ChatGPT does, and Goal and worker reports read the actual reply too.
+
+### Improved
+
+- **New ChatGPT formats no longer appear as code.** ChatGPT keeps adding special formats to its replies, different per account. Any format CoS doesn't know yet is now shown the way ChatGPT shows it, instead of as raw text.
+
+## [2.1.19] — The browser connects on its own again
+
+A fix for everyone whose browser extension stopped connecting after an update, plus a few improvements found along the way.
+
+### Fixed
+
+- **The browser extension connects on its own again.** After removing and loading the extension again, which many did after updating, it stayed disconnected until you happened to click its icon. It now pairs with the app as soon as it starts, keeps trying until the app is running, and reconnects your open ChatGPT tabs.
+- **No false "never confirmed" warning for workers.** When you sent a worker a message while it was finishing its previous task, the report said the worker might not have read it, even though CoS then delivered it right away. The report now says the message is still queued for the worker.
+- **Project chats keep their real name.** Chats that were once called "ChatGPT - <project name>" get their proper name back, and that label never replaces a chat's name again.
+
+### Improved
+
+- **Reviewing ChatGPT's edits is more dependable.** Every file of a larger edit can now be reviewed, not just the first eight. When a diff couldn't be kept, for example because the file was too large, the edit says so instead of simply showing no Review button. A partly kept edit shows how many of its files you can review.
+- **Clearer connection checks.** Asking the app whether it is running (for example from a terminal) no longer reports the browser extension as incompatible.
+
+**Still not connected on 2.1.18?** Click the Chat On Steroids extension icon once, then refresh your ChatGPT tabs. After updating to 2.1.19 the extension updates itself and connects on its own.
+
+## [2.1.18] — Recommended skills install again
+
+A quick fix for 2.1.17.
+
+### Fixed
+
+- **All recommended skills install again.** Six of them (Explore an unfamiliar codebase, Data analysis, Upgrade dependencies, Accessibility review, Summarize documents and Plan a project) failed with "bad indentation of a mapping entry" when you pressed Install. They now install like the others.
+- **Skills show their real description** when it contains a colon, for example skills you imported yourself. Before, the Skills page showed the first paragraph of the skill instead.
+
+Everything else is exactly as in 2.1.17. If you installed 2.1.17, no extension reload is needed: the extension updates itself.
 
 ## [2.1.17] — Workspace, pets and an extension that updates itself
 

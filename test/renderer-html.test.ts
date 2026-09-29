@@ -39,6 +39,29 @@ describe('captured ChatGPT rendered HTML', () => {
     expect(renderedMarkdown(':::writing{title="x"}\nno end').textContent).toContain(':::writing');
   });
 
+  it('shows the page\'s resolved content for a content-reference reply instead of the raw pointer (#574)', () => {
+    const pointer = '::chatgpt-content-reference{index="0" source_message_id="d2b82e00-509e-4a87-aa93-00bcde251680"}';
+    // The page resolved the pointer: its capture is this message's faithful presentation.
+    const resolved = renderedMarkdown(pointer, whole('<p>Hi! How can I help you today?</p>'));
+    expect(resolved.textContent?.trim()).toBe('Hi! How can I help you today?');
+    expect(resolved.textContent).not.toContain('chatgpt-content-reference');
+    // Without a usable capture the pointer is dropped, and an otherwise empty reply says why.
+    expect(renderedMarkdown(pointer).textContent?.trim()).toBe('This reply points to content from another message that was not recorded.');
+    expect(renderedMarkdown(pointer, whole(`<p>${pointer}</p>`)).textContent).not.toContain('chatgpt-content-reference');
+    expect(renderedMarkdown(`Before\n${pointer}\nAfter`).textContent).toMatch(/Before[\s\S]*After/);
+    expect(renderedMarkdown(`Before\n${pointer}\nAfter`).textContent).not.toContain('chatgpt-content-reference');
+    // Quoted inside code it is text, not a pointer.
+    expect(renderedMarkdown(`Use \`${pointer}\` in docs.`).textContent).toContain('chatgpt-content-reference');
+  });
+
+  it('never shows an unknown ChatGPT directive as raw text', () => {
+    const leaf = '::chatgpt-entity{type="place" id="42"}';
+    expect(renderedMarkdown(leaf, whole('<p>Berlin</p>')).textContent?.trim()).toBe('Berlin');
+    expect(renderedMarkdown(`Intro\n${leaf}`).textContent).not.toContain('::chatgpt-entity');
+    expect(renderedMarkdown(':::canvas{title="Plan"}\nStep one\n:::').textContent).toContain('Step one');
+    expect(renderedMarkdown(':::canvas{title="Plan"}\nStep one\n:::').textContent).not.toContain(':::');
+  });
+
   it('renders the recorded native URL token as its authored label and opens it through validated IPC', () => {
     const openLink = vi.fn(async () => ({ ok: true, data: true }));
     (dom.window as any).api.openLink = openLink;

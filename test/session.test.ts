@@ -139,6 +139,32 @@ describe('session store', () => {
         reviews: [{ changeIndex: 0, before: '', after: 'x'.repeat(512 * 1024) }]
       }) });
     expect(huge?.changes?.[0]?.reviewAssetId).toBeUndefined();
+    expect(huge?.changes?.[0]?.reviewUnavailable).toBe('too-large');
+    expect(first?.changes?.[0]?.reviewUnavailable).toBeUndefined();
+  });
+
+  it('keeps reviews for every file of a larger patch and says why one was not kept (#563)', async () => {
+    const conversationId = 'conv-many-file-review';
+    const sessionId = await sessionForConversation(conversationId);
+    const files = Array.from({ length: 10 }, (_, index) => `/project/src/file-${index}.ts`);
+    const many = await recordToolCall({ tool: 'apply_patch', args: { patch: 'many' },
+      content: [{ type: 'text', text: 'ok' }], outcome: 'ok', durationMs: 1, startedAt: Date.now(),
+      conversationId, sessionId, evidence: evidence({
+        changes: files.map(path => ({ path, added: 1, removed: 1, approximate: false })),
+        reviews: files.map((_, changeIndex) => ({ changeIndex, before: `a${changeIndex}\n`, after: `b${changeIndex}\n` }))
+      }) });
+    // Before, only the first 8 files of a patch could ever be reviewed.
+    expect(many?.changes?.every(change => change.reviewAssetId && !change.reviewUnavailable)).toBe(true);
+    expect(await readToolEditReview(sessionId!, many!.callId, 9)).toMatchObject({ baseText: 'a9\n', currentText: 'b9\n' });
+    const budget = await recordToolCall({ tool: 'apply_patch', args: { patch: 'budget' },
+      content: [{ type: 'text', text: 'ok' }], outcome: 'ok', durationMs: 1, startedAt: Date.now() + 1,
+      conversationId, sessionId, evidence: evidence({
+        changes: [0, 1, 2, 3, 4].map(index => ({ path: `/project/big-${index}.txt`, added: 1, removed: 0, approximate: false })),
+        reviews: [0, 1, 2, 3, 4].map(changeIndex => ({ changeIndex, before: '', after: 'x'.repeat(480 * 1024) }))
+      }) });
+    expect(budget?.changes?.slice(0, 4).every(change => change.reviewAssetId)).toBe(true);
+    expect(budget?.changes?.[4]).toMatchObject({ reviewUnavailable: 'not-kept' });
+    expect(budget?.changes?.[4]?.reviewAssetId).toBeUndefined();
   });
 
   it('uses original call time and exact conversation for late attribution health proof', async () => {
@@ -3245,6 +3271,28 @@ describe('naming the chats this app opened', () => {
     Object.assign(meta, { title: 'Coding Agent Instructions', titleSource: 'provider', origin: { kind: 'desktop', fromSessionId: null, agentId: null, task: '' } });
     await fs.writeFile(metaPath, JSON.stringify(meta));
     expect((await getSession(session.id))?.title).toBe('Plan the release');
+  });
+
+  it('never takes a project page title as the chat name and repairs one already stored', async () => {
+    const conversationId = 'project-page-title';
+    const opened = await recordChatObservations(conversationId, [
+      { kind: 'user_message', time: Date.now(), text: 'Fix the homelab backup', messageId: 'project-user' }
+    ]);
+    await recordChatObservations(conversationId, [{ kind: 'conversation_title', time: Date.now(), text: 'ChatGPT - Homelab Development' }]);
+    expect((await getSession(opened.sessionId!))?.title).toBe('Fix the homelab backup');
+    await recordChatObservations(conversationId, [{ kind: 'conversation_title', time: Date.now(), text: 'Homelab Backup Fix' }]);
+    expect((await getSession(opened.sessionId!))?.title).toBe('Homelab Backup Fix');
+
+    // Stored by a build before the filter: repaired on the next cold read.
+    const stored = await createSession({ conversationId: 'stored-project-title', title: 'Temporary' });
+    await upsertMessageEvent(stored.id, { kind: 'user_message', source: 'app', time: Date.now(),
+      messageId: 'stored-project-user', authoredText: 'Plan the NAS migration', message: { text: 'Plan the NAS migration', chars: 22, truncated: false } });
+    await flushSessions(); resetSessionStoreForTests();
+    const metaPath = path.join(sessionsRoot(), stored.id, 'meta.json');
+    const meta = JSON.parse(await fs.readFile(metaPath, 'utf8'));
+    Object.assign(meta, { title: 'ChatGPT - Homelab Development', titleSource: 'provider' });
+    await fs.writeFile(metaPath, JSON.stringify(meta));
+    expect((await getSession(stored.id))?.title).toBe('Plan the NAS migration');
   });
 
   it('repairs a legacy context preview on cold read using durable authored text', async () => {

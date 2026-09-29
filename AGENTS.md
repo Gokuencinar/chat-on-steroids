@@ -3303,9 +3303,10 @@ diagnostics, not restart authority; secrets must never be printed to investigate
 ## 20. Build, installation, updater and release
 
 Source, bundle, package, installed bytes and live behavior are separate gates (§3). The app id
-is `com.chatonsteroids.app`. Native release targets are Windows x64/arm64 NSIS, macOS x64/arm64
-DMG+ZIP and Linux x64/arm64 AppImage+DEB. Windows is per-user-capable and `asInvoker`; replacing
-the package preserves userData. Synchronize package/main/extension versions deliberately.
+is `com.chatonsteroids.app`. The upstream packaging vocabulary still knows Windows, macOS and Linux,
+but this fork's public release policy is **Windows x64 only**. Windows is per-user-capable and
+`asInvoker`; replacing the package preserves userData. Synchronize package/main/extension versions
+deliberately.
 
 `electron-vite` builds main/preload/renderer into `out/`; extension files ship directly without
 a bundler. `electron-builder.yml` puts executable tunnel/rg, extension and required native
@@ -3345,8 +3346,8 @@ off. Windows NSIS/Linux AppImage can apply automatically; macOS/DEB present the 
 path, development does not stage. Explicit install may relaunch; ordinary quit does not force
 relaunch. Failed checks never replace a verified staged candidate with unverified bytes.
 
-CI verifies supported OS families; native `release.yml` builds/smokes all six targets, then
-assembles installers, extension ZIP, native-sources archive and `SHA256SUMS.txt`. `publish.yml`
+CI for this fork builds/smokes the Windows x64 release target, then assembles the installer,
+extension ZIP, native-sources archive and `SHA256SUMS.txt`. `publish.yml`
 is dispatched **at the reviewed version tag**, calls that reusable build in the same run,
 requires `docs/release-notes/vX.Y.Z.md`, rechecks versions/privacy/hashes and refuses an existing
 release. A tag alone does not build/publish. An unpublished candidate can be built separately,
