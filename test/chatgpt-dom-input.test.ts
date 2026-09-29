@@ -25,6 +25,8 @@ interface DomApi {
   turns(): Array<{ id: string | null; role: string; node: HTMLElement; nodes: HTMLElement[] }>;
   toolBlocks(turn: ReturnType<DomApi['turns']>[number]): HTMLElement[];
   hideActivity(turn: ReturnType<DomApi['turns']>[number], covered: HTMLElement[]): void;
+  connectorMentionSelected(connectorName: string, connectorId: string): boolean;
+  connectorMentionOption(connectorName: string, connectorId: string): HTMLElement | null;
 }
 let dom: JSDOM;
 let document: Document;
@@ -53,6 +55,39 @@ function user(text: string) {
   message.textContent = text;
   section.append(message); document.body.append(section);
 }
+
+describe('native connector mentions', () => {
+  const connectorName = 'Chat On Steroids Core';
+  const connectorId = 'plugin_asdk_app_example';
+
+  it('finds the current composer mention menu even when the row concatenates its description', () => {
+    const overlay = document.createElement('div');
+    overlay.setAttribute('data-composer-overlay-floating-ui', 'true');
+    overlay.innerHTML = `
+      <div data-mention-list-scroll-area>
+        <button type="button" data-list-navigation-item="true">
+          <span data-menu-row-content="true">
+            <span><span>${connectorName}</span><span>Read and edit code and text files on this computer.</span></span>
+          </span>
+        </button>
+      </div>`;
+    document.body.append(overlay);
+    const option = overlay.querySelector('button')!;
+
+    expect(option.textContent!.replace(/\s+/g, ' ').trim()).toBe(`${connectorName}Read and edit code and text files on this computer.`);
+    expect(api.connectorMentionOption(connectorName, connectorId)).toBe(option);
+  });
+
+  it('recognizes ChatGPT\'s current structured app mention token', () => {
+    box.innerHTML = `<p><span app-mention-name="chat-on-steroids-core"
+      app-mention-display-name="${connectorName}"
+      app-mention-path="app://asdk_app_example"
+      data-prompt-link-href="app://asdk_app_example"
+      contenteditable="false"><span>${connectorName}</span></span></p>`;
+
+    expect(api.connectorMentionSelected(connectorName, connectorId)).toBe(true);
+  });
+});
 
 it('reads the September search-unit renderer without legacy message attributes', () => {
   const turn = document.createElement('div');

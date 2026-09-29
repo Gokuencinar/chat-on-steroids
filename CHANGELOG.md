@@ -9,6 +9,13 @@ The app and the `extension/` companion are versioned together. **Reload the
 extension after updating the app**. If their bridge protocols are incompatible,
 the app refuses the extension and asks you to reload the matching copy.
 
+## [2.1.28] — Core mention attachment hotfix
+
+- Fixed manual follow-up sends failing with “Chat On Steroids Core could not be attached to this message”.
+- Updated native `@` connector discovery for ChatGPT's current composer overlay (`data-mention-list-scroll-area`).
+- Accepts the current connector row shape where the visible connector name and description are concatenated in the row text, while still requiring one unambiguous exact Core label.
+- Added regression coverage for both the current connector menu and ChatGPT's structured app-mention token.
+
 ## [2.1.27] — Upstream 2.1.20 sync with fork reliability preserved
 
 This fork release brings in all official changes through upstream 2.1.20 while keeping the fork-specific Windows updater, connector URLs, recovery behavior, temporary-chat handling, Goal/Loop durability and host self-protection.

@@ -173,16 +173,21 @@ var CLF_DOM = (() => {
       const appId = connectorId.slice('plugin_'.length);
       const wanted = normalizeConnectorLabel(connectorName);
       const candidates = [];
+      const seen = new Set();
       const roots = [...document.querySelectorAll(
-        '[role="listbox"],[role="menu"],[data-radix-popper-content-wrapper],[role="dialog"]'
+        '[role="listbox"],[role="menu"],[data-radix-popper-content-wrapper],[role="dialog"],[data-mention-list-scroll-area]'
       )].filter(root => !root.closest(OWN_SURFACES) && root.getClientRects().length > 0);
       for (const root of roots) {
         for (const node of root.querySelectorAll('[role="option"],[role="menuitem"],button,[role="button"]')) {
-          if (!renderedComposerNode(node)) continue;
+          if (seen.has(node) || !renderedComposerNode(node)) continue;
+          seen.add(node);
           const label = normalizeConnectorLabel(node.textContent).replace(/^@\s*/, '');
-          if (label !== wanted && !label.startsWith(`${wanted} `)) continue;
+          const exactDescendant = [...node.querySelectorAll('*')].some(child =>
+            normalizeConnectorLabel(child.textContent).replace(/^@\s*/, '') === wanted
+          );
+          if (label !== wanted && !label.startsWith(`${wanted} `) && !exactDescendant) continue;
           const attrs = [...node.attributes].map(attribute => `${attribute.name}=${attribute.value}`).join(' ');
-          candidates.push({ node, label, exactId: attrs.includes(connectorId) || attrs.includes(appId) });
+          candidates.push({ node, label: exactDescendant ? wanted : label, exactId: attrs.includes(connectorId) || attrs.includes(appId) });
         }
       }
       const exact = candidates.filter(candidate => candidate.exactId);
