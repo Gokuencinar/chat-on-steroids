@@ -9,6 +9,13 @@ The app and the `extension/` companion are versioned together. **Reload the
 extension after updating the app**. If their bridge protocols are incompatible,
 the app refuses the extension and asks you to reload the matching copy.
 
+## [2.1.30] — Manual sends can never be trapped by Core auto-attach
+
+- Changed per-message Core attachment from fail-closed to safe best-effort for ordinary manual sends.
+- If Core cannot be attached but the original draft and attachments are still exactly intact, CoS now replays the native ChatGPT Send once instead of leaving the message stuck in the composer.
+- CoS still refuses to replay when the conversation/editor changed, ChatGPT is genuinely generating, Send is unavailable, or the attachment attempt left the draft mutated.
+- This applies equally to messages typed directly on the web and drafts handed to the web composer by the desktop app.
+
 ## [2.1.29] — Manual Core attachment follows native composer readiness
 
 - Fixed a second cause of “Chat On Steroids Core could not be attached to this message” when CoS was open.
