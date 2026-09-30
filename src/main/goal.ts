@@ -43,7 +43,7 @@
  */
 
 import { requestBrowserDecision, authorizeBrowserHelperRetry } from './session/input.js';
-import { goalErrorMessage } from '../shared/goal-errors.js';
+import { goalErrorKey, goalErrorMessage } from '../shared/goal-errors.js';
 import { MAX_CHATGPT_MESSAGE_CHARS, userPromptText } from '../shared/user-prompt.js';
 import { planProgressText, type TaskProgressUpdate } from '../shared/task-progress.js';
 import { TaskRequestError } from './task-request.js';
@@ -51,7 +51,8 @@ import { GOAL_MARKER_INSTRUCTION, templateGoalDecision } from '../shared/goal-te
 import type { GoalBackend } from '../shared/types.js';
 import { createHash } from 'node:crypto';
 import { getConfig } from './config.js';
-import { getChatModels } from './chat-models.js';
+import { getChatModels, refreshForUnoffered } from './chat-models.js';
+import { resolveChatModel } from '../shared/chat-models.js';
 import type { ReasoningEffort } from '../shared/session.js';
 import { writeDurableNow, writeDurableSnapshotSoon, writeDurableSoon } from './durable.js';
 import { logInfo, logWarn } from './logger.js';
@@ -342,6 +343,7 @@ export interface GoalDraftView {
   error: string | null;
   /** Plain explanation for both browser and desktop presentation. */
   message?: string;
+  messageKey?: string | null;
   /**
    * Whether this failure is one the same request could still answer.
    *
@@ -1177,13 +1179,24 @@ function view(draft: GoalDraft): GoalDraftView {
     // is history, and a page that polls again must not find a message to type a second time.
     reply: draft.stage === 'ready' && !draft.acknowledged ? draft.reply : '',
     error: draft.error,
-    ...(draft.error ? { message: goalErrorMessage(draft.error) } : {}),
+    ...(draft.error ? { message: goalErrorMessage(draft.error), messageKey: goalErrorKey(draft.error) } : {}),
     retryable: draft.stage === 'failed' && retryableGoalFailure(draft.error ?? '')
   };
 }
 
+/**
+ * A failure nothing will fix on its own: no credit, a rejected key, an unknown model. The page does
+ * not retry it, so it is the chat's Goal state until a newer draft replaces it. Hiding it once the
+ * page acknowledged it left only the still-owed reply, which read as "Answer settling" forever (#584).
+ */
+function settledFailure(draft: GoalDraft): boolean {
+  return draft.stage === 'failed' && draft.error !== null && !retryableGoalFailure(draft.error);
+}
+
 function expireDraftPayload(draft: GoalDraft): void {
   if (draft.settledAt === 0 || Date.now() - draft.settledAt <= DRAFT_TTL_MS) return;
+  // Its reason stays on screen; there is no payload to expire.
+  if (settledFailure(draft)) { draft.acknowledged = true; return; }
   // The TTL is for the *payload*, not the idempotency key. A ready draft can have crossed
   // ChatGPT's irreversible send boundary while its local ACK was lost. Keep this turn's token
   // as a spent tombstone until a genuinely newer generation supersedes it.
@@ -1209,7 +1222,7 @@ export function goalViewFor(conversationId: string, clientId?: string): GoalDraf
   // here only so the turn it belongs to cannot be drafted a second time, and reporting it
   // would leave the page polling fast and the panel above the composer describing something
   // that finished minutes ago.
-  if (draft.acknowledged) return null;
+  if (draft.acknowledged && !settledFailure(draft)) return null;
   return view(draft);
 }
 
@@ -1760,13 +1773,19 @@ export function goalHelperSelection(): { model: string | null; reasoningEffort: 
   let reasoningEffort: ReasoningEffort | null = settings.helperReasoning ?? 'high';
   const models = getChatModels().models;
   if (!models.length) return { model, reasoningEffort };
-  const matching = (id: string) => models.filter(choice => choice.id === id || choice.aliases?.includes(id));
   const notes: string[] = [];
-  if (model && matching(model).length !== 1) { notes.push(`model "${model}"`); model = null; }
-  if (reasoningEffort && !(model ? matching(model) : models).some(choice => choice.efforts.includes(reasoningEffort!))) {
+  // A saved display label resolves to its unique observed family — the same rule the
+  // Settings selects apply before showing the badge. Exact ids and lane aliases keep
+  // their lane; a resolved label canonicalizes to the family. An ambiguous label stays rejected.
+  const resolved = model ? resolveChatModel(models, model) : undefined;
+  if (model && !resolved) { notes.push(`model "${model}"`); model = null; }
+  else if (resolved && resolved.id !== model && !resolved.aliases?.includes(model)) model = resolved.id;
+  const offered = model ? (resolved ? [resolved] : models.filter(choice => choice.id === model || choice.aliases?.includes(model))) : models;
+  if (reasoningEffort && !offered.some(choice => choice.efforts.includes(reasoningEffort!))) {
     notes.push(`reasoning "${reasoningEffort}"`); reasoningEffort = null;
   }
   const key = notes.join(',');
+  if (key) refreshForUnoffered(`goal helper ${key}`);
   if (key && key !== helperFallbackLogged) {
     helperFallbackLogged = key;
     logWarn(`goal: the saved helper ${notes.join(' and ')} is not offered by this ChatGPT account; using ChatGPT's current selection`);

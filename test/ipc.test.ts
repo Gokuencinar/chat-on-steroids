@@ -254,6 +254,56 @@ it('publishes Goal draft progress through the session refresh channel without a 
   }
 });
 
+it('publishes the exact transcript owners of one recorder burst and an explicit global invalidation', async () => {
+  const { recordNote } = await import('../src/main/session/recorder.js');
+  const first = await createSession({ title: 'Changed A', conversationId: 'ipc-changed-a' });
+  const second = await createSession({ title: 'Changed B', conversationId: 'ipc-changed-b' });
+  const send = vi.fn();
+  currentWindow = { setBackgroundColor: vi.fn(), setTitleBarOverlay: vi.fn(), isDestroyed: () => false, webContents: { send } };
+  await recordNote(first.id, 'first owner');
+  await recordNote(second.id, 'second owner');
+  await recordNote(first.id, 'first owner again');
+  await vi.waitFor(() => expect(send.mock.calls.filter(([channel]) => channel === 'session:changed')).toHaveLength(1));
+  const [, change] = send.mock.calls.find(([channel]) => channel === 'session:changed')!;
+  // Earlier fixtures may share this burst; each owner is still named exactly once.
+  expect(change.sessionIds).toEqual(expect.arrayContaining([first.id, second.id]));
+  expect(new Set(change.sessionIds).size).toBe(change.sessionIds.length);
+  send.mockClear();
+  expect(await handlers.get('sessions:clearImageStorage')!(null, { mode: 'all' })).toMatchObject({ ok: true });
+  expect(send).toHaveBeenCalledWith('session:changed', { allTranscripts: true });
+});
+
+it('publishes the owning session when delivered input history is revised in place', async () => {
+  const input = await import('../src/main/session/input.js');
+  const store = await import('../src/main/session/store.js');
+  const previous = await readDurable('session-input');
+  const session = await createSession({ title: 'Input revision owner', conversationId: 'input-revision-owner' });
+  const id = '30000000-0000-4000-8000-000000000002';
+  const send = vi.fn();
+  currentWindow = { setBackgroundColor: vi.fn(), setTitleBarOverlay: vi.fn(), isDestroyed: () => false, webContents: { send } };
+  const owners = () => send.mock.calls.filter(([channel, change]) => channel === 'session:changed' && change?.sessionIds?.includes(session.id));
+  const row = { id, sessionId: session.id, text: 'Revised fixture', mode: 'auto', model: null, reasoningEffort: null, dueAt: 100,
+    createdAt: 100, owner: 'request', conversationId: 'input-revision-owner', offeredAt: 200, historyRecorded: false };
+  try {
+    await writeDurableNow('session-input', [{ ...row, state: 'tool' }]);
+    input.resetInputForTests();
+    expect(await handlers.get('sessions:outbox')!(null, undefined)).toMatchObject({ ok: true });
+    await vi.waitFor(() => expect(owners()).toHaveLength(1));
+    send.mockClear();
+    // Same canonical key, same anchor and count: only the delivery state changes in place.
+    await writeDurableNow('session-input', [{ ...row, state: 'sent', owner: null, messageId: `input:${id}`, deliveredAt: 300 }]);
+    input.resetInputForTests();
+    expect(await handlers.get('sessions:outbox')!(null, undefined)).toMatchObject({ ok: true });
+    await vi.waitFor(() => expect(owners()).toHaveLength(1));
+    const users = (await store.readEvents(session.id)).filter(event => event.kind === 'user_message');
+    expect(users).toHaveLength(1);
+    expect(users[0]).toMatchObject({ inputId: id, inputDelivery: 'confirmed' });
+  } finally {
+    await writeDurableNow('session-input', previous ?? []);
+    input.resetInputForTests();
+  }
+});
+
 it('stages clipboard image bytes with a preview through the general attachment owner', async () => {
   const drop = (payload: unknown) => handlers.get('sessions:dropFiles')!(null, payload) as Promise<any>;
   expect(await drop({ files: [] })).toMatchObject({ ok: false });
@@ -822,6 +872,73 @@ describe('settings writes from more than one UI', () => {
     expect(getConfig().mcp.instructions).toBe('');
     expect((await save({ ...current, mcp: { instructions: 'x'.repeat(4001) } }, current)).ok).toBe(false);
     expect(getConfig().mcp.instructions).toBe('');
+  });
+  it('starts and stops the local control API only when its switch changes, and keeps it through stale saves', async () => {
+    const controlApi = await import('../src/main/control-api.js');
+    controlApi.initControlApiPath(dir);
+    const endpoint = path.join(dir, 'control-api', 'endpoint.json');
+    try {
+      const base = defaultConfig(); await saveConfig(base);
+      expect((await save({ ...base, controlApi: { enabled: true } }, base)).ok).toBe(true);
+      expect(JSON.parse(await fs.readFile(path.join(dir, 'config.json'), 'utf8')).controlApi).toEqual({ enabled: true, allowActions: false });
+      const { port } = JSON.parse(await fs.readFile(endpoint, 'utf8'));
+      expect(controlApi.controlApiPort()).toBe(port);
+      // A save from a form that still shows the old value, and one from a build that has no
+      // such field, both leave the switch and the running listener alone.
+      expect((await save({ ...base, ui: { ...base.ui, minimizeToTray: !base.ui.minimizeToTray } }, base)).ok).toBe(true);
+      const legacy = { ...base } as Partial<typeof base>; delete legacy.controlApi;
+      expect((await save(legacy, legacy)).ok).toBe(true);
+      expect(getConfig().controlApi.enabled).toBe(true);
+      expect(controlApi.controlApiPort()).toBe(port);
+      const current = getConfig();
+      expect((await save({ ...current, controlApi: { enabled: false } }, current)).ok).toBe(true);
+      expect(controlApi.controlApiPort()).toBeNull();
+      await expect(fs.access(endpoint)).rejects.toThrow();
+      // Switched off means nothing listens any more, not merely that requests are refused.
+      await expect(fetch(`http://127.0.0.1:${port}/v1/health`)).rejects.toThrow();
+    } finally {
+      await controlApi.stopControlApi();
+    }
+  });
+  it('keeps message actions behind the API switch and merges the two switches independently', async () => {
+    const controlApi = await import('../src/main/control-api.js');
+    controlApi.initControlApiPath(dir);
+    try {
+      const base = defaultConfig(); await saveConfig(base);
+      // Actions cannot be granted while the API is off.
+      expect((await save({ ...base, controlApi: { enabled: false, allowActions: true } }, base)).ok).toBe(true);
+      expect(getConfig().controlApi).toEqual({ enabled: false, allowActions: false });
+      const off = getConfig();
+      expect((await save({ ...off, controlApi: { enabled: true, allowActions: true } }, off)).ok).toBe(true);
+      expect(getConfig().controlApi).toEqual({ enabled: true, allowActions: true });
+      expect(controlApi.controlApiPort()).not.toBeNull();
+      // A form from a build with no allowActions field, and a stale form still showing it off,
+      // both leave a grant that was made after they were loaded.
+      const granted = getConfig();
+      expect((await save({ ...granted, controlApi: { enabled: true } }, granted)).ok).toBe(true);
+      expect(getConfig().controlApi.allowActions).toBe(true);
+      const stale = { ...granted, controlApi: { enabled: true, allowActions: false } };
+      expect((await save(stale, stale)).ok).toBe(true);
+      expect(getConfig().controlApi.allowActions).toBe(true);
+      // Turning the API off revokes the grant and stops the listener; turning it back on does
+      // not bring the grant back.
+      const running = getConfig();
+      expect((await save({ ...running, controlApi: { enabled: false, allowActions: true } }, running)).ok).toBe(true);
+      expect(getConfig().controlApi).toEqual({ enabled: false, allowActions: false });
+      expect(controlApi.controlApiPort()).toBeNull();
+      const stopped = getConfig();
+      expect((await save({ ...stopped, controlApi: { enabled: true } }, stopped)).ok).toBe(true);
+      expect(getConfig().controlApi).toEqual({ enabled: true, allowActions: false });
+      // The grant can be withdrawn on its own without stopping the listener.
+      const again = getConfig();
+      expect((await save({ ...again, controlApi: { enabled: true, allowActions: true } }, again)).ok).toBe(true);
+      const withdraw = getConfig();
+      expect((await save({ ...withdraw, controlApi: { enabled: true, allowActions: false } }, withdraw)).ok).toBe(true);
+      expect(getConfig().controlApi).toEqual({ enabled: true, allowActions: false });
+      expect(controlApi.controlApiPort()).not.toBeNull();
+    } finally {
+      await controlApi.stopControlApi();
+    }
   });
   it('saves helper settings and tab retention through the renderer schema and merge boundary', async () => {
     const base = defaultConfig();

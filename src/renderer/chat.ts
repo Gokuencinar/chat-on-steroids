@@ -1,7 +1,7 @@
 import { hasProviderDirective, resolvedCapture, withoutProviderDirectives } from '../shared/content-reference.js';
 import { createWorkspaceTerminal } from './workspace-terminal.js';
 import { createWorkspaceDocks } from './workspace-docks.js';
-import { ui, t } from './i18n.js';
+import { currentLanguage, ui, t } from './i18n.js';
 import { initSkills } from './skills.js';
 import { imageStorageButton } from './image-storage.js';
 import { applyChatModels, applyComposerSessionModel, initChatModels, confirmedComposerModel, composerSendModel, ensureComposerModel } from './chat-models.js';
@@ -24,10 +24,11 @@ import { renderRecoveryCountdowns } from './recovery.js';
 import type { RecoveryCountdown } from '../shared/recovery.js';
 import { communicationTitle, foldAgentCommunication } from './agent-communication.js';
 import { initContextMeter, paintContextMeter } from './context-meter.js';
-import { installComposerHeightMotion } from './composer-motion.js';
+import { installComposerDockMotion, installComposerHeightMotion } from './composer-motion.js';
 import { sanitizeHtmlTree } from './sanitize-html.js';
 import { isAstraModel } from '../shared/chat-models.js';
 import { supportsFinishAutomation } from '../shared/finish.js';
+import { answerAnchors } from '../shared/markdown-export.js';
 import type { InputImage, InputAttachment, InputAutomation } from '../shared/input.js';
 import { injectableAttachments, queuedFollowup, MAX_INPUT_IMAGES } from '../shared/input.js';
 import type { InputArgs, InputEntry } from '../main/session/input.js';
@@ -44,6 +45,9 @@ import type {
   ActivitySummary,
   AgentState,
   Handoff,
+  MessageReference,
+  RunningToolActivity,
+  SessionChange,
   SessionEvent,
   SessionSummary,
   StoredText,
@@ -69,7 +73,7 @@ import {
 } from '../shared/goal.js';
 import { DEFAULT_HANDOFF_PROMPT, MAX_HANDOFF_PROMPT_CHARS } from '../shared/handoff.js';
 import { browserExtensionRequired, type AppState, type Config } from '../shared/types.js';
-import { $, ago, clockTime, compactNumber, disclosureChevron, el, filterSettingsSections, icon, run, toast } from './dom.js';
+import { $, ago, clockTime, compactNumber, disclosureChevron, el, filterSettingsSections, icon, run, setIcon, toast } from './dom.js';
 
 const api = window.api;
 
@@ -280,6 +284,10 @@ let handoffFor: string | null = null;
 
 let listTimer: number | undefined;
 let listRefreshDirty = false;
+/** Transcript owners named by `session:changed` pushes that no catalog refresh has consumed yet. */
+let changedTranscripts: { all: boolean; ids: Set<string> } = { all: false, ids: new Set() };
+/** Summary values the selected transcript's latest live-tail read was requested against. */
+let detailStamp: { updatedAt: number; events: number } | null = null;
 let toolActivityTimer: number | undefined;
 let sessionsLoadGeneration = 0;
 let detailLoadGeneration = 0;
@@ -561,10 +569,18 @@ function mergeSessionRows(rows: SessionSummary[]): void {
   sessions = sortSessionRows([...merged.values()]);
 }
 
-async function loadSessions(): Promise<void> {
+/**
+ * Refreshes the catalog and controls. `detail: 'changed'` rereads the selected transcript only
+ * when a consumed push named it (or all transcripts) or its refreshed summary proves it stale;
+ * explicit refreshes keep `'reread'`. Pushes are consumed after the list arrives, so the
+ * detail read that follows always starts after every write they announced.
+ */
+async function loadSessions(detail: 'reread' | 'changed' = 'reread'): Promise<void> {
   const generation = ++sessionsLoadGeneration;
   const [list, catalog] = await Promise.all([run(api.listSessions({ limit: SESSION_PAGE_SIZE })), run(api.listProjects())]);
   if (!list || generation !== sessionsLoadGeneration) return;
+  const changed = changedTranscripts;
+  changedTranscripts = { all: false, ids: new Set() };
   if (catalog) projects = catalog;
   // Once older pages have been requested, a hot refresh only replaces/updates the newest page.
   // Throwing the older rows away here would make scrolling history vanish every 400 ms while a
@@ -599,7 +615,10 @@ async function loadSessions(): Promise<void> {
     detailCursor = null;
   }
   paintSessions();
-  await loadDetail();
+  const row = selectedId === null ? undefined : sessions.find(entry => entry.id === selectedId);
+  if (detail === 'reread' || selectedId === null || detailFor !== selectedId || changed.all || changed.ids.has(selectedId) ||
+      row?.updatedAt !== detailStamp?.updatedAt || row?.events !== detailStamp?.events) await loadDetail();
+  else void refreshSessionControls();
   void refreshInputQueue();
 }
 
@@ -912,7 +931,7 @@ function paintGoalProgress(): void {
     browser: t("Sending opening message to ChatGPT…"), sent: t("Opening message sent"), tool: t('Opening message delivered to the active turn'),
     failed: t("Task could not continue"), cancelled: t("Opening message cancelled"), paused: t("Automation paused · task text preserved"), 'no-reply': t("Goal reached") };
   if (phase === 'retrying') { text = ''; error = undefined; }
-  labels.retrying = t("Provider busy · retry {0}{1}", [progress?.attempt ?? '', progress?.retryAt ? t(' at {0}', [new Date(progress.retryAt).toLocaleTimeString()]) : '']);
+  labels.retrying = t("Provider busy · retry {0}{1}", [progress?.attempt ?? '', progress?.retryAt ? t(' at {0}', [new Date(progress.retryAt).toLocaleTimeString(currentLanguage())]) : '']);
   const mode = $<HTMLSelectElement>('chatAutomation').value === 'loop' ? t('Loop') : t('Goal');
   labels.settling = `${mode} · ${wait?.reason === 'native-busy' ? t('ChatGPT resumed work · waiting before retry') : wait?.reason === 'silence' ? t('Waiting before recovery reload') : wait?.reason === 'quiet' ? t('Waiting for tool inactivity') :
     wait?.reason === 'workers' ? t('Waiting for this chat’s sub-agents') : wait?.reason === 'tools' ? t('Waiting for running tools') : wait?.reason === 'listening' ? t('Waiting for activity after recovery') : t('Answer settling')}`;
@@ -1000,7 +1019,7 @@ function dockAction(label: string | (() => string), symbol: string, click: (even
 function paintActiveGoal(): void {
   const row = $('activeGoalRow');
   const mode = $<HTMLSelectElement>('chatAutomation').value;
-  row.hidden = !selectedId || mode === 'off';
+  row.hidden = mode === 'off';
   if (row.hidden) { row.replaceChildren(); return; }
   const objective = $<HTMLTextAreaElement>('sessionObjective').value.trim();
   const label = el('span', 'queue-label', () => `${mode === 'loop' ? t("Loop") : t("Pursuing goal")}${objective ? ' · ' + objective : ''}`);
@@ -1010,9 +1029,28 @@ function paintActiveGoal(): void {
     dockAction(() => t("Edit task"), 'i-pencil', event => {
       // This opener is outside the menu; its click must not immediately dismiss it.
       event.stopPropagation();
-      $<HTMLDetailsElement>('composerSettings').open = true;
-      $<HTMLTextAreaElement>('sessionObjective').focus();
+      openObjectiveEditor();
     }));
+}
+// A mode-menu pencil edits that mode's objective without switching automation;
+// Save applies the objective and turns the mode on through the existing path.
+let objectiveEditMode: 'goal' | 'loop' | null = null;
+// Saving hands progress and failures to the dock's lifecycle row; the editor closes.
+function closeObjectiveEditor(): void {
+  $<HTMLDetailsElement>('composerSettings').open = false;
+  $('composerSettings').querySelector<HTMLElement>('summary')!.focus();
+}
+function openObjectiveEditor(mode: 'goal' | 'loop' | null = null): void {
+  const current = $<HTMLSelectElement>('chatAutomation').value;
+  const next = mode && mode !== current ? mode : null;
+  if (next && next !== $<HTMLSelectElement>('sessionObjectiveMode').value) {
+    cancelGoalRequest(); goalIntentGeneration++;
+    $('sessionObjective').dataset.edited = 'true'; delete $('sessionObjective').dataset.saved;
+  }
+  objectiveEditMode = next; paintAutomationSwitch();
+  $('composerSettings').classList.remove('mode-picker');
+  $<HTMLDetailsElement>('composerSettings').open = true;
+  $<HTMLTextAreaElement>('sessionObjective').focus();
 }
 type TaskPlanDraft = { text: string; requestId: string | null; stages: string[] | null; sending: boolean; progress: TaskProgress | null; error: string | null };
 // Planning belongs to its draft key. Completed stages own their captured objective
@@ -1041,7 +1079,7 @@ function paintTaskPlan(): void {
     preview.append(error, el('div', 'muted', () => t("Send again to retry, or cancel the plan.")));
   } else if (plan?.requestId) {
     const progress = plan.progress;
-    const label = () => !progress ? t("Creating plan…") : progress.phase === 'retrying' ? t("Provider busy · retry {0}{1}", [progress.attempt ?? '', progress.retryAt ? t(' at {0}', [new Date(progress.retryAt).toLocaleTimeString()]) : '']) : progress.phase === 'cancelled' ? t("Plan cancelled") : progress.phase === 'preparing' ? t("Preparing plan…") : progress.phase === 'ready' ? t("Plan ready") : progress.phase === 'failed' ? t("Plan failed") : t("Writing plan…");
+    const label = () => !progress ? t("Creating plan…") : progress.phase === 'retrying' ? t("Provider busy · retry {0}{1}", [progress.attempt ?? '', progress.retryAt ? t(' at {0}', [new Date(progress.retryAt).toLocaleTimeString(currentLanguage())]) : '']) : progress.phase === 'cancelled' ? t("Plan cancelled") : progress.phase === 'preparing' ? t("Preparing plan…") : progress.phase === 'ready' ? t("Plan ready") : progress.phase === 'failed' ? t("Plan failed") : t("Writing plan…");
     preview.append(el('span', 'muted', label));
     if (progress?.text || progress?.error) preview.append(el('pre', 'task-progress-text', progress.error ? () => localizedGoalError(progress.error!) : progress.text));
   }
@@ -1159,14 +1197,13 @@ async function queuePreparedPlan(key: string, plan: TaskPlanDraft & { stages: st
 function paintTaskActions(): void {
   const objective = $<HTMLTextAreaElement>('sessionObjective');
   const save = $<HTMLButtonElement>('saveSessionObjective');
-  const off = $<HTMLSelectElement>('chatAutomation').value === 'off';
+  const off = $<HTMLSelectElement>('chatAutomation').value === 'off' && !objectiveEditMode;
   objective.hidden = off;
   document.querySelector<HTMLLabelElement>('label[for="sessionObjective"]')!.hidden = off;
   save.hidden = off;
   const saved = objective.dataset.saved === objective.value && !!objective.value.trim();
   save.disabled = objective.disabled || !objective.value.trim() || save.dataset.busy === 'true' || saved;
   ui(save.querySelector('span')!, 'textContent', () => save.dataset.busy === 'true' ? t("Saving…") : saved ? t("Saved") : t("Save task"));
-  const text = authoredComposerText().trim();
   for (const id of ['createPlan']) {
     const button = $<HTMLButtonElement>(id);
     const plan = taskPlans.get(draftKey()), planMode = !!plan;
@@ -1174,8 +1211,9 @@ function paintTaskActions(): void {
     else { delete button.dataset.busy; button.removeAttribute('aria-busy'); }
     button.disabled = plan?.sending === true;
     button.setAttribute('aria-pressed', String(planMode));
-    ui(button.querySelector('span')!, 'textContent', () => planMode ? t("Cancel plan") : t("Create plan"));
-    ui(button, 'title', () => planMode ? t("Return to a normal message; keep your draft") : text ? t("Split your message into editable stages") : t("Write a message in the composer first"));
+    ui(button.querySelector('span')!, 'textContent', () => t("Plan"));
+    ui(button, 'aria-label', () => planMode ? t("Cancel plan") : t("Create plan"));
+    ui(button, 'title', () => planMode ? t("Return to a normal message; keep your draft") : t("Split your message into editable stages"));
   }
 }
 function paintLoopDelivery(): void {
@@ -1191,12 +1229,19 @@ function paintAutomationSwitch(): void {
   paintGoalProgress();
   paintActiveGoal();
   const select = $<HTMLSelectElement>('chatAutomation');
+  const mode = select.value;
+  $('composerModeIcon').className = `ico ph ph-${mode === 'loop' ? 'arrows-clockwise' : mode === 'goal' ? 'target' : 'chat-circle'}`;
+  $('composerSettings').dataset.mode = mode;
+  ui($('composerModeLabel'), 'textContent', () => mode === 'off' ? t('Normal') : mode === 'goal' ? t('Goal') : t('Loop'));
   for (const button of $('automationSwitch').querySelectorAll<HTMLButtonElement>('[data-mode]')) {
     button.setAttribute('aria-checked', String(button.dataset.mode === select.value));
     button.disabled = select.disabled;
   }
-  $<HTMLSelectElement>('sessionObjectiveMode').value = select.value === 'loop' ? 'loop' : 'goal';
-  const loop = select.value === 'loop';
+  for (const button of $('automationSwitch').querySelectorAll<HTMLButtonElement>('[data-edit-mode]')) button.disabled = select.disabled;
+  if (objectiveEditMode === select.value) objectiveEditMode = null;
+  const editMode = objectiveEditMode ?? (select.value === 'loop' ? 'loop' : 'goal');
+  $<HTMLSelectElement>('sessionObjectiveMode').value = editMode;
+  const loop = editMode === 'loop';
   ui(document.querySelector('label[for="sessionObjective"]')!, 'textContent', () => loop ? t("Loop instructions") : t("Goal"));
   ui($<HTMLTextAreaElement>('sessionObjective'), 'placeholder', () => loop ? t("What should each continuation focus on?") : t("What should this chat achieve?"));
   paintTaskActions();
@@ -1252,8 +1297,8 @@ async function refreshSessionControls(): Promise<void> {
   paintDeliveryControls();
   paintStateLine();
   menu.hidden = !controls;
-  $('compactSession').hidden = false;
-  if (!controls) return;
+  $('compactSession').hidden = !controls;
+  if (!controls) { $('cancelCompaction').hidden = true; return; }
   const objective = $<HTMLTextAreaElement>('sessionObjective');
   if (objective.dataset.sessionId !== id || !objective.dataset.edited) {
     objective.value = controls.objective;
@@ -1344,6 +1389,9 @@ async function loadDetail(navigate = false, olderBefore?: number, newerFrom?: nu
       ? detail.nextFrom
       : detail.events.reduce((cursor, event) => Math.max(cursor, event.seq + 1), incremental ? detailCursor! : 0));
   totalEvents = detail.total;
+  // Stamp from the request-time copy: a summary newer than this read must still prove it stale.
+  if (!prepend && newerFrom === undefined)
+    detailStamp = observedCompletion ? { updatedAt: observedCompletion.updatedAt, events: observedCompletion.events } : null;
   if (opening) $('timelineContent').style.removeProperty('--timeline-scroll-reserve');
   paintDetail(!prepend && newerFrom === undefined);
   // A sidebar completion becomes read only after this exact selection/load has successfully
@@ -1544,6 +1592,157 @@ function citationLabels(source: string, capture?: StoredText): Map<string, strin
 }
 
 /**
+ * ChatGPT's inline citation directive, `:chatgpt-content-reference{index="0"}` at the end of a
+ * sentence, which its page draws as a source pill ("arXiv +2") and plain Markdown shows raw. The
+ * directive names an index into the reply's references. When the reply was recorded with them,
+ * the pill and every source behind it come from that exact index. Otherwise a pill is taken from
+ * the page's own rendering only when the prose before it matches the prose before the directive,
+ * as `citationLabels` proves native citation ranges. An unproven directive is dropped: never raw,
+ * and never a guessed destination.
+ */
+const INLINE_REFERENCE = /^:{1,2}chatgpt-content-reference\{[^}\n]*\}/;
+/** The sources behind one pill, and how many more its page counted than the recording holds. */
+interface CitationPill { sources: MessageReference['sources']; unrecorded: number }
+
+function citationPills(source: string, capture?: StoredText): Map<number, CitationPill> {
+  const pills = new Map<number, CitationPill>();
+  if (!capture?.text || capture.truncated || capture.text.length > MAX_RENDERED_HTML_CHARS) return pills;
+  const template = document.createElement('template');
+  template.innerHTML = capture.text;
+  const captured = [...template.content.querySelectorAll('a[data-testid="chatgpt-citation"]')];
+  if (!captured.length) return pills;
+  // Other native citations are pills on the page too; their words are not prose.
+  const pillOf = (element: Element): number => captured.indexOf(element);
+  const capturedPrefixes = prosePrefixes(template.content, element => {
+    const at = pillOf(element);
+    return at >= 0 ? `pill:${at}` : element.hasAttribute('data-content-reference-start') ? 'native' : null;
+  });
+  const probeAttribute = `data-cos-probe-${Math.random().toString(36).slice(2)}`;
+  let probes = 0;
+  const probeParser = new Marked({ gfm: true, extensions: [{
+    name: 'inlineReferenceProbe', level: 'inline',
+    start: value => { const at = value.search(/:{1,2}chatgpt-content-reference\{|\uE200/); return at < 0 ? undefined : at; },
+    tokenizer(value) {
+      const reference = value.match(INLINE_REFERENCE);
+      if (reference) return { type: 'inlineReferenceProbe', raw: reference[0], probe: probes++ };
+      const native = value.match(PROVIDER_URL) ?? value.match(PROVIDER_CITATION);
+      return native ? { type: 'inlineReferenceProbe', raw: native[0], probe: -1 } : undefined;
+    },
+    renderer(token) {
+      const probe = Number((token as unknown as { probe: number }).probe);
+      return probe >= 0 ? `<span ${probeAttribute}="${probe}"></span>` : '';
+    }
+  }] });
+  const canonical = document.createElement('template');
+  canonical.innerHTML = probeParser.parse(source, { async: false, gfm: true });
+  const canonicalPrefixes = prosePrefixes(canonical.content, element => {
+    const value = element.getAttribute(probeAttribute);
+    return value !== null && /^\d+$/.test(value) ? `probe:${value}` : null;
+  });
+  const used = new Set<number>();
+  for (let probe = 0; probe < probes; probe++) {
+    const prefix = canonicalPrefixes.get(`probe:${probe}`);
+    if (prefix === undefined) continue;
+    // In page order, the first unused pill whose preceding prose is this directive's.
+    const at = captured.findIndex((_, index) => !used.has(index) && capturedPrefixes.get(`pill:${index}`) === prefix);
+    if (at < 0) continue;
+    used.add(at);
+    const anchor = captured[at]!;
+    const href = safeRenderedHref(anchor.getAttribute('href') ?? '');
+    if (!href || !/^https?:/.test(href)) continue;
+    const moreNode = [...anchor.querySelectorAll('[aria-hidden="true"]')].find(node => /^\+\d{1,3}$/.test(node.textContent?.trim() ?? ''));
+    const more = moreNode ? Number(moreNode.textContent!.trim().slice(1)) : 0;
+    const label = (anchor.textContent ?? '').replace(moreNode?.textContent ?? '', '').replace(/\s+/g, ' ').trim().slice(0, 80);
+    // The page's label reads "Source: Title, URL, N additional sources".
+    const described = anchor.getAttribute('aria-label') ?? '';
+    const title = label && described.startsWith(`${label}: `) ? described.slice(label.length + 2).split(`, ${href}`)[0]!.trim() : '';
+    pills.set(probe, { sources: [{ title: title.slice(0, 300) || href, url: href, ...(label ? { source: label } : {}) }], unrecorded: more });
+  }
+  return pills;
+}
+
+const siteOf = (url: string): string => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; } };
+
+/**
+ * The app's own pill for a proven inline citation, added after sanitising like the code panels.
+ * Clicking it opens its source through the message's link handler. Hovering or focusing it shows
+ * the card ChatGPT shows: the source's site, title, date and snippet, paging through every source
+ * behind the count. A reply recorded without them says how many more its page counted.
+ */
+function citationPill(pill: CitationPill): HTMLElement {
+  const first = pill.sources[0]!;
+  const total = pill.sources.length + pill.unrecorded;
+  const wrap = el('span', 'citation');
+  const link = document.createElement('a');
+  link.className = 'citation-pill';
+  link.href = first.url;
+  link.append(el('span', 'citation-pill-label', first.source || siteOf(first.url)));
+  if (total > 1) link.append(el('span', 'citation-pill-more', `+${total - 1}`));
+  const card = el('span', 'citation-card');
+  card.hidden = true;
+  card.setAttribute('role', 'tooltip');
+  // Built once: paging rewrites only the words, so the arrow just clicked keeps focus and stays
+  // under the pointer. Rebuilding the card removed the focused button and closed the card.
+  const site = el('span', 'citation-card-site');
+  const title = document.createElement('a');
+  title.className = 'citation-card-title';
+  const detail = el('span', 'citation-card-detail');
+  const count = el('span', 'citation-card-count');
+  let at = 0;
+  const paint = (): void => {
+    const source = pill.sources[at]!;
+    site.textContent = source.source || siteOf(source.url);
+    title.href = source.url; title.textContent = source.title || siteOf(source.url);
+    const date = source.date ? new Date(source.date).toLocaleDateString(currentLanguage(), { year: 'numeric', month: 'long', day: 'numeric' }) : '';
+    detail.textContent = [date, source.snippet].filter(Boolean).join(' — ');
+    detail.hidden = !detail.textContent;
+    count.textContent = `${at + 1}/${pill.sources.length}`;
+  };
+  if (pill.sources.length > 1) {
+    const step = (delta: number, name: string, label: string): HTMLButtonElement => {
+      const button = el('button', 'citation-card-step') as HTMLButtonElement;
+      button.type = 'button'; button.append(icon(name));
+      ui(button, 'aria-label', () => t(label));
+      button.addEventListener('click', event => {
+        event.preventDefault();
+        at = (at + delta + pill.sources.length) % pill.sources.length;
+        paint();
+      });
+      return button;
+    };
+    const nav = el('span', 'citation-card-nav');
+    nav.append(step(-1, 'i-arrow-left', 'Previous source'), step(1, 'i-arrow-right', 'Next source'), count);
+    card.append(nav);
+  }
+  card.append(site, title, detail);
+  if (pill.unrecorded) card.append(el('span', 'citation-card-note', () => t('{0} more sources were not recorded with this reply.', [pill.unrecorded])));
+  let timer: number | undefined;
+  let pointerInside = false;
+  const show = (): void => {
+    window.clearTimeout(timer);
+    if (!card.hidden) return;
+    at = 0; paint(); card.hidden = false;
+    // Near the end of a line the card grows back from the pill instead of past the column.
+    card.classList.remove('is-end');
+    const column = wrap.closest('.msg')?.getBoundingClientRect();
+    if (column && card.getBoundingClientRect().right > column.right) card.classList.add('is-end');
+  };
+  const hide = (delay: number): void => {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(() => { card.hidden = true; }, delay);
+  };
+  wrap.addEventListener('pointerenter', () => { pointerInside = true; window.clearTimeout(timer); timer = window.setTimeout(show, 150); });
+  wrap.addEventListener('pointerleave', () => { pointerInside = false; hide(200); });
+  wrap.addEventListener('focusin', show);
+  // Focus leaving for the page while the pointer is still on the card (a click on its words) keeps it.
+  wrap.addEventListener('focusout', event => { if (!pointerInside && !wrap.contains(event.relatedTarget as Node | null)) hide(0); });
+  wrap.addEventListener('keydown', event => { if (event.key === 'Escape') hide(0); });
+  wrap.append(link, card);
+  return wrap;
+}
+const PILL_PLACEHOLDER = /^\uE000(\d{1,4})\uE001$/;
+
+/**
  * Sanitizes ChatGPT's captured rendered HTML without reparsing Markdown.
  *
  * The page is untrusted input even though the extension produced the observation. Preserve
@@ -1581,7 +1780,7 @@ const WRITING_BLOCK: TokenizerAndRendererExtension = {
   }
 };
 
-export function renderedMarkdown(source: string, capture?: StoredText): HTMLElement {
+export function renderedMarkdown(source: string, capture?: StoredText, references?: readonly MessageReference[]): HTMLElement {
   // Fiber's canonical text can be complete while a background provider tab still
   // paints its first words. Render this revision directly; captured DOM HTML is
   // never evidence that it contains the current message revision.
@@ -1594,8 +1793,24 @@ export function renderedMarkdown(source: string, capture?: StoredText): HTMLElem
     text = plain || t('This reply points to content from another message that was not recorded.');
   }
   const citations = text.includes('\uE200') ? citationLabels(text, capture) : new Map<string, string>();
+  const pills = text.includes('chatgpt-content-reference{') ? citationPills(text, capture) : new Map<number, CitationPill>();
+  const byIndex = new Map((references ?? []).map(reference => [reference.index, reference]));
+  let directives = 0;
   // An inline tokenizer leaves literal citation examples inside code spans/fences intact.
   const parser = new Marked({ gfm: true, extensions: [WRITING_BLOCK, {
+    name: 'inlineReference', level: 'inline',
+    start: value => { const at = value.search(/:{1,2}chatgpt-content-reference\{/); return at < 0 ? undefined : at; },
+    tokenizer(value) { const match = value.match(INLINE_REFERENCE); return match ? { type: 'inlineReference', raw: match[0], probe: directives++ } : undefined; },
+    renderer(token) {
+      // A proven pill travels the sanitiser as a plain link; the pill itself is drawn afterwards.
+      const probe = Number((token as unknown as { probe: number }).probe);
+      const index = token.raw.match(/\bindex="(\d{1,4})"/)?.[1];
+      const recorded = index === undefined ? undefined : byIndex.get(Number(index));
+      if (recorded) pills.set(probe, { sources: recorded.sources, unrecorded: 0 });
+      const pill = pills.get(probe);
+      return pill ? `<a href="${escapeHtml(pill.sources[0]!.url)}">\uE000${probe}\uE001</a>` : '';
+    }
+  }, {
     name: 'providerReference', level: 'inline',
     start: value => value.indexOf('\uE200'),
     tokenizer(value) { const match = value.match(PROVIDER_URL) ?? value.match(PROVIDER_CITATION); return match ? { type: 'providerReference', raw: match[0] } : undefined; },
@@ -1617,7 +1832,15 @@ export function renderedMarkdown(source: string, capture?: StoredText): HTMLElem
     }
   }] });
   const html = parser.parse(text, { async: false });
-  return renderedMessage({ text: html, chars: html.length, truncated: html.length > MAX_RENDERED_HTML_CHARS }, text);
+  const box = renderedMessage({ text: html, chars: html.length, truncated: html.length > MAX_RENDERED_HTML_CHARS }, text);
+  if (pills.size) {
+    for (const anchor of box.querySelectorAll('a[href]')) {
+      const probe = anchor.textContent?.match(PILL_PLACEHOLDER)?.[1];
+      const pill = probe === undefined ? undefined : pills.get(Number(probe));
+      if (pill) anchor.replaceWith(citationPill(pill));
+    }
+  }
+  return box;
 }
 
 export function renderedMessage(html: StoredText | null | undefined, fallback: string): HTMLElement {
@@ -1720,6 +1943,89 @@ const openTools = new Set<string>();
  */
 const rowCache = new Map<string, { sig: string; row: HTMLElement }>();
 
+/*
+ * Sending and following, as ChatGPT, Claude and Codex do. A sent message rides to the top of the
+ * view and its answer grows in the reserved space beneath it, so nothing moves while it streams;
+ * an answer taller than the view is read from the top rather than chased. Scrolling by the reader
+ * releases the hold, and a button brings them back to the end whenever content lies below.
+ */
+const SEND_TOP_GAP = 16, JUMP_DISTANCE = 150, SEND_GLIDE_MS = 700;
+const USER_MESSAGE_KEY = 'message:user_message\u0000';
+let sendAnchor: { key: string; inputId: string; messageId?: string; before: Set<string>; session: string | null; seen: boolean; smoothUntil: number } | null = null;
+/** The reader scrolled away from a held message: they are reading, not following the end. */
+let readingAfterSend = false;
+
+function userMessageKeys(): Set<string> {
+  const keys = new Set<string>();
+  for (const row of $('timelineContent').querySelectorAll<HTMLElement>('[data-timeline-key]')) {
+    if (row.dataset.timelineKey!.startsWith(USER_MESSAGE_KEY)) keys.add(row.dataset.timelineKey!);
+  }
+  return keys;
+}
+
+function scrollPane(pane: HTMLElement, top: number, smooth: boolean): void {
+  if (typeof pane.scrollTo === 'function') pane.scrollTo({ top, behavior: smooth ? 'smooth' : 'auto' });
+  else pane.scrollTop = top;
+}
+
+/** Keeps the sent message at the top of the view, reserving room below it for the answer. */
+function holdSentMessage(): boolean {
+  const anchor = sendAnchor;
+  if (!anchor) return false;
+  if (anchor.session !== selectedId) { sendAnchor = null; return false; }
+  const pane = $('chatBody'), content = $('timelineContent');
+  const rows = [...content.querySelectorAll<HTMLElement>('[data-timeline-key]')];
+  let row = rows.find(node => node.dataset.timelineKey === anchor.key);
+  // ChatGPT records the sent message under its own id, without the input id, and the pending row
+  // leaves. Follow the recorded row: by the id the input learned, else as the user message that
+  // was not in the chat when this one was sent.
+  anchor.messageId ??= pendingComposerInputs.find(entry => entry.id === anchor.inputId)?.messageId;
+  if (!row) {
+    const key = anchor.messageId && `${USER_MESSAGE_KEY}${anchor.messageId}`;
+    row = (key && rows.find(node => node.dataset.timelineKey === key)) ||
+      rows.findLast(node => node.dataset.timelineKey!.startsWith(USER_MESSAGE_KEY) && !anchor.before.has(node.dataset.timelineKey!));
+    if (row) anchor.key = row.dataset.timelineKey!;
+  }
+  if (!row || !row.getClientRects().length) return false;
+  // The glide starts when the message appears, which for one queued behind a running turn is
+  // well after it was sent.
+  if (!anchor.seen) { anchor.seen = true; anchor.smoothUntil = Date.now() + SEND_GLIDE_MS; }
+  // Measure where the row rests, not where its entrance animation has shifted it for now.
+  const transform = getComputedStyle(row).transform;
+  const shift = transform && transform !== 'none' && typeof DOMMatrixReadOnly === 'function' ? new DOMMatrixReadOnly(transform).m42 : 0;
+  const top = Math.max(0, pane.scrollTop + row.getBoundingClientRect().top - shift - pane.getBoundingClientRect().top - SEND_TOP_GAP);
+  // Size the reserve from the content alone, and never drop it first: removing it even for a
+  // measurement shrinks the scroll range and the browser clamps the view mid-animation.
+  const current = Number.parseFloat(content.style.getPropertyValue('--timeline-scroll-reserve')) || 0;
+  const reserve = Math.max(0, Math.ceil(top + pane.clientHeight - (pane.scrollHeight - current)));
+  if (reserve !== current) {
+    if (reserve > 0) content.style.setProperty('--timeline-scroll-reserve', `${reserve}px`);
+    else content.style.removeProperty('--timeline-scroll-reserve');
+  }
+  if (Math.abs(pane.scrollTop - top) > 0.5) scrollPane(pane, top, Date.now() < anchor.smoothUntil);
+  paintJumpLatest();
+  return true;
+}
+
+/** Distance from the view's bottom to the last real content, ignoring the reserved space. */
+function distanceFromTail(): number {
+  const pane = $('chatBody');
+  const reserve = Number.parseFloat($('timelineContent').style.getPropertyValue('--timeline-scroll-reserve')) || 0;
+  return pane.scrollHeight - reserve - pane.clientHeight - pane.scrollTop;
+}
+
+function paintJumpLatest(): void {
+  const jump = document.getElementById('jumpLatest');
+  if (jump) jump.classList.toggle('is-shown', !!selectedId && distanceFromTail() > JUMP_DISTANCE);
+}
+
+function jumpToLatest(): void {
+  sendAnchor = null; readingAfterSend = false;
+  const pane = $('chatBody');
+  $('timelineContent').style.removeProperty('--timeline-scroll-reserve');
+  scrollPane(pane, pane.scrollHeight, true);
+}
+
 function forgetTimelineRows(): void {
   openTools.clear();
   rowCache.clear();
@@ -1757,8 +2063,8 @@ function toolBody(event: Extract<SessionEvent, { kind: 'tool_call' }>, context?:
 
   const head = document.createElement('summary');
   head.append(icon(KIND_ICON[call.summary.kind] ?? 'i-bolt', 'ico tool-ico'));
-  if (call.tool === 'exec_command' || call.tool === 'write_stdin') head.append(el('span', 'tool-tag', 'shell'));
-  else if (call.changes?.length || call.tool === 'apply_patch') head.append(el('span', 'tool-tag', 'diff'));
+  if (call.tool === 'exec_command' || call.tool === 'write_stdin') head.append(el('span', 'tool-tag is-shell', 'shell'));
+  else if (call.changes?.length || call.tool === 'apply_patch') head.append(el('span', 'tool-tag is-diff', 'diff'));
   head.append(el('b', '', call.summary.title));
   if (call.summary.detail) head.append(el('em', '', call.summary.detail));
   if (call.changes?.length) {
@@ -1767,7 +2073,10 @@ function toolBody(event: Extract<SessionEvent, { kind: 'tool_call' }>, context?:
     const approximate = call.changes.some(change => change.approximate);
     const count = toolMetric(`+${added} −${removed}`, 'tool-change-count');
     if (approximate) count.append(el('span', '', () => t(' (approx.)')));
-    head.append(count);
+    // When the outcome metric on the right is already a line delta ("+39", "+2 −13", "~−7"),
+    // a second count beside the title only repeats it, whatever its exact formatting.
+    const deltaMetric = /^~?(?:\+\d+)?\s*(?:[−-]\d+)?$/.test(summary.metric ?? '') && /\d/.test(summary.metric ?? '');
+    if (!deltaMetric) head.append(count);
   }
   if (summary.metric) head.append(toolMetric(summary.metric));
   const project = context ? null : selectedLocalProject();
@@ -2062,7 +2371,7 @@ function eventBody(event: SessionEvent, context?: { id: string; current: () => b
     case 'assistant_message': {
       const box = el('div', 'said');
       box.append(el('b', '', () => event.final ? 'ChatGPT' : t("ChatGPT (partial)")));
-      box.append(renderedMarkdown(event.message.text, event.renderedHtml));
+      box.append(renderedMarkdown(event.message.text, event.renderedHtml, event.references));
       return box;
     }
     case 'native_image': {
@@ -2189,13 +2498,65 @@ function eventBody(event: SessionEvent, context?: { id: string; current: () => b
   }
 }
 
+/**
+ * Copy and Markdown export under the answer of a turn the page reported as completed. Main
+ * builds the text from the log, reading back answers that were cut there, so a long answer
+ * copies and exports whole; the timeline only decides where the actions appear.
+ */
+function answerActions(turnId: string): HTMLElement {
+  const bar = el('div', 'answer-actions');
+  const sessionId = selectedId;
+  const exportTo = async (scope: 'answer' | 'session', target: 'clipboard' | 'file') => {
+    if (!sessionId || selectedId !== sessionId) return null;
+    return run(api.exportMarkdown({ id: sessionId, scope, turnId: scope === 'answer' ? turnId : undefined, target }));
+  };
+  const copy = el('button', 'answer-action') as HTMLButtonElement;
+  copy.type = 'button';
+  const copyGlyph = icon('i-copy');
+  copy.append(copyGlyph);
+  ui(copy, 'title', () => t('Copy answer')); ui(copy, 'aria-label', () => t('Copy answer'));
+  let copiedTimer: number | undefined;
+  copy.addEventListener('click', async () => {
+    const result = await exportTo('answer', 'clipboard');
+    if (result?.done !== 'copied') return;
+    setIcon(copyGlyph, 'i-check'); copy.classList.add('is-done');
+    window.clearTimeout(copiedTimer);
+    copiedTimer = window.setTimeout(() => { setIcon(copyGlyph, 'i-copy'); copy.classList.remove('is-done'); }, 1500);
+  });
+  const menu = document.createElement('details');
+  menu.className = 'answer-export';
+  const trigger = el('summary', 'answer-action');
+  trigger.append(icon('i-export'));
+  ui(trigger, 'title', () => t('Export as Markdown')); ui(trigger, 'aria-label', () => t('Export as Markdown'));
+  const choices = el('div', 'answer-export-menu');
+  for (const [scope, label] of [['answer', 'This answer'], ['session', 'Whole session']] as const) {
+    const choice = el('button', 'answer-export-choice', () => t(label)) as HTMLButtonElement;
+    choice.type = 'button';
+    choice.addEventListener('click', async () => {
+      menu.open = false;
+      const result = await exportTo(scope, 'file');
+      if (result?.done === 'saved') toast(t('Saved {0}', [result.name]));
+    });
+    choices.append(choice);
+  }
+  menu.append(trigger, choices);
+  const close = (event: Event) => { if (menu.open && !menu.contains(event.target as Node)) menu.open = false; };
+  menu.addEventListener('toggle', () => {
+    if (menu.open) document.addEventListener('pointerdown', close, true);
+    else document.removeEventListener('pointerdown', close, true);
+  });
+  menu.addEventListener('keydown', event => { if (event.key === 'Escape') { menu.open = false; trigger.focus(); } });
+  bar.append(copy, menu);
+  return bar;
+}
+
 function eventRow(event: SessionEvent): HTMLElement {
   const row = el('div', `ev ev-${event.kind}`);
   if (event.kind === 'assistant_message' && !withoutMessageReaction(event.message.text).trim()) row.hidden = true;
   tagImageRow(row, event);
   const time = document.createElement('time');
   time.textContent = clockTime(event.time);
-  time.title = new Date(event.time).toLocaleString();
+  time.title = new Date(event.time).toLocaleString(currentLanguage());
   const body = el('div', 'ev-body');
   const currentWorker = sessions.find(session => session.id === selectedId)?.origin;
   if (event.agent && event.agent !== 'prime' && !(currentWorker?.kind === 'worker' && currentWorker.agentId === event.agent)) {
@@ -2548,7 +2909,7 @@ function compactionRow(block: CompactionBlock, previous?: HTMLElement): HTMLElem
   if (previous) return row;
   const time = document.createElement('time');
   time.textContent = clockTime(block.time);
-  time.title = new Date(block.time).toLocaleString();
+  time.title = new Date(block.time).toLocaleString(currentLanguage());
   const body = el('div', 'ev-body');
   body.append(box);
   row.append(time, body);
@@ -2687,7 +3048,7 @@ function groupToolRows(rows: HTMLElement[], scope = selectedId, groups = toolGro
     if (!rows[i]!.matches('.ev-tool_call, .ev-page_tool, .ev-agent_message')) { grouped.push(rows[i++]!); continue; }
     let end = i + 1;
     while (end < rows.length && rows[end]!.matches('.ev-tool_call, .ev-page_tool, .ev-agent_message') && rows[end]!.dataset.activityBoundary === rows[i]!.dataset.activityBoundary) end++;
-    if (end - i === 1) { grouped.push(rows[i++]!); continue; }
+    if (end - i === 1) { markNativeStep(rows[i]!, false); grouped.push(rows[i++]!); continue; }
     // Paging can extend or trim the beginning of an activity group. Its first
     // member is therefore not a new disclosure/viewport identity.
     const previous = rows.slice(i, end).map(row => row.closest<HTMLElement>('.tool-group'))
@@ -2704,7 +3065,25 @@ function groupToolRows(rows: HTMLElement[], scope = selectedId, groups = toolGro
       group.addEventListener('toggle', () => { if (group!.open) openTools.add(key); else openTools.delete(key); });
       group.open = openTools.has(key) || rows.slice(i, end).some((row) => row.querySelector('details[open]')); groups.set(key, group);
     }
-    const latest = rows[end - 1]!;
+    // Name the group after ChatGPT's recap of the round ("Inspected downloads and updated the plan"):
+    // ChatGPT closes each round of work with one, and titles the block with it. The recap is picked
+    // by position, never by wording, so it holds in any language of the page: the native step that
+    // ends a finished round (prose follows it, or the turn is over). It then heads the group instead
+    // of repeating inside it. A step that ends a round still in progress is a note, and a group
+    // without a recap is named after its latest real action ("Ran npm test").
+    const members = rows.slice(i, end);
+    const finished = end < rows.length ? rows[end] !== turnNow : !(groups === toolGroups && turnWorking);
+    const last = members[members.length - 1]!;
+    const recap = finished && last.matches('.ev-page_tool') ? last : undefined;
+    // A native step written after this app's calls in the same round is about that work and is
+    // marked done, unless it ends a round still in progress; one before any call (a web search
+    // between paragraphs) keeps the globe.
+    let afterCall = false;
+    for (const member of members) {
+      if (member.matches('.ev-page_tool')) markNativeStep(member, afterCall && (finished || member !== last));
+      else afterCall = true;
+    }
+    const latest = recap ?? [...members].reverse().find(row => row.matches('.ev-tool_call, .ev-agent_message')) ?? rows[end - 1]!;
     const latestHead = latest.querySelector('.tool > summary, .agent-communication > summary, .thinking-line');
     const observedPhase = rows[i - 1]?.matches('.ev-progress')
       ? rows[i - 1]!.querySelector('.is-progress')?.textContent?.trim() : '';
@@ -2712,14 +3091,24 @@ function groupToolRows(rows: HTMLElement[], scope = selectedId, groups = toolGro
       || latestHead?.querySelector('span:not(.agent-avatar)')?.textContent || t("Activity");
     group.classList.toggle('has-activity-phase', !!observedPhase);
     group.querySelector('.activity-title')!.textContent = label;
-    ui(group.querySelector('summary')!, 'title', () => t("{0} actions · {1}", [end - i, label]));
+    const listed = members.filter(row => row !== recap || observedPhase);
+    ui(group.querySelector('summary')!, 'title', () => t("{0} actions · {1}", [listed.length, label]));
     const symbol = latestHead?.querySelector('.ico, .agent-avatar');
     group.querySelector('.activity-symbol')!.replaceChildren(...(symbol ? [symbol.cloneNode(true)] : []));
-    reconcileChildren(group.lastElementChild!, foldRoutineActivity(rows.slice(i, end)));
+    reconcileChildren(group.lastElementChild!, foldRoutineActivity(listed));
     grouped.push(group); i = end;
   }
   for (const key of groups.keys()) if (!retained.has(key)) groups.delete(key);
   return grouped;
+}
+
+/** The icon of a native ChatGPT step: a check once it follows this app's calls in its round, else the globe. */
+function markNativeStep(row: HTMLElement, done: boolean): void {
+  const line = row.querySelector<HTMLElement>('.thinking-line');
+  const name = done ? 'i-check-circle' : 'i-globe';
+  if (!line || (line.dataset.icon ?? 'i-globe') === name) return;
+  line.dataset.icon = name;
+  line.querySelector('.ico')?.replaceWith(icon(name, 'ico thinking-ico'));
 }
 
 /** Adjacent images from one response share a compact gallery, retaining canonical rows. */
@@ -2791,7 +3180,9 @@ function paintDetail(followBottom = historyBefore === null): void {
   // Preserve the visible logical row when late transcript revisions change the
   // height above it; retaining absolute scrollTop would move the reader's content.
   const pane = $('chatBody');
-  const restoreViewport = preserveTimelineViewport(pane, $('timelineContent'), followBottom);
+  // Released by the reader, the reserve still fills the view to its bottom; that is a reading
+  // position, not the end to follow.
+  const restoreViewport = preserveTimelineViewport(pane, $('timelineContent'), followBottom && !readingAfterSend);
   const timelineRows: HTMLElement[] = [];
   const keep = new Set<string>();
   let activityBoundary = '';
@@ -2812,7 +3203,7 @@ function paintDetail(followBottom = historyBefore === null): void {
       const row = cached?.sig === sig ? cached.row : inputMessageRow(entry, true);
       if (row !== cached?.row) {
         const time = document.createElement('time');
-        time.textContent = new Date(entry.createdAt).toLocaleString();
+        time.textContent = new Date(entry.createdAt).toLocaleString(currentLanguage());
         row.prepend(time);
       }
       row.dataset.timelineKey = key;
@@ -2822,6 +3213,9 @@ function paintDetail(followBottom = historyBefore === null): void {
     }
   };
   const duplicateErrors = duplicateChatErrors(events);
+  // Completed turns and the answer message that carries their copy/export actions.
+  const anchors = answerAnchors(events);
+  const workedSeconds = exchangeDurations(events);
   for (const item of timelineItems(shown)) {
     if (item.kind === 'event' && duplicateErrors.has(item.event.seq)) continue;
     appendRetiredInputs(item.kind === 'event' ? item.event.time : item.block.time);
@@ -2829,12 +3223,15 @@ function paintDetail(followBottom = historyBefore === null): void {
     if (!deps.state()?.config.ui.developerMode && item.kind === 'event' && item.event.source === 'app' && item.event.kind === 'progress' && item.event.progressId?.startsWith('browser-repair:')) continue;
     if (!deps.state()?.config.ui.developerMode && item.kind === 'event' && ['session_start', 'session_end', 'turn_start', 'turn_end', 'note'].includes(item.event.kind)) continue;
     const key = itemKey(item);
+    const answerTurn = item.kind === 'event' && item.event.kind === 'assistant_message' && item.event.turnId &&
+      anchors.get(item.event.turnId) === item.event.seq ? item.event.turnId : null;
     const sig = itemSignature(item) + (item.kind === 'event' && item.event.kind === 'chat_error'
-      ? JSON.stringify(chatErrorPresentation(item.event, events)) : '');
+      ? JSON.stringify(chatErrorPresentation(item.event, events)) : '') + (answerTurn ? '\u0000answer' : '');
     keep.add(key);
     const cached = rowCache.get(key);
     if (cached && cached.sig === sig) {
       cached.row.dataset.activityBoundary = activityBoundary;
+      if (item.kind === 'event' && item.event.kind === 'user_message') cached.row.dataset.askedAt = String(item.event.time);
       if (item.kind === 'event' && item.event.kind === 'user_message') {
         paintMessageReaction(cached.row.querySelector<HTMLElement>('.said.is-user')!, item.event.reaction);
       }
@@ -2843,7 +3240,9 @@ function paintDetail(followBottom = historyBefore === null): void {
       continue;
     }
     const row = item.kind === 'compaction' ? compactionRow(item.block, cached?.row) : eventRow(item.event);
+    if (answerTurn) row.querySelector('.said')?.append(answerActions(answerTurn));
     row.dataset.timelineKey = key;
+    if (item.kind === 'event' && item.event.kind === 'user_message') row.dataset.askedAt = String(item.event.time);
     row.dataset.activityBoundary = activityBoundary;
     paintInputReceipt(row, item);
     rowCache.set(key, { sig, row });
@@ -2851,10 +3250,12 @@ function paintDetail(followBottom = historyBefore === null): void {
   }
   appendRetiredInputs(Infinity);
   for (const key of rowCache.keys()) if (!keep.has(key)) rowCache.delete(key);
+  placeTurnLines(timelineRows, workedSeconds);
   reconcileChildren($('timeline'), groupImageRows(groupToolRows(timelineRows)));
   paintPendingInputs();
   $('timelineEmpty').hidden = selectedId !== null || timelineRows.length > 0 || $('inputQueue').childElementCount > 0;
-  restoreViewport();
+  if (!holdSentMessage()) restoreViewport();
+  paintJumpLatest();
 
   const facts: string[] = [];
   if (summary) {
@@ -2966,6 +3367,209 @@ function paintRecoveryVerdict(host: HTMLElement, sessionId: string | null): bool
   return false;
 }
 
+/**
+ * Each turn opens with how long it has worked, as in Codex: "Working for 12s" live on the turn in
+ * progress, "Worked for 17s" once the page reports its end. The live line mirrors the status caption
+ * (same text, same clock) and the header no longer repeats it; earlier completed turns keep a still
+ * line. Nothing folds. A running turn with no row on screen yet (just sent, or a page that reports no
+ * turn) shows its line right after your pending message, where the turn will begin, so the line is
+ * born in place instead of appearing in the header and moving. A finished turn with no row on screen
+ * (an empty chat, a folded Compact & Resume) keeps the caption in the header.
+ */
+const turnStatusLine = turnLine('turn-worked turn-status');
+
+/*
+ * What the turn is doing right now, as the last row of its work, where the next thing will appear,
+ * as ChatGPT and Claude show it: the tool call running in this app ("Running npm test", with its own
+ * clock once it lasts), else the step ChatGPT's own page names ("Searching the web"), else
+ * "Thinking". Streaming prose needs no row; it is the feedback. A call only reaches the list once it
+ * has finished, so without this a long command read as an idle chat.
+ */
+/** Whether the latest turn was working at the last paint; the status line's class is never cleared. */
+let turnWorking = false;
+const turnNow = el('p', 'meta is-progress thinking-line turn-now');
+const turnNowIcon = el('span', 'turn-now-icon');
+const turnNowText = el('span', 'turn-now-text');
+const turnNowTime = el('span', 'turn-now-time');
+const turnNowBody = el('span', 'turn-now-body');
+turnNowBody.append(turnNowText, turnNowTime);
+turnNow.append(turnNowIcon, turnNowBody);
+turnNow.hidden = true;
+let runningTools: RunningToolActivity[] = [];
+let runningToolsFor: string | null = null;
+let runningToolsAt = 0;
+let runningToolsEvents = -1;
+let runningToolsRequest = 0;
+/**
+ * Prose speaks for itself only while it is being written. Interim paragraphs stay "streaming" once
+ * finished, so what counts is whether its text changed in the last moments, not its state.
+ */
+let proseSeen: { key: string; chars: number; changedAt: number } | null = null;
+const PROSE_QUIET_MS = 2500;
+function proseMoving(event: Extract<SessionEvent, { kind: 'assistant_message' }>): boolean {
+  const key = event.messageId ?? `seq:${event.seq}`;
+  const chars = event.message.chars ?? event.message.text.length;
+  if (proseSeen?.key !== key || proseSeen.chars !== chars) proseSeen = { key, chars, changedAt: Date.now() };
+  return Date.now() - proseSeen.changedAt < PROSE_QUIET_MS;
+}
+/**
+ * ChatGPT names its own steps in the progressive ("Searching…", "Reading…"); a finished one does not
+ * describe now. This reads English wording only: on a ChatGPT page in another language no label
+ * matches and the row says "Thinking", which is always true. The page reports no
+ * language-independent "in progress" for a step, and taking the newest step by position would
+ * show a finished one ("Searched 3 websites") as if it were running. Calls this app runs do not
+ * depend on it.
+ */
+const NATIVE_STEP_NOW = /^\S+ing\b/i;
+
+/**
+ * The step in progress, with the icon its finished row will wear: a call of this app by its kind,
+ * a ChatGPT step by the globe its rows use. Thinking is not a step and does not look like one: it
+ * shows ChatGPT's own sign for it, a white dot that breathes.
+ */
+function liveActivity(): { text: string; icon: string; working: boolean; since?: number } | null {
+  const call = runningToolsFor === selectedId ? runningTools.at(-1) : undefined;
+  if (call) return { text: call.title, icon: KIND_ICON[call.kind] ?? KIND_ICON.other, working: true, since: call.since };
+  const thinking = { text: t('Thinking'), icon: '', working: false };
+  // A message not yet recorded opens a turn that has done nothing visible so far.
+  if ($('inputQueue').querySelector('.pending-message')) return thinking;
+  let asked = Number.NEGATIVE_INFINITY;
+  for (const event of events) if (event.kind === 'user_message') asked = Math.max(asked, event.time);
+  let newest: SessionEvent | undefined;
+  for (const event of events) {
+    if (event.time < asked || !['assistant_message', 'tool_call', 'page_tool', 'progress'].includes(event.kind)) continue;
+    if (!newest || event.time >= newest.time) newest = event;
+  }
+  if (newest?.kind === 'assistant_message' && proseMoving(newest)) return null;
+  if (newest?.kind === 'page_tool' && NATIVE_STEP_NOW.test(newest.label)) return { text: newest.label, icon: 'i-globe', working: true, since: newest.time };
+  return thinking;
+}
+
+function paintTurnNow(): void {
+  const now = turnStatusLine.classList.contains('is-working') ? liveActivity() : null;
+  const text = now?.text ?? '';
+  if (now && turnNowIcon.dataset.icon !== now.icon) {
+    turnNowIcon.dataset.icon = now.icon;
+    turnNowIcon.replaceChildren(...(now.icon ? [icon(now.icon)] : []));
+  }
+  turnNow.classList.toggle('is-thinking', now !== null && !now.working);
+  if (turnNow.dataset.text !== text) {
+    turnNow.dataset.text = text;
+    turnNowText.textContent = text;
+    turnNowText.title = text;
+    // A new step fades in; restarting the animation needs the class off for one style pass.
+    turnNow.classList.remove('is-new');
+    void turnNow.offsetWidth;
+    if (text) turnNow.classList.add('is-new');
+  }
+  const seconds = now?.since === undefined ? 0 : Math.max(0, Math.floor((Date.now() - now.since) / 1000));
+  // Short steps keep no clock; the one worth watching is the one that lasts.
+  turnNowTime.textContent = seconds >= 3
+    ? `${seconds >= 60 ? `${t('{0}m', [Math.floor(seconds / 60)])} ` : ''}${seconds % 60}s` : '';
+  turnNow.hidden = !text;
+}
+
+/**
+ * Asks, at most once a second while the chat works, what its tool calls are doing, and again as
+ * soon as new rows arrive, so a call that just finished never reads as running beside its own row.
+ */
+function pollRunningTools(): void {
+  const summary = sessions.find(entry => entry.id === selectedId);
+  if (!summary || !turnStatusLine.classList.contains('is-working')) { runningTools = []; return; }
+  if (Date.now() - runningToolsAt < 900 && events.length === runningToolsEvents) return;
+  runningToolsAt = Date.now();
+  runningToolsEvents = events.length;
+  const conversationIds = [...new Set([summary.conversationId, ...summary.chatIds].filter((id): id is string => !!id))].slice(0, 16);
+  if (!conversationIds.length) return;
+  const request = ++runningToolsRequest, session = selectedId;
+  void api.runningTools(conversationIds).then(reply => {
+    if (request !== runningToolsRequest || session !== selectedId) return;
+    runningTools = reply.ok ? reply.data : [];
+    runningToolsFor = session;
+    paintTurnNow();
+  });
+}
+
+/** A turn line: the text sits in its own span so the working shimmer spans the words, not the rule. */
+function turnLine(className: string): HTMLElement {
+  const line = el('div', className);
+  line.append(el('span', 'turn-worked-label'));
+  return line;
+}
+const workedLines = new Map<string, HTMLElement>();
+
+/**
+ * How long each of your messages was worked on, keyed by the message's time: from it to the last
+ * end the page reported before your next message (a completed turn end or ChatGPT's final answer,
+ * whichever came later). Anchored to your messages rather than ChatGPT's turn ids, which a page
+ * can report empty or leave off the rows that did the work.
+ */
+function exchangeDurations(list: readonly SessionEvent[]): Map<number, number> {
+  const asks = list.filter(event => event.kind === 'user_message').map(event => event.time).sort((a, b) => a - b);
+  const durations = new Map<number, number>();
+  asks.forEach((asked, index) => {
+    const next = asks[index + 1] ?? Number.POSITIVE_INFINITY;
+    let ended = -1;
+    for (const event of list) {
+      if (event.time < asked || event.time >= next) continue;
+      if ((event.kind === 'turn_end' && event.outcome === 'completed') || (event.kind === 'assistant_message' && event.final)) {
+        ended = Math.max(ended, event.time);
+      }
+    }
+    if (ended >= asked) durations.set(asked, Math.floor((ended - asked) / 1000));
+  });
+  return durations;
+}
+
+function workedLine(asked: number, seconds: number): HTMLElement {
+  const line = workedLines.get(String(asked)) ?? turnLine('turn-worked');
+  ui(line.firstElementChild as HTMLElement, 'textContent', () => t("{0} for {1}{2}s", [t("Worked"), seconds >= 60 ? `${t('{0}m', [Math.floor(seconds / 60)])} ` : '', seconds % 60]));
+  workedLines.set(String(asked), line);
+  return line;
+}
+
+/**
+ * Opens each of your messages' work with its line, right after the message: the last one shows the
+ * live caption while the chat works, earlier ones how long they worked. A message still in the
+ * outbox (or work with no message of yours on screen) has the live line parked after the outbox.
+ */
+function placeTurnLines(rows: HTMLElement[], workedSeconds: ReadonlyMap<number, number>): void {
+  const status = deps.state()?.config.ui.developerMode ? null : stateLine();
+  const working = status?.working === true;
+  turnWorking = working;
+  const asks = rows.map((row, index) => ({ row, index, asked: Number(row.dataset.askedAt) }))
+    .filter(entry => entry.row.matches('.ev-user_message') && Number.isFinite(entry.asked));
+  const pending = !!$('inputQueue').querySelector('.pending-message');
+  const used = new Set<string>();
+  // Insert from the end so earlier indices stay valid.
+  for (let i = asks.length - 1; i >= 0; i--) {
+    const { index, asked } = asks[i]!;
+    const latest = i === asks.length - 1;
+    if (latest && working && !pending) { rows.splice(index + 1, 0, turnStatusLine); rows.push(turnNow); continue; }
+    const seconds = workedSeconds.get(asked);
+    if (seconds === undefined || (latest && working)) continue;
+    rows.splice(index + 1, 0, workedLine(asked, seconds)); used.add(String(asked));
+  }
+  for (const key of workedLines.keys()) if (!used.has(key)) workedLines.delete(key);
+  const inTimeline = rows.includes(turnStatusLine);
+  if (!inTimeline) parkTurnStatus(working);
+  if (working && status) paintTurnStatus(status);
+  $('chatState').classList.toggle('is-mirrored', !deps.state()?.config.ui.developerMode);
+}
+
+/** A running turn with no row yet: its line waits right after your pending message. */
+function parkTurnStatus(working: boolean): void {
+  if (working) $('inputQueue').after(turnStatusLine, turnNow);
+  else if (!turnStatusLine.closest('#timeline')) { turnStatusLine.remove(); turnNow.remove(); }
+}
+
+function paintTurnStatus(status: ReturnType<typeof stateLine>): void {
+  ui(turnStatusLine.firstElementChild as HTMLElement, 'textContent', () => stateLine().text);
+  turnStatusLine.classList.toggle('is-working', status.working === true);
+  paintTurnNow();
+  pollRunningTools();
+}
+
 /** One line under the header saying what is happening right now. */
 function paintStateLine(): void {
   window.clearTimeout(durationTimer);
@@ -2976,6 +3580,13 @@ function paintStateLine(): void {
   note.className = `subhead-note${tone ? ` ${tone}` : ''}`;
   // Running state and timer ownership cannot depend on a translated label.
   note.classList.toggle('is-working', working === true);
+  // When the turn's own line is on screen it carries this, and the header does not repeat it. A turn
+  // that starts before its first row parks the line now, so it never shows in the header first.
+  const developer = deps.state()?.config.ui.developerMode;
+  if (!developer && !turnStatusLine.closest('#timeline')) parkTurnStatus(working === true);
+  if (!developer && working === true) paintTurnStatus({ text: note.textContent ?? '', tone, working, ticking });
+  // The turn lines carry the caption outside developer mode; the header keeps developer detail.
+  note.classList.toggle('is-mirrored', !developer);
   const recovering = paintRecoveryStatus();
   const goalWaiting = controlledSessionId === selectedId && controlledSelection === selectionGeneration && !!goalWaitView;
   if (goalWaiting) paintGoalProgress();
@@ -3059,8 +3670,15 @@ function stateLine(): { text: string; tone: '' | 'is-live' | 'is-bad'; working?:
      * This only changes what the caption admits — no turn is invented, and nothing here
      * offers a Stop the app could not carry out.
      */
+    // The tool clock only speaks for work the page has not accounted for: a call newer than the
+    // last reported end (turn end or final answer), the same rule the sidebar applies. When the
+    // page reports the end after the last call, the turn is over; letting the ninety-second
+    // window run on kept a finished chat saying "Working…" long after it had stopped.
+    const reportedEnd = Math.max(lastBoundary?.kind === 'turn_end' ? lastBoundary.time : 0,
+      summary.lastTurnEndAt ?? 0, summary.lastAssistantFinalAt ?? 0);
     const blind = !active && summary.lastToolCallAt !== null &&
-      Date.now() - summary.lastToolCallAt < BLIND_CAPTION_MS
+      Date.now() - summary.lastToolCallAt < BLIND_CAPTION_MS &&
+      summary.lastToolCallAt > reportedEnd
       ? { text: t("Working…"), tone: '' as const, working: true }
       : null;
     const turnId = active ?? lastBoundary?.turnId;
@@ -3733,14 +4351,16 @@ async function refreshAll(): Promise<void> {
 }
 
 /** Sessions change on every recorded event, so the reload is coalesced. */
-function scheduleReload(): void {
+function scheduleReload(change?: SessionChange): void {
   if (!visible) return;
+  if (change?.allTranscripts) changedTranscripts.all = true;
+  for (const id of change?.sessionIds ?? []) changedTranscripts.ids.add(id);
   // One refresh owns the timer until its asynchronous read completes. Starting a
   // newer read every 400 ms can invalidate every result on a busy/slower store.
   if (listTimer !== undefined) { listRefreshDirty = true; return; }
   listTimer = window.setTimeout(() => {
     listRefreshDirty = false;
-    void loadSessions().finally(() => {
+    void loadSessions('changed').finally(() => {
       listTimer = undefined;
       if (listRefreshDirty) scheduleReload();
     });
@@ -3762,7 +4382,7 @@ function inputMessageRow(entry: InputEntry, notice: boolean): HTMLElement {
   if (!visibleInputIds.has(entry.id)) row.classList.add('is-entering');
   visibleInputIds.add(entry.id);
   if (visibleInputIds.size > 100) visibleInputIds.delete(visibleInputIds.values().next().value!);
-  const status = () => entry.error ? t(entry.error) : (entry.state === 'failed' ? t("Delivery not confirmed") : entry.state === 'decision' ? t("Preparing follow-up") : entry.state === 'browser' ? t("Delivery confirmation pending") : entry.state === 'tool' ? t("Sent to the active turn · awaiting receipt") : entry.dueAt > Date.now() ? t("Scheduled {0}", [new Date(entry.dueAt).toLocaleString()]) : entry.delivery === 'tool' ? t("Waiting for the next tool call") : t("Queued"));
+  const status = () => entry.error ? t(entry.error) : (entry.state === 'failed' ? t("Delivery not confirmed") : entry.state === 'decision' ? t("Preparing follow-up") : entry.state === 'browser' ? t("Delivery confirmation pending") : entry.state === 'tool' ? t("Sent to the active turn · awaiting receipt") : entry.dueAt > Date.now() ? t("Scheduled {0}", [new Date(entry.dueAt).toLocaleString(currentLanguage())]) : entry.delivery === 'tool' ? t("Waiting for the next tool call") : t("Queued"));
   const files = el('div', 'message-attachments');
   if (entry.attachments?.length) files.append(...entry.attachments.map(file => attachmentCard(file)));
   for (const image of entry.images ?? []) { const preview = document.createElement('img'); preview.src = image.dataUrl; preview.alt = image.name; files.append(preview); }
@@ -3879,6 +4499,7 @@ function paintPendingInputs(): void {
   });
   // Helper controls have their own owner and are refreshed by the queue read below.
   reconcileChildren(host, [...next, ...host.querySelectorAll<HTMLElement>(':scope > .queued-input')]);
+  holdSentMessage();
 }
 async function refreshInputQueue(): Promise<void> {
   const request = ++inputQueueGeneration;
@@ -4156,6 +4777,7 @@ async function sendComposer(delivery?: 'finish', plan?: string[], planObjective?
   skillPicker?.restore();
   imageDrafts.delete(key); paintComposerImages();
   if (sessionId === null) pendingNewInput = { id, generation };
+  if (mode !== 'finish') { sendAnchor = { key: `input:${id}`, inputId: id, before: userMessageKeys(), session: selectedId, seen: false, smoothUntil: 0 }; readingAfterSend = false; }
   void refreshInputQueue();
   paintDeliveryControls();
   try {
@@ -4242,6 +4864,8 @@ function selectSession(id: string): void {
   if (ownerChanged) {
     // Retire the prior owner now; retain only its inert painted transcript until the
     // selected detail arrives. Existing async image/load generation fences still apply.
+    // Reading away from a sent message belongs to the chat it happened in.
+    sendAnchor = null; readingAfterSend = false;
     events = [];
     totalEvents = 0;
     historyBefore = null;
@@ -4268,6 +4892,7 @@ function selectNewChat(projectId: string | null = null): void {
   inputQueueGeneration++;
   $('finishQueue').replaceChildren(); $('finishQueue').hidden = true;
   newChatSelected = true; selectedId = null; selectedProjectId = projectId; detailFor = null; detailCursor = null;
+  sendAnchor = null; readingAfterSend = false;
   if (projectId) expandedProjects.add(projectId);
   applyComposerSessionModel(null, null);
   // New Chat selects its existing draft, just like a session. Navigation is not
@@ -4290,7 +4915,10 @@ export function initChat(next: Deps): void {
   ], paintSessions);
   deps = next;
   const stopComposerHeightMotion = installComposerHeightMotion($('composer'));
-  window.addEventListener('beforeunload', stopComposerHeightMotion, { once: true });
+  const stopComposerDockMotion = installComposerDockMotion($('composerDock'));
+  window.addEventListener('beforeunload', () => {
+    stopComposerHeightMotion(); stopComposerDockMotion();
+  }, { once: true });
   const chatHost = document.querySelector<HTMLElement>('[data-panel="chat"]')!;
   const docks = createWorkspaceDocks(chatHost);
   workspaceDocks = docks;
@@ -4334,15 +4962,24 @@ export function initChat(next: Deps): void {
     paintDeliveryControls();
   });
   $('automationSwitch').addEventListener('click', (event) => {
+    const edit = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-edit-mode]');
+    if (edit) {
+      if (edit.disabled) return;
+      openObjectiveEditor(edit.dataset.editMode as 'goal' | 'loop');
+      return;
+    }
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-mode]');
     if (!button || button.disabled) return;
     const select = $<HTMLSelectElement>('chatAutomation');
     select.value = button.dataset.mode!;
     select.dispatchEvent(new Event('change'));
+    $<HTMLDetailsElement>('composerSettings').open = false;
+    $('composerSettings').querySelector<HTMLElement>('summary')!.focus();
   });
   $('chatAutomation').addEventListener('change', async () => {
     goalIntentGeneration++;
     const select = $<HTMLSelectElement>('chatAutomation');
+    objectiveEditMode = null;
     cancelGoalRequest();
     if (select.value === 'off') goalDraftView = null;
     select.dataset.edited = 'true'; paintAutomationSwitch();
@@ -4403,6 +5040,7 @@ export function initChat(next: Deps): void {
         if (!draft.trim()) return;
         const settings = confirmedComposerModel();
         if (!settings) { toast(t('Reload model choices and select an available model and thinking effort before sending.')); return; }
+        closeObjectiveEditor();
         const selection = selectionGeneration, intent = goalIntentGeneration, requestId = crypto.randomUUID();
         const projectId = selectedProjectId;
         const { model, reasoningEffort } = settings;
@@ -4443,6 +5081,7 @@ export function initChat(next: Deps): void {
       const selection = selectionGeneration, draft = objective.value;
       const text = objective.value.trim();
       if (!text) return;
+      closeObjectiveEditor();
       const mode = $<HTMLSelectElement>('sessionObjectiveMode').value as 'goal' | 'loop';
       const button = $<HTMLButtonElement>(buttonId); button.dataset.busy = 'true'; paintTaskActions();
       const requestId = crypto.randomUUID(); goalProgress = { requestId, selection, phase: 'saving', text: '' }; paintGoalProgress();
@@ -4601,7 +5240,7 @@ export function initChat(next: Deps): void {
   $('chatInput').addEventListener('input', () => {
     const hasText = !!authoredComposerText().trim();
     const plan = taskPlans.get(draftKey());
-    if (plan && !plan.stages && (plan.requestId || !hasText)) {
+    if (plan && !plan.stages && plan.requestId) {
       cancelTaskPlan();
       if (hasText) taskPlans.set(draftKey(), { text: '', requestId: null, stages: null, sending: false, progress: null, error: null });
     }
@@ -4612,8 +5251,48 @@ export function initChat(next: Deps): void {
     if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); if (currentPreparedPlan() || authoredComposerText().trim() || imageDrafts.get(draftKey())?.length) $<HTMLFormElement>('composer').requestSubmit(); }
   });
   $('composerSettings').addEventListener('toggle', paintTaskActions);
+  $('composerSettings').querySelector('summary')!.addEventListener('click', () => {
+    // Retain the same contents through closing; switching views here on close
+    // would flash the task editor during the exit transition.
+    if (!$<HTMLDetailsElement>('composerSettings').open) {
+      $('composerSettings').classList.add('mode-picker');
+      if (objectiveEditMode) { objectiveEditMode = null; paintAutomationSwitch(); }
+    }
+  });
   initContextMeter();
-  $('createPlan').addEventListener('click', () => { if (taskPlans.has(draftKey())) cancelTaskPlan(); else void createTaskPlan(deps.state()?.config.ui.planBackend ?? 'chatgpt'); });
+  {
+    // Only the reader's own scrolling releases the send hold: the wheel, touch, scrolling keys and
+    // the scrollbar itself. Clicking content (a tool group, a call's details, a link) never does,
+    // nor does a key that acts on a focused control (Space toggling a disclosure), nor
+    // programmatic scrolling.
+    const pane = $('chatBody');
+    let intent = 0;
+    const scrollKeys = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' ']);
+    pane.addEventListener('wheel', () => { intent = Date.now(); }, { passive: true });
+    pane.addEventListener('touchmove', () => { intent = Date.now(); }, { passive: true });
+    pane.addEventListener('keydown', event => {
+      if (scrollKeys.has(event.key) && !(event.target as Element).closest('summary, button, a, input, textarea, select, [contenteditable]')) intent = Date.now();
+    });
+    pane.addEventListener('pointerdown', event => { if (event.target === pane) intent = Date.now(); }, { passive: true });
+    pane.addEventListener('scroll', () => {
+      if (Date.now() - intent < 300) {
+        if (sendAnchor) { sendAnchor = null; readingAfterSend = true; }
+        if (readingAfterSend && distanceFromTail() <= 1) readingAfterSend = false;
+      }
+      paintJumpLatest();
+    }, { passive: true });
+    const dock = el('div', 'jump-latest-dock');
+    const jump = el('button', 'jump-latest') as HTMLButtonElement;
+    jump.id = 'jumpLatest'; jump.type = 'button'; jump.append(icon('i-arrow-down'));
+    ui(jump, 'title', () => t('Jump to latest')); ui(jump, 'aria-label', () => t('Jump to latest'));
+    jump.addEventListener('click', jumpToLatest);
+    dock.append(jump); pane.append(dock);
+  }
+  $('createPlan').addEventListener('click', () => {
+    // The toolbar toggle only arms planning; Send/Enter generates from the draft.
+    if (taskPlans.has(draftKey())) cancelTaskPlan();
+    else { taskPlans.set(draftKey(), { text: '', requestId: null, stages: null, sending: false, progress: null, error: null }); paintTaskPlan(); $('chatInput').focus(); }
+  });
   $('composer').addEventListener('submit', (event) => {
     event.preventDefault();
     const controlAction = event.submitter === $('chatSend') && $('chatSend').dataset.action === 'stop';
@@ -4668,11 +5347,34 @@ export function initChat(next: Deps): void {
     }
     if (historyDemand) void fillTimelineHistory();
   }, { passive: true });
+  // The visible chat area also shrinks without new content: opening the bottom terminal or a
+  // side panel, or a growing message box. A reader who was at the end stays at the end; anyone
+  // who scrolled up keeps their place.
+  let atEnd = true;
+  const measureEnd = (): void => { atEnd = historyPane.scrollTop + historyPane.clientHeight >= historyPane.scrollHeight - 2; };
+  historyPane.addEventListener('scroll', measureEnd, { passive: true });
+  if (typeof ResizeObserver === 'function') {
+    let lastHeight = historyPane.clientHeight;
+    new ResizeObserver(() => {
+      const height = historyPane.clientHeight;
+      if (height !== lastHeight && atEnd) historyPane.scrollTop = historyPane.scrollHeight;
+      lastHeight = height;
+      measureEnd();
+    }).observe(historyPane);
+  }
   $('timeline').addEventListener('click', event => {
     // Disclosure changes deliberately change geometry. Padding retained for an
     // earlier reconciliation is not part of the collapsed headline's height.
-    if ((event.target as Element).closest('summary')) $('timelineContent').style.removeProperty('--timeline-scroll-reserve');
+    // A held sent message keeps its padding: the hold measures it again once the disclosure moved.
+    if (!sendAnchor && (event.target as Element).closest('summary')) $('timelineContent').style.removeProperty('--timeline-scroll-reserve');
   });
+  // Opening a disclosure or resizing the window changes geometry between repaints. Observing the
+  // content and the pane corrects the hold after layout and before paint, so the held message never
+  // shows a clamped frame.
+  if (typeof ResizeObserver === 'function') {
+    const observer = new ResizeObserver(() => { holdSentMessage(); });
+    observer.observe($('timelineContent')); observer.observe($('chatBody'));
+  } else $('timeline').addEventListener('toggle', () => { holdSentMessage(); }, true);
 
   $('chatView').addEventListener('click', (event) => {
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-view]');

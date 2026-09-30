@@ -818,6 +818,56 @@
    * raw Markdown. Finally, the old positional fallback remains only for the fully balanced
    * case, where every remaining candidate has exactly one remaining visible block.
    */
+  /**
+   * The sources behind each citation pill in these sections, from the pill's own props: the list
+   * its hover card pages through, and the reply and reference index it belongs to (its reference's
+   * position in that reply's `content_references`, which the inline directive names). Titles,
+   * links, publication dates and snippets only, bounded; anything else is left out.
+   */
+  function citedSources(sections) {
+    const byMessage = new Map();
+    for (let sectionAt = 0; sectionAt < sections.length; sectionAt++) {
+      let pills;
+      try { pills = sections[sectionAt].querySelectorAll('a[data-testid="chatgpt-citation"]'); } catch { continue; }
+      for (let at = 0; at < pills.length && at < 128; at++) {
+        let fiber = null;
+        try { fiber = fiberOf(pills[at]); } catch { fiber = null; }
+        let sources = null, reference = null, context = null;
+        for (let depth = 0; fiber && depth < 16 && !(sources && context); depth++, fiber = fiber.return) {
+          const props = fiber.memoizedProps;
+          if (!props || typeof props !== 'object') continue;
+          if (!sources && Array.isArray(props.sources)) sources = props.sources;
+          if (!context && props.reference && props.turnContext && typeof props.turnContext === 'object') {
+            reference = props.reference;
+            context = props.turnContext;
+          }
+        }
+        const list = context && Array.isArray(context.contentReferences) ? context.contentReferences : null;
+        const index = list ? list.indexOf(reference) : -1;
+        const messageId = context && typeof context.messageId === 'string' && context.messageId.length <= 200 ? context.messageId : null;
+        if (!sources || index < 0 || !messageId) continue;
+        const kept = [];
+        for (const source of sources.slice(0, 12)) {
+          if (!source || typeof source !== 'object') continue;
+          const url = typeof source.url === 'string' && source.url.length <= 2000 && /^https?:\/\//i.test(source.url) ? source.url : null;
+          if (!url) continue;
+          const text = (value, max) => typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, max) : '';
+          const label = text(source.label, 80), snippet = text(source.snippet, 300);
+          // ChatGPT keeps publication dates in epoch seconds.
+          const date = typeof source.pubDate === 'number' && isFinite(source.pubDate) && source.pubDate > 0
+            ? Math.round(source.pubDate < 1e10 ? source.pubDate * 1000 : source.pubDate) : 0;
+          kept.push({ title: text(source.title, 300), url, ...(label ? { source: label } : {}),
+            ...(date ? { date } : {}), ...(snippet ? { snippet } : {}) });
+        }
+        if (!kept.length) continue;
+        const references = byMessage.get(messageId) || [];
+        if (!references.some(entry => entry.index === index)) references.push({ index, sources: kept });
+        byMessage.set(messageId, references);
+      }
+    }
+    return byMessage;
+  }
+
   function renderedMessagesOf(sections, messages, budget, exactAnchors, conversationId) {
     const assistantCandidates = authoredAssistantMessages(messages, budget);
     const userCandidates = authoredUserMessages(messages, budget);
@@ -928,7 +978,9 @@
 
     // One canonical record per model message whether or not HTML could be attached.
     const out = [];
+    const cited = citedSources(sections);
     for (let c = 0; c < assistantCandidates.length; c++) {
+      const references = cited.get(assistantCandidates[c].id);
       out.push({
         messageId: assistantCandidates[c].messageId,
         rawMessageId: assistantCandidates[c].id,
@@ -937,6 +989,7 @@
         order: assistantCandidates[c].order,
         createTime: assistantCandidates[c].createTime,
         ...(assistantCandidates[c].resolvedModel ? { resolvedModel: assistantCandidates[c].resolvedModel } : {}),
+        ...(references ? { references } : {}),
         rawText: assistantCandidates[c].rawText,
         renderedHtml: ''
       });
@@ -2263,6 +2316,12 @@
     }
     return state;
   }
+  /** Shell execution ids are provider identities, not localized presentation. */
+  function shellProExecutionModel(value) {
+    const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+    return /^(?:pro|(?:gpt-?)?\d+(?:[.-]\d+)?-pro)$/.test(normalized);
+  }
+
   // The native closed picker does not mount composerIntelligencePickerState.
   // Its own ancestor carries the current execution model; its visible label
   // carries the selected effort. These are observation, never catalog discovery.
@@ -2285,7 +2344,7 @@
       if (typeof current !== 'string' || !/^[a-zA-Z0-9._-]{1,80}$/.test(current) || (model && model !== current)) return null;
       model = current;
     }
-    const effort = (lane && lane.model === model && lane.effort) ||
+    const effort = shellProExecutionModel(model) ? 'pro' : (lane && lane.model === model && lane.effort) ||
       (machine !== null ? (['none','minimal','low','medium','high','xhigh','max','ultra','pro'].includes(machine) ? machine : null) : captionEffort);
     if (!effort) return null;
     return model ? { id: model, effort } : null;
@@ -2347,7 +2406,8 @@
       // The machine reasoningEffort is a lane's transport setting, not its identity: the
       // Pro and Extra High lanes still report medium/max. The lane's visible label is what
       // the picker offers, matching readPickerSnapshot's modelLane/thinkingEffort mapping.
-      const laneEffort = c => effort(String(c?.labels?.effort ?? c?.sliderLabel ?? '').trim().toLowerCase()) ?? effort(c?.reasoningEffort);
+      const laneEffort = c => shellProExecutionModel(c?.model) ? 'pro' :
+        effort(String(c?.labels?.effort ?? c?.sliderLabel ?? '').trim().toLowerCase()) ?? effort(c?.reasoningEffort);
       const current = options.filter(o => o?.selected === true);
       if (current.length !== 1) return null;
       const version = group(current[0].id);

@@ -1,5 +1,6 @@
 import { registerWorkspaceTerminalIpc } from './workspace-terminal-ipc.js';
 import { applyLoginStartup, supportsLoginStartup } from './window-lifecycle.js';
+import { startControlApi, stopControlApi } from './control-api.js';
 import { appearanceSchema } from './appearance-schema.js';
 import { mergeAppearance } from '../shared/appearance.js';
 import { prepareSessionPrompt, prepareSkillFollowup } from './session/prompt.js';
@@ -9,7 +10,7 @@ import { SKILL_ID_PATTERN } from '../shared/skills.js';
 import { listSkillLibrary } from './skill-library.js';
 import { installRecommendedSkill, listRecommendedSkills } from './recommended-skills.js';
 import { noteChatOrigin } from './session/recorder.js';
-import { REASONING_EFFORTS } from '../shared/session.js';
+import { REASONING_EFFORTS, type SessionChange } from '../shared/session.js';
 import { safeExternalLink } from '../shared/external-link.js';
 import { wakeBrowserWork } from './browser-wake.js';
 import { getChatModels, startChatModelDiscovery, configureChatModelDiscovery } from './chat-models.js';
@@ -61,6 +62,7 @@ import { effectiveCapabilities, getConfig, updateConfig, MAX_MCP_INSTRUCTIONS_CH
 import { bridgePortSelection } from './bridge-ports.js';
 import { clearAllGoalSwitches, draftTaskPlan, listGoalModels, MODEL_PAGE_SIZE, retireGoalDrafts, goalBackendFor, goalSwitchFor, setGoalSwitchNow, setGoalReplyActiveNow, setGoalObjectiveNow } from './goal.js';
 import { forgetExposedSurface } from './mcp/server.js';
+import { runningToolActivity } from './mcp/call-context.js';
 import { runDiagnostics } from './diagnostics.js';
 import { formatLogAsJson, formatLogForClipboard, getLog, logInfo, onLog } from './logger.js';
 import { RESERVED_ROOT_NAMES, uniqueRootName, validateNewRoot, SandboxError, resolvePath } from './sandbox.js';
@@ -77,7 +79,6 @@ import {
   bridgeStatus,
   publishBridgePortChange,
   companionDiagnostics,
-  sessionActivityExpiresAt,
   sessionInputActivity,
   recoveryInputAllowed,
   sessionControlsFor, stopSessionTurn, setSessionAutomation, setSessionObjective, compactSession, cancelSessionCompaction,
@@ -96,25 +97,21 @@ import {
   clearImageStorage,
   getSession,
   getImageStorage,
-  listSessionPage,
-  findSessionByConversation,
-  readEvents,
-  readRecentEvents,
   readHandoff,
   readToolEditReview
 } from './session/store.js';
-import { activeSessionId, forgetSession, onSessionChange } from './session/recorder.js';
+import { forgetSession, onSessionChange } from './session/recorder.js';
+import { readSessionEvents, readSessionList, sessionListCursorSchema } from './session/read-model.js';
+import { exportSessionMarkdown } from './session/markdown-export.js';
 import { blockedChatIds, setChatBlocked } from './session/blocked-chats.js';
 import {
   clearAgent,
-  primeForOwnedConversation,
   onSwarmChange,
   pauseSwarmForDisable,
   persistAgentAuthorityNow,
   resetSwarm,
   swarmState
 } from './agents.js';
-import { tokenPressure } from '../shared/session.js';
 import { forgetWorkspaceRoot, renameWorkspaceRoot } from './workspace.js';
 import { hostPlatformInfo } from './platform.js';
 import {
@@ -214,6 +211,7 @@ const settingsPatch = z.object({
     waitForSubAgents: z.boolean().optional()
   }),
   mcp: z.object({ instructions: z.string().trim().max(MAX_MCP_INSTRUCTIONS_CHARS) }).strict().optional(),
+  controlApi: z.object({ enabled: z.boolean(), allowActions: z.boolean().optional() }).strict().optional(),
   goal: z.object({
     impulseMinutes: z.number().int().min(0).max(60).optional(),
     includeToolCalls: z.boolean().optional(),
@@ -269,7 +267,7 @@ type SettingsSnapshot = z.infer<typeof settingsPatch>;
  * unchanged between `base` and `wanted` was not edited by this renderer save and therefore keeps
  * the current main-process value. A field that differs was deliberately edited here and wins.
  */
-function mergeSettings(current: Config, base: SettingsSnapshot, wanted: SettingsSnapshot): SettingsSnapshot {
+function mergeSettings(current: Config, base: SettingsSnapshot, wanted: SettingsSnapshot): Omit<SettingsSnapshot, 'controlApi'> & { controlApi: Config['controlApi'] } {
   const tunnelEdited = (['tunnelId', 'desktopTunnelId', 'pluginsTunnelId'] as const)
     .some(key => (base.tunnel[key] ?? '') !== (wanted.tunnel[key] ?? ''));
   if (tunnelEdited && ((base.tunnel.profileId ?? 'default') !== (current.tunnel.profileId ?? 'default') ||
@@ -285,8 +283,19 @@ function mergeSettings(current: Config, base: SettingsSnapshot, wanted: Settings
       pick(current.capabilities[capability], base.capabilities[capability], wanted.capabilities[capability])
     ])
   ) as Config['capabilities'];
+  // The two switches merge independently, and actions never outlive the API. A form that omits
+  // `allowActions` leaves it as it is.
+  let controlApi = current.controlApi;
+  if (wanted.controlApi) {
+    const enabled = pick(current.controlApi.enabled, base.controlApi?.enabled ?? false, wanted.controlApi.enabled);
+    const allowActions = wanted.controlApi.allowActions === undefined
+      ? current.controlApi.allowActions
+      : pick(current.controlApi.allowActions, base.controlApi?.allowActions ?? false, wanted.controlApi.allowActions);
+    controlApi = { enabled, allowActions: enabled && allowActions === true };
+  }
   return {
     mcp: wanted.mcp ? { instructions: pick(current.mcp.instructions, base.mcp?.instructions ?? '', wanted.mcp.instructions) } : current.mcp,
+    controlApi,
     capabilities,
     readOnly: pick(current.readOnly, base.readOnly, wanted.readOnly),
     commandAllowlist: {
@@ -601,8 +610,20 @@ export function registerIpc(getWindow: () => BrowserWindow | null, quitToInstall
       try { applyLoginStartup(app, next.ui.startAtLogin === true); }
       catch (error) { loginStartupError = error; }
     }
+    // The local control API is independent in the same way: only an actual change starts or
+    // stops it, and a listener that cannot bind never undoes the rest of the save.
+    let controlApiError: unknown;
+    if (before.controlApi.enabled !== next.controlApi.enabled) {
+      try { await (next.controlApi.enabled ? startControlApi() : stopControlApi()); }
+      catch (error) { controlApiError = error; }
+    }
+    // The listener reads this switch on every request, so a flip needs no restart; it is logged.
+    if (before.controlApi.allowActions !== next.controlApi.allowActions) {
+      logInfo('control API: actions ' + (next.controlApi.allowActions ? 'allowed' : 'refused'));
+    }
     if (authorityPersistError) throw authorityPersistError;
     if (loginStartupError) throw loginStartupError;
+    if (controlApiError) throw controlApiError;
     return buildState();
   });
 
@@ -954,6 +975,18 @@ export function registerIpc(getWindow: () => BrowserWindow | null, quitToInstall
     return true;
   });
 
+  // Copy or save a completed turn's answer, or the session transcript, as Markdown. Main reads
+  // the full text of answers that were cut in the log, so neither comes out truncated.
+  handle('sessions:exportMarkdown', async (payload) => {
+    const request = z.object({
+      id: z.string().min(8).max(64).regex(/^[0-9a-z-]+$/i),
+      scope: z.enum(['answer', 'session']),
+      turnId: z.string().min(1).max(200).optional(),
+      target: z.enum(['clipboard', 'file'])
+    }).parse(payload);
+    return exportSessionMarkdown(request, getWindow());
+  });
+
   // The Install button. The renderer decides nothing about what is installed - it cannot
   // name a file, a version or a path - it only says "now", and only a staged, digest-checked
   // artifact makes that mean anything. The quit is what applies it, at the end of the same
@@ -986,51 +1019,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null, quitToInstall
   handle('sessions:list', async (payload) => {
     const { cursor, limit } = z
       .object({
-        cursor: z
-          .object({
-            updatedAt: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
-            id: z.string().min(8).max(64).regex(/^[0-9a-z-]+$/i)
-          })
-          .optional(),
+        cursor: sessionListCursorSchema.optional(),
         // Keep one renderer payload small even when the store can index much more history.
         limit: z.number().int().min(1).max(60).optional()
       })
       .parse(payload ?? {});
-    const config = getConfig();
-    await listInputs(); // Restore exact helper origins before the first sidebar page.
-    const page = await listSessionPage({ cursor, limit: limit ?? 60 });
-    // Older recordings omitted worker origins' parent IDs. The broker's exact
-    // retained owner can repair that presentation without reviving a worker or
-    // guessing from reusable names such as worker-1.
-    const parents = new Map<string, ReturnType<typeof findSessionByConversation>>();
-    const sessions = await Promise.all(page.sessions.map(async (summary) => {
-      if (summary.origin?.kind !== 'worker' || summary.origin.fromSessionId || !summary.conversationId) return summary;
-      const prime = primeForOwnedConversation(summary.conversationId);
-      if (!prime || prime === summary.conversationId) return summary;
-      if (!parents.has(prime)) parents.set(prime, findSessionByConversation(prime, { requireUnique: true }));
-      const parent = await parents.get(prime);
-      return parent && parent.id !== summary.id ? { ...summary, origin: { ...summary.origin, fromSessionId: parent.id } } : summary;
-    }));
-    return {
-      sessions: sessions.map(summary => {
-        const activityExpiresAt = sessionActivityExpiresAt(summary);
-        return activityExpiresAt === undefined ? summary : { ...summary, activityExpiresAt };
-      }),
-      total: page.total,
-      nextCursor: page.nextCursor,
-      activeId: activeSessionId(),
-      // Live policy, not session history: a block is keyed by ChatGPT conversation and does
-      // not belong in any session's meta.json. It rides the list for the same reason
-      // `activeId` and `pressure` do — one paint, one round trip.
-      blocked: blockedChatIds(),
-      pressure: sessions.map((summary) => ({
-        id: summary.id,
-        // Pressure belongs to the currently attached ChatGPT context. `estimatedTokens` is
-        // deliberately lifetime history and therefore never resets across Compact & Resume;
-        // using it here made a fresh B look fuller than the A it had just replaced.
-        ...tokenPressure(summary.contextTokens, config.sessions.advisoryTokens, config.sessions.limitTokens)
-      }))
-    };
+    return readSessionList({ cursor, limit: limit ?? 60 });
   });
 
   handle('sessions:image', async (payload) => {
@@ -1041,11 +1035,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null, quitToInstall
   handle('sessions:clearImageStorage', async (payload) => {
     const { mode } = z.object({ mode: z.enum(['oldest-gib', 'all']) }).parse(payload);
     const result = await clearImageStorage(mode);
-    push('session:changed');
+    // Retired images can belong to any transcript; this is the explicit global invalidation.
+    push('session:changed', { allTranscripts: true } satisfies SessionChange);
     return result;
   });
   handle('sessions:events', async (payload) => {
-    const { id, from, before, after, limit } = z
+    const { id, ...options } = z
       .object({
         id: z.string().min(8).max(64).regex(/^[0-9a-z-]+$/i),
         from: z.number().int().min(0).max(10_000_000).optional(),
@@ -1054,23 +1049,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null, quitToInstall
         limit: z.number().int().min(1).max(1000).optional()
       })
       .parse(payload);
-    const summary = await getSession(id);
-    if (!summary) throw new Error('Session not found');
-    // The renderer draws a timeline, not the whole log: the tail is what matters and
-    // the rest stays one click away rather than being pushed over IPC every refresh.
-    // The renderer never paints more than 160 rows. Sending nearly twice that on every first
-    // load was pure cloning/IPC work; later refreshes use the sequence cursor below.
-    const cap = limit ?? 160;
-    if (from === undefined) {
-      // Navigation uses immutable origins. `from` alone is a publication cursor
-      // for live revisions and must never decide which history page owns a row.
-      const events = await readRecentEvents(id, cap, { before, after, orderByOrigin: true });
-      const nextFrom = events.reduce((cursor, event) => Math.max(cursor, event.seq + 1), 0);
-      return { summary, events, total: summary.events, nextFrom };
-    }
-    const events = await readEvents(id, { from, limit: cap });
-    const nextFrom = events.reduce((cursor, event) => Math.max(cursor, event.seq + 1), from);
-    return { summary, events, total: summary.events, nextFrom };
+    const page = await readSessionEvents(id, options);
+    if (!page) throw new Error('Session not found');
+    return page;
   });
 
   const stageFiles = async (sources: AttachmentSource[]) => {
@@ -1142,6 +1123,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null, quitToInstall
   });
   handle('sessions:retryBrowser', async (payload) => retryQueuedInputBrowser(z.object({ id: z.string().uuid() }).parse(payload).id));
   handle('sessions:pausedHelpers', async () => pausedBrowserHelpers());
+  // What a working chat's tool calls are doing right now, for its live caption.
+  handle('sessions:runningTools', async (payload) => {
+    const { conversationIds } = z.object({ conversationIds: z.array(z.string().min(1).max(200)).max(16) }).parse(payload);
+    return runningToolActivity(conversationIds);
+  });
   handle('sessions:retryHelper', async (payload) => {
     const { id, sourceSessionId } = z.object({ id: z.string().uuid(), sourceSessionId: z.string().min(8).max(64) }).parse(payload);
     return retryGoalBrowserHelper(sourceSessionId, id);
@@ -1409,6 +1395,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, quitToInstall
   onUpdateChange(pushState);
   onMacOSDesktopAccessChange(pushState);
   onLog((entry) => push('log:entry', entry));
-  onSessionChange(() => push('session:changed'));
+  // Recorder pushes name their exact transcript owners; payload-less pushes are catalog/control only.
+  onSessionChange(change => push('session:changed', change));
   onSwarmChange(() => push('swarm:changed', swarmState()));
 }

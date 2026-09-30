@@ -815,7 +815,8 @@ var CLF_DOM = (() => {
 
   /** A pre-Send draft lease lasts only for this operation and these exact DOM nodes. */
   function captureComposerDraft(value, stillCurrent = () => true) {
-    const box = composer(), host = composerBox() || composerActions()?.host;
+    let box = composer(), host = composerBox() || composerActions()?.host;
+    let rebound = false;
     // Native rich-text normalization moves line breaks into paragraph structure.
     // Keep the same text comparison used by send receipts; editor identity and
     // trusted edits still revoke the lease even when a user only changes spacing.
@@ -854,6 +855,21 @@ var CLF_DOM = (() => {
           timer = setTimeout(finish, 1500); check();
         });
         return same() && !hasComposerAttachments() && clearPromptExact(value);
+      },
+      /*
+       * #744: React can remount the composer between insertion and Send and keep the exact text.
+       * The lease follows that replacement once, and only when nothing else could have written
+       * it: no trusted edit, no attachment on either side, the same compact text. Callers allow
+       * this only before Send authorization, where a fresh press cannot deliver twice.
+       */
+      rebind() {
+        if (rebound || touched || files.length || !stillCurrent() || same()) return false;
+        const next = composer(), nextHost = composerBox() || composerActions()?.host;
+        if (!next?.isConnected || next === box || compact(next.textContent) !== insertedText || hasComposerAttachments()) return false;
+        for (const name of events) host?.removeEventListener(name, changed, true);
+        box = next; host = nextHost; rebound = true;
+        for (const name of events) host?.addEventListener(name, changed, true);
+        return same();
       },
       dispose() { for (const name of events) host?.removeEventListener(name, changed, true); }
     };
@@ -1728,7 +1744,13 @@ var CLF_DOM = (() => {
     return safe(() => {
       const classic = document.querySelector('#prompt-textarea');
       if (classic) return classic;
-      const candidates = [...document.querySelectorAll('form[data-chatgpt-composer] [contenteditable="true"][role="textbox"]')]
+      // The current rich editor can remount before its surrounding form regains
+      // data-chatgpt-composer. Accept that stable editor identity, but only while
+      // the visible candidate remains unique.
+      const candidates = [...document.querySelectorAll(
+        'form[data-chatgpt-composer] [contenteditable="true"][role="textbox"], ' +
+        'form [data-composer-markdown][contenteditable="true"][role="textbox"]'
+      )]
         .filter(node => !node.closest(`${OWN_SURFACES},[data-turn-key],.markdown,[hidden],[aria-hidden="true"],[inert]`));
       return candidates.length === 1 ? candidates[0] : null;
     }, null);

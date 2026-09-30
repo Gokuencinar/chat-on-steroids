@@ -67,10 +67,12 @@ it('limits the existing tool-detail preference to handoff briefs', () => {
   expect(chatSource).toContain("applyChatChecked($<HTMLInputElement>('goalIncludeToolCalls')");
 });
 
-it('keeps the context circle in the gear group rather than an auto-placed composer grid cell', () => {
+it('places context before the model picker and keeps native compaction actions in its dialog', () => {
   const group = document.getElementById('composerSettings')!.parentElement!;
-  expect(group.classList.contains('composer-options')).toBe(true);
-  expect(document.getElementById('contextMeter')!.parentElement).toBe(group);
+  expect(group.classList.contains('composer-primary-controls')).toBe(true);
+  expect(document.getElementById('contextMeter')!.nextElementSibling?.id).toBe('modelMenu');
+  expect(document.getElementById('compactSession')!.closest('[role=dialog]')?.id).toBe('contextMeterInfo');
+  expect(document.getElementById('cancelCompaction')!.closest('[role=dialog]')?.id).toBe('contextMeterInfo');
   expect(document.getElementById('contextMeterInfo')!.parentElement?.id).toBe('contextMeter');
 });
 
@@ -121,7 +123,7 @@ it('keeps dock tabs and Files actions on one horizontally scrollable row without
   expect(css).toMatch(/\.work-dock-tabs::-webkit-scrollbar\s*\{\s*display:\s*none;/);
   expect(css).toMatch(/\.file-panel-toolbar-actions\s*\{[^}]*flex-wrap:\s*nowrap;[^}]*overflow-x:\s*auto;[^}]*scrollbar-width:\s*none;/);
   expect(css).toMatch(/\.file-panel-toolbar-actions::-webkit-scrollbar\s*\{\s*display:\s*none;/);
-  expect(css).toMatch(/\.file-panel-toolbar > \.file-panel-refresh\s*\{\s*flex:\s*0 0 30px;/);
+  expect(css).toMatch(/\.file-panel-toolbar > \.file-panel-refresh\s*\{\s*flex:\s*0 0 28px;/);
   expect(css).toMatch(/\.review-panel \.file-changes-header-content\s*\{[^}]*overflow-x:\s*auto;[^}]*scrollbar-width:\s*none;/);
   expect(css).toMatch(/\.review-panel \.file-changes-header-content::-webkit-scrollbar\s*\{\s*display:\s*none;/);
   expect(css).toMatch(/\.work-dock-tab:is\(\.is-selected, :hover, :focus-within\)\s*\{\s*background:\s*var\(--hover\);/);
@@ -366,7 +368,9 @@ describe('the chat panel cards', () => {
     // Subhead, scrolling conversation, shared plan/queue dock, composer and footer.
     const layoutChildren = [...card.children].filter(child => child.id !== 'chatSettingsBtn');
     expect(layoutChildren.length).toBe(5);
-    expect(document.getElementById('composerDock')!.firstElementChild?.id).toBe('agentPlan');
+    const dockBody = document.getElementById('composerDock')!.firstElementChild!;
+    expect(dockBody.classList.contains('composer-dock-body')).toBe(true);
+    expect(dockBody.firstElementChild?.id).toBe('agentPlan');
     expect(document.getElementById('inputQueue')!.closest('#chatBody')).not.toBeNull();
     expect(card.classList.contains('is-session')).toBe(true);
     expect(tracks("[data-panel='chat'] .card.is-session")).toHaveLength(layoutChildren.length);

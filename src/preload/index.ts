@@ -12,7 +12,7 @@ import type { ProjectDirectoryListing, ProjectFileMutationResult, ProjectFilePre
 import type { ProjectGitChanged, ProjectGitDiff, ProjectGitSnapshot } from '../shared/project-git.js';
 import type { PetLibraryState, PetOverlayControlState, PetRuntimeAsset } from '../shared/pets.js';
 import type { SkillSummary, ManagedSkill, GitHubSkillUpdateCheck, SkillLibrary, SkillsDraftScope } from '../shared/skills.js';
-import type { ToolEditReview } from '../shared/session.js';
+import type { RunningToolActivity, SessionChange, ToolEditReview } from '../shared/session.js';
 import type { PluginSnapshot, PluginInstallRequest, PluginConfigPatch } from '../shared/plugins.js';
 /**
  * The entire renderer-facing API.
@@ -52,6 +52,8 @@ export interface SettingsPatch {
   multiAgent: Config['multiAgent'];
   goal: Config['goal'];
   mcp: Config['mcp'];
+  /** Optional so callers that save other sections never have to carry it. */
+  controlApi?: Config['controlApi'];
 }
 
 /** One page of the model catalogue, as the model picker asks for it. */
@@ -202,6 +204,8 @@ const api = {
   getLogText: () => call<string>('log:text'),
   getLogJson: () => call<string>('log:json'),
   writeClipboard: (text: string) => call<boolean>('clipboard:write', { text }),
+  exportMarkdown: (request: { id: string; scope: 'answer' | 'session'; turnId?: string; target: 'clipboard' | 'file' }) =>
+    call<{ done: 'copied' } | { done: 'saved'; name: string } | { done: 'cancelled' }>('sessions:exportMarkdown', request),
   openLink: (url: string) => call<boolean>('link:open', { url }),
   // Applies the update this app has already downloaded and verified: the app quits, the
   // installer runs, and the app comes back as the new version. It takes no argument because
@@ -275,6 +279,7 @@ const api = {
   retryInputBrowser: (id: string) => call<InputEntry | null>('sessions:retryBrowser', { id }),
   listInputs: () => call<InputEntry[]>('sessions:outbox'),
   listPausedHelpers: () => call<Array<{ id: string; sourceSessionId: string }>>('sessions:pausedHelpers'),
+  runningTools: (conversationIds: string[]) => call<RunningToolActivity[]>('sessions:runningTools', { conversationIds }),
   retryHelper: (id: string, sourceSessionId: string) => call<boolean>('sessions:retryHelper', { id, sourceSessionId }),
   editQueuedInput: (id: string, text: string, afterTurn?: boolean) => call<boolean>('sessions:editInput', { id, text, afterTurn }),
   reorderQueuedInputs: (sessionId: string, ids: string[]) => call<boolean>('sessions:reorderInputs', { sessionId, ids }),
@@ -314,8 +319,9 @@ const api = {
     ipcRenderer.on('log:entry', wrapped);
     return () => ipcRenderer.removeListener('log:entry', wrapped);
   },
-  onSessionChanged: (listener: () => void): (() => void) => {
-    const wrapped = (): void => listener();
+  /** `change` names changed transcript owners; without it only catalog/controls changed. */
+  onSessionChanged: (listener: (change?: SessionChange) => void): (() => void) => {
+    const wrapped = (_event: unknown, change?: SessionChange): void => listener(change);
     ipcRenderer.on('session:changed', wrapped);
     return () => ipcRenderer.removeListener('session:changed', wrapped);
   },

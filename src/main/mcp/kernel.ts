@@ -38,7 +38,7 @@ import {
   resolvePath,
   type Resolved
 } from '../sandbox.js';
-import { currentWorkspace, learnWorkspace, setCurrentWorkspace } from '../workspace.js';
+import { currentWorkspace, forgetMissingWorkspace, learnWorkspace, setCurrentWorkspace } from '../workspace.js';
 import { getSessionProject } from '../projects.js';
 import { firstTaskRoot, resolveLinkedSkillAlias } from '../skill-access.js';
 import { ExecError } from '../exec.js';
@@ -82,6 +82,7 @@ import {
   holdWhileSettling,
   runInCallContext,
   runningToolProgress,
+  setRequestOwner,
   trackInFlight,
   trackMcpRequest,
   type CallContext,
@@ -96,6 +97,7 @@ import {
   recordToolCall
 } from '../session/recorder.js';
 import { requestCorrelation } from '../session/correlation.js';
+import { summarizeRunningCall } from '../session/summarize.js';
 import { BLOCKED_CHAT_REFUSAL, anyChatBlocked, isChatBlocked } from '../session/blocked-chats.js';
 import { anyContinuationOpen, compactingConversation } from '../session/continuation.js';
 import {
@@ -115,6 +117,9 @@ import {
 } from '../session/store.js';
 import { sessionFinishDeadline } from '../session/finish.js';
 import type { StoredText, ToolOutcome } from '../../shared/session.js';
+
+/** The page's exact proof of a request id, by which a running call counts for its chat. */
+const requestOwner = (requestId: string): string | null => requestCorrelation(requestId)?.conversationId ?? null;
 
 export interface ToolContext {
   exposedFinishTool?: boolean;
@@ -547,6 +552,7 @@ export async function dispatch(
   const context: CallContext = {
     publication: parent?.publication ?? inboundPublication() ?? { completedAt: null, failed: false },
     startedAt: Date.now(),
+    activity: summarizeRunningCall(name, args, emptyEvidence()),
     transportKey,
     agent: null,
     allowUnattributed: getConfig().multiAgent.allowUnattributedCalls,
@@ -554,6 +560,8 @@ export async function dispatch(
     outcome: null,
     evidence: emptyEvidence()
   };
+  // Every call runs through here, so the proof is installed before any call can be running.
+  setRequestOwner(requestOwner);
   try {
     const result = await trackMcpRequest(() =>
       trackInFlight(context, () => dispatchTracked(context, name, args, transportKey, requestId, surface, run, !!parent))
@@ -1110,15 +1118,27 @@ function isFinishCall(name: string, args: unknown): boolean {
  * retry rather than reaching the wrong file.
  */
 async function validatedWorkspace() {
+  return (await liveWorkspace()).workspace;
+}
+
+/** The workspace, plus the virtual path of a learned one just dropped because its folder is gone. */
+async function liveWorkspace(): Promise<{ workspace: { virtual: string; real: string } | null; missing: string | null }> {
   const sessionId = currentCall()?.caller.sessionId;
   // Explicit project bindings are durable authority, even after a cwd was learned.
   // Validate first so a revoked or moved project never becomes a first-root fallback.
   const project = sessionId ? await getSessionProject(sessionId) : null;
   if (project) {
     setCurrentWorkspace(project);
-    return project;
+    return { workspace: project, missing: null };
   }
-  return currentWorkspace();
+  const learned = currentWorkspace();
+  if (!learned) return { workspace: null, missing: null };
+  // A learned folder can be deleted while its chat sleeps. Keeping it would make every
+  // relative path and every command without a workdir fail with "Not found" for that folder.
+  const exists = await fs.stat(learned.real).then((stat) => stat.isDirectory(), () => false);
+  if (exists) return { workspace: learned, missing: null };
+  forgetMissingWorkspace(learned.real);
+  return { workspace: null, missing: learned.virtual };
 }
 
 export async function resolveIn(
@@ -1165,12 +1185,14 @@ export async function resolveCwd(ctx: ToolContext, virtualPath: string | undefin
   // The chat's own folder before the first root: a command with no `workdir` should run where the
   // chat has been working, which is the whole point of the workspace and is exactly the case
   // the note above describes going wrong.
-  const workspace = await validatedWorkspace();
+  const { workspace, missing } = await liveWorkspace();
   // Codex treats an explicitly empty workdir exactly like an omitted one.
   const provided = virtualPath !== undefined && virtualPath !== '';
   if (!provided && !workspace && swarmRunning()) {
     throw new SandboxError(
-      'WORKSPACE_REQUIRED: this multi-agent chat has no proven workspace. Supply an explicit approved workdir before running a command.'
+      missing
+        ? `WORKSPACE_REQUIRED: the folder this chat was working in (${missing}) no longer exists. Supply an explicit approved workdir before running a command.`
+        : 'WORKSPACE_REQUIRED: this multi-agent chat has no proven workspace. Supply an explicit approved workdir before running a command.'
     );
   }
   const fallback = firstTaskRoot(ctx.roots);

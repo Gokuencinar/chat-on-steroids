@@ -214,7 +214,7 @@ async function boot(events: SessionEvent[], selectExisting = true, pausedHelpers
   };
   const ok = (data: any) => Promise.resolve({ ok: true, data });
   const live = { events: [...events], inputs: [] as InputEntry[], sent: [] as InputArgs[], automation: 'off', controlCalls: [] as Array<{ id: string; action: string }>, compacting: false, finishHeld: true };
-  let sessionListener: () => void = () => undefined;
+  let sessionListener: (change?: unknown) => void = () => undefined;
   let writeSessionListener: (id: string) => void = () => undefined;
   const taskProgressListeners = new Set<(progress: any) => void>();
   const api: any = new Proxy(
@@ -259,7 +259,7 @@ async function boot(events: SessionEvent[], selectExisting = true, pausedHelpers
         entry.state = 'cancelled'; entry.cancelledByUser = true;
         return ok(true);
       }),
-      listPausedHelpers: () => ok(pausedHelpers),
+      runningTools: () => ok([]), listPausedHelpers: () => ok(pausedHelpers),
       retryHelper: (id: string, sourceSessionId: string) => {
         live.controlCalls.push({ id: sourceSessionId, action: `retry:${id}` });
         pausedHelpers = pausedHelpers.filter(row => row.id !== id);
@@ -317,12 +317,14 @@ async function boot(events: SessionEvent[], selectExisting = true, pausedHelpers
   return {
     w,
     live,
-    notifySession: () => sessionListener(),
+    // This fixture serves one shared `live.events` for every session id, so a recorder write
+    // changes every transcript it can show. Payload-less pushes are catalog/control only.
+    notifySession: () => sessionListener({ allTranscripts: true }),
     writeSession: (id: string) => writeSessionListener(id),
     progress: (value: any) => { for (const listener of taskProgressListeners) listener(value); },
     async append(more: SessionEvent[]) {
       live.events.push(...more);
-      sessionListener();
+      sessionListener({ allTranscripts: true });
       await settle(500);
     }
   };
@@ -744,7 +746,7 @@ it('keeps cancelled Continue attempts at their own times across a long session i
   for (let index = 0; index < 3; index++) {
     const card = timeline.querySelector<HTMLElement>(`[data-input-id="retired-continue-${index}"]`)!;
     expect(card).not.toBeNull();
-    expect(card.querySelector('time')?.textContent).toBe(new Date(live.inputs[index]!.createdAt).toLocaleString());
+    expect(card.querySelector('time')?.textContent).toBe(new Date(live.inputs[index]!.createdAt).toLocaleString('en'));
     const content = timeline.textContent!;
     expect(content.indexOf(`NIGHT QUESTION ${index}`)).toBeLessThan(content.indexOf(`UNSENT CONTINUE ${index}`));
     expect(content.indexOf(`UNSENT CONTINUE ${index}`)).toBeLessThan(content.indexOf(`NIGHT QUESTION ${index + 1}`));
@@ -1360,7 +1362,7 @@ it.each(['new-same-key', 'a-b-a', 'opening-adopt-new', 'same-session-send-next',
     (w as any).api.draftTaskPlan = vi.fn(async () => ({ ok: true, data: ['Stage one', 'Stage two'] }));
     const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
     input.value = 'Turn this into a plan';
-    w.document.getElementById('createPlan')!.click();
+    w.document.getElementById('createPlan')!.click(); w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true }));
     await vi.waitFor(() => expect(input.value).toBe(''));
   } else {
     (w.document.querySelector('.delivery-retry') as HTMLButtonElement).click();
@@ -2206,10 +2208,11 @@ it('colors removed lines separately from added lines without changing other tool
   expect(rows[0]!.querySelector('summary .metric')?.textContent).toBe('+28 −11');
   expect(rows[0]!.querySelector('summary .metric-added')?.textContent).toBe('+28');
   expect(rows[0]!.querySelector('summary .metric-removed')?.textContent).toBe('−11');
-  // The per-call change count beside the title splits the same way.
-  expect(rows[0]!.querySelector('summary .tool-change-count .metric-added')?.textContent).toBe('+28');
-  expect(rows[0]!.querySelector('summary .tool-change-count .metric-removed')?.textContent).toBe('−11');
+  // The outcome metric already states this delta, so the per-call count beside the title stays out.
+  expect(rows[0]!.querySelector('summary .tool-change-count')).toBeNull();
   expect(rows[1]!.querySelector('summary .metric')?.textContent).toBe('~−7');
+  // A delta metric formatted differently from the count ("~−7" beside "+0 −7") is still one number.
+  expect(rows[1]!.querySelector('summary .tool-change-count')).toBeNull();
   expect(rows[1]!.querySelector('summary .metric-removed')?.textContent).toBe('−7');
   expect(rows[2]!.querySelector('summary .metric')?.textContent).toBe('12 lines');
   expect(rows[2]!.querySelector('summary .metric-added, summary .metric-removed')).toBeNull();
@@ -2270,6 +2273,18 @@ it('folds five consecutive status polls while retaining each exact tool row', as
   await append([{ ...failed, call: { ...failed.call, outcome: 'tool_rejected', summary: { ...failed.call.summary, tone: 'bad' } } }]);
   expect(fold.querySelectorAll('.ev-tool_call')).toHaveLength(6);
   expect(timeline.querySelectorAll('.ev-tool_call')).toHaveLength(7);
+});
+
+it("shows a created file's line count once when the outcome metric already states it", async () => {
+  const created = toolCall(1, 'created-file') as Extract<SessionEvent, { kind: 'tool_call' }>;
+  created.call.tool = 'apply_patch';
+  created.call.summary = { kind: 'create', tone: 'good', title: 'Created CHANGELOG-0.4.5.txt', metric: '+39' };
+  created.call.changes = [{ path: 'CHANGELOG-0.4.5.txt', added: 39, removed: 0, approximate: false }];
+  const { w } = await boot([created]);
+  const row = w.document.querySelector<HTMLDetailsElement>('details.tool')!;
+  expect(row.querySelectorAll('summary .metric-added')).toHaveLength(1);
+  expect(row.querySelector('summary .tool-change-count')).toBeNull();
+  expect(row.querySelector('summary .metric')?.textContent).toBe('+39');
 });
 
 it('keeps an artifact action as the activity title rather than its tool tag', async () => {
@@ -2438,6 +2453,30 @@ it('says a chat is working when its page reports no turn but its tools keep arri
   expect(note.textContent).toBe('Worked for 5s');
 });
 
+it('says a chat worked as soon as its page reports the end after its last tool call', async () => {
+  // A normal turn: tools run, then the page reports the end. The last call is recent, but the
+  // reported end is newer, so nothing is unaccounted for and the caption must not wait out
+  // the blind window.
+  const start = Date.now() - 40_000;
+  const turn: SessionEvent[] = [
+    { seq: 1, time: start, source: 'extension', kind: 'turn_start', turnId: 'page-turn' },
+    { seq: 2, time: start + 38_000, source: 'extension', kind: 'turn_end', turnId: 'page-turn', outcome: 'completed' }
+  ];
+  const row = { ...summary(turn), lastToolCallAt: start + 33_000 as number | null };
+  const { w, append } = await boot(turn, true, [], [], { sessions: [row] });
+  (w as any).api.getSessionControls = (id: string) => Promise.resolve({ ok: true,
+    data: { sessionId: id, automation: 'off', activeTurnId: null, finishHeld: false, blocked: '', job: null } });
+  const note = w.document.getElementById('chatState')!;
+  await append([]);
+  expect(note.textContent).toBe('Worked for 38s');
+  expect(note.classList.contains('is-working')).toBe(false);
+
+  // A call after that reported end is still work the page has not accounted for.
+  row.lastToolCallAt = start + 39_000;
+  await append([]);
+  expect(note.textContent).toBe('Working…');
+});
+
 it('stops directly from the empty composer without a second Stop menu action', async () => {
   const { w } = await boot([]);
   const stop = vi.fn(async () => ({ ok: true, data: {} }));
@@ -2560,7 +2599,7 @@ it('keeps editable stages and sends the original request with the full workflow 
   const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
   input.value = 'Build the whole task';
   input.dispatchEvent(new w.Event('input'));
-  w.document.getElementById('createPlan')!.click();
+  w.document.getElementById('createPlan')!.click(); w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true }));
   await settle();
   expect(live.sent).toHaveLength(0);
   expect(w.document.getElementById('taskPlanPreview')!.textContent).not.toMatch(/Start plan|Review stages/);
@@ -2591,7 +2630,7 @@ it.each([true, false])('hands plan presentation to queued stages while sending a
   api.draftTaskPlan = vi.fn(async () => ({ ok: true, data: stages }));
   const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
   input.value = 'Build the whole task'; input.dispatchEvent(new w.Event('input'));
-  w.document.getElementById('createPlan')!.click();
+  w.document.getElementById('createPlan')!.click(); w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true }));
   await settle();
   const preview = w.document.getElementById('taskPlanPreview')!;
   expect(preview.hidden).toBe(false);
@@ -2653,6 +2692,41 @@ it.each(['delivery', 'model', 'refresh-failed', 'enqueue-failed'])('retries the 
     expect(w.document.querySelectorAll('#finishQueue .queued-input')).toHaveLength(3);
   }
   expect(api.requestChatModels).toHaveBeenCalledTimes(failure === 'model' || failure === 'refresh-failed' ? 1 : 0);
+});
+
+it('the Plan toggle only arms planning; Send generates from the draft', async () => {
+  const { w } = await boot([], false);
+  const api = (w as any).api;
+  api.draftTaskPlan = vi.fn(() => new Promise(() => {}));
+  const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
+  const plan = w.document.getElementById('createPlan') as HTMLButtonElement;
+  input.value = 'Existing draft'; input.dispatchEvent(new w.Event('input'));
+  plan.click(); await settle();
+  expect(api.draftTaskPlan).not.toHaveBeenCalled();
+  expect(plan.getAttribute('aria-pressed')).toBe('true');
+  input.value = ''; input.dispatchEvent(new w.Event('input'));
+  expect(plan.getAttribute('aria-pressed')).toBe('true');
+  input.value = 'Plan this'; input.dispatchEvent(new w.Event('input'));
+  input.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', cancelable: true })); await settle();
+  expect(api.draftTaskPlan).toHaveBeenCalledWith('Plan this', expect.anything(), expect.any(String));
+});
+
+it('the mode-menu pencil edits an objective without switching automation until Save', async () => {
+  const { w, live } = await boot([]);
+  const api = (w as any).api;
+  api.setSessionObjective = vi.fn(async () => ({ ok: true, data: {} }));
+  const objective = w.document.getElementById('sessionObjective') as HTMLTextAreaElement;
+  (w.document.querySelector('#automationSwitch [data-edit-mode="goal"]') as HTMLButtonElement).click(); await settle();
+  expect(live.controlCalls).toEqual([]);
+  expect((w.document.getElementById('chatAutomation') as HTMLSelectElement).value).toBe('off');
+  expect(objective.hidden).toBe(false);
+  expect(w.document.activeElement).toBe(objective);
+  expect(w.document.querySelector('label[for="sessionObjective"]')!.textContent).toBe('Goal');
+  objective.value = 'Ship the dashboard'; objective.dispatchEvent(new w.Event('input'));
+  w.document.getElementById('saveSessionObjective')!.click(); await settle();
+  expect(api.setSessionObjective).toHaveBeenCalledWith(summary([]).id, 'Ship the dashboard', 'goal');
+  expect(live.controlCalls).toEqual([]);
+  expect((w.document.getElementById('composerSettings') as HTMLDetailsElement).open).toBe(false);
 });
 
 it('disables empty task actions and confirms saving without the old helper sentence', async () => {
@@ -2793,7 +2867,7 @@ it('blocks an empty stage, deletes it explicitly, and hides the whole dock in se
   api.draftTaskPlan = vi.fn(async () => ({ ok: true, data: ['Write poem', 'Verify lines'] }));
   const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
   input.value = 'Rain poem'; input.dispatchEvent(new w.Event('input'));
-  w.document.getElementById('createPlan')!.click(); await settle();
+  w.document.getElementById('createPlan')!.click(); w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true })); await settle();
   const stage = w.document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Edit stage 1"]')!;
   stage.value = ''; stage.dispatchEvent(new w.Event('input'));
   expect(stage.getAttribute('aria-invalid')).toBe('true');
@@ -2823,7 +2897,7 @@ it('cancels pending planning without replacing the draft with a late result', as
   const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
   input.value = 'Keep this draft';
   const plan = w.document.getElementById('createPlan') as HTMLButtonElement;
-  plan.click(); await settle();
+  plan.click(); w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true })); await settle();
   const requestId = api.draftTaskPlan.mock.calls[0][2];
   expect(plan.getAttribute('aria-pressed')).toBe('true');
   plan.click();
@@ -2843,7 +2917,7 @@ it('keeps completed stages after clearing or replacing the composer until explic
   api.draftTaskPlan = vi.fn(async () => ({ ok: true, data: ['Build foundation', 'Verify it'] }));
   const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
   input.value = 'Build the whole task'; input.dispatchEvent(new w.Event('input'));
-  w.document.getElementById('createPlan')!.click(); await settle();
+  w.document.getElementById('createPlan')!.click(); w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true })); await settle();
   for (const replacement of ['', 'Unrelated next message', '']) {
     input.value = replacement; input.dispatchEvent(new w.Event('input'));
     expect(w.document.querySelectorAll('.plan-stage')).toHaveLength(2);
@@ -2862,7 +2936,7 @@ it('queues every generated stage in an existing session without Send and preserv
   api.draftTaskPlan = vi.fn(async () => ({ ok: true, data: ['Build foundation', 'Verify it'] }));
   const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
   input.value = 'Build the whole task'; input.dispatchEvent(new w.Event('input'));
-  w.document.getElementById('createPlan')!.click(); await settle();
+  w.document.getElementById('createPlan')!.click(); w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true })); await settle();
   expect(live.sent).toHaveLength(1);
   expect(live.sent[0]).toMatchObject({ sessionId: summary([]).id, text: 'Build foundation', stages: ['Verify it'], mode: 'finish', model: null, reasoningEffort: null, authoredSource: 'objective' });
   expect(input.value).toBe('');
@@ -2897,7 +2971,7 @@ it('retains a rejected queue admission independently of composer edits and retri
   api.draftTaskPlan = vi.fn(async () => ({ ok: true, data: ['First checkpoint', 'Last checkpoint'] }));
   const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
   input.value = 'Plan the remaining checks';
-  w.document.getElementById('createPlan')!.click(); await settle();
+  w.document.getElementById('createPlan')!.click(); w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true })); await settle();
   input.value = ''; input.dispatchEvent(new w.Event('input'));
   reject({ ok: false, error: 'Queue full' }); await settle();
   expect(w.document.querySelectorAll('.plan-stage')).toHaveLength(2);
@@ -2917,7 +2991,7 @@ it.each([false, true])('clears the planner prompt and starts a new-chat plan wit
   (w as any).api.draftTaskPlan = vi.fn(async () => ({ ok: true, data: ['Build foundation', 'Verify it'] }));
   const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
   input.value = 'Original objective';
-  w.document.getElementById('createPlan')!.click(); await settle();
+  w.document.getElementById('createPlan')!.click(); w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true })); await settle();
   expect(input.value).toBe('');
   input.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, cancelable: true }));
   input.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', isComposing: true, cancelable: true }));
@@ -2935,7 +3009,7 @@ it('does not erase a new composer draft while completed-plan queue admission is 
   api.draftTaskPlan = vi.fn(async () => ({ ok: true, data: ['First checkpoint', 'Last checkpoint'] }));
   const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
   input.value = 'Planner request';
-  w.document.getElementById('createPlan')!.click(); await settle();
+  w.document.getElementById('createPlan')!.click(); w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true })); await settle();
   expect(input.value).toBe('');
   input.value = 'My next correction'; input.dispatchEvent(new w.Event('input'));
   await admit(); await settle();
@@ -2951,11 +3025,12 @@ it('clearing the complete planner task cancels generation and restores Create pl
   api.draftTaskPlan = vi.fn(() => new Promise(resolve => { finish = resolve; }));
   api.cancelTaskRequest = vi.fn(async () => ({ ok: true, data: true }));
   const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
-  input.value = 'Write a poem'; w.document.getElementById('createPlan')!.click(); await settle();
+  input.value = 'Write a poem'; w.document.getElementById('createPlan')!.click(); w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true })); await settle();
   input.value = ''; input.dispatchEvent(new w.Event('input'));
   expect(api.cancelTaskRequest).toHaveBeenCalled();
   expect(w.document.getElementById('createPlan')!.getAttribute('aria-pressed')).toBe('false');
-  expect(w.document.getElementById('createPlan')!.textContent).toBe('Create plan');
+  expect(w.document.getElementById('createPlan')!.textContent).toBe('Plan');
+  expect(w.document.getElementById('createPlan')!.getAttribute('aria-label')).toBe('Create plan');
   finish({ ok: true, data: ['Old stage', 'Old check'] }); await settle();
   expect(live.sent).toHaveLength(0);
   expect(w.document.querySelectorAll('.plan-stage')).toHaveLength(0);
@@ -3307,7 +3382,7 @@ it('cancels pending plan generation when its own draft changes', async () => {
   api.draftTaskPlan = vi.fn(() => new Promise(resolve => { finish = resolve; }));
   const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
   input.value = 'Original plan';
-  w.document.getElementById('createPlan')!.click(); await settle();
+  w.document.getElementById('createPlan')!.click(); w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true })); await settle();
   const requestId = api.draftTaskPlan.mock.calls[0][2];
   input.value = 'Replacement plan'; input.dispatchEvent(new w.Event('input'));
   expect(api.cancelTaskRequest).toHaveBeenCalledWith(requestId);
@@ -3348,7 +3423,7 @@ it('retains an existing running chat planner across navigation and accepts its r
   api.draftTaskPlan = vi.fn(() => new Promise(resolve => { finish = resolve; }));
   const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
   input.value = 'Plan for this running chat'; input.dispatchEvent(new w.Event('input'));
-  w.document.getElementById('createPlan')!.click(); await settle();
+  w.document.getElementById('createPlan')!.click(); w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true })); await settle();
   const requestId = api.draftTaskPlan.mock.calls[0][2];
   (w.document.querySelector('#sessionList [data-id="second-chat"]') as HTMLElement).click(); await settle();
   input.value = 'Unrelated draft'; input.dispatchEvent(new w.Event('input'));
@@ -3379,7 +3454,7 @@ it('keeps two planner owners independent and ignores a cancelled result after re
   api.draftTaskPlan = vi.fn((text: string) => new Promise(resolve => { pending.set(text, resolve); }));
   api.cancelTaskRequest = vi.fn(async () => ({ ok: true, data: true }));
   const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
-  const generate = () => w.document.getElementById('createPlan')!.click();
+  const generate = () => { w.document.getElementById('createPlan')!.click(); w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true })); };
   const select = async (id: string) => { (w.document.querySelector(`#sessionList [data-id="${id}"]`) as HTMLElement).click(); await settle(); };
   input.value = 'Plan A'; generate(); await settle();
   const requestA = api.draftTaskPlan.mock.calls[0][2];
@@ -3392,7 +3467,7 @@ it('keeps two planner owners independent and ignores a cancelled result after re
   expect(w.document.getElementById('finishQueue')!.textContent).toContain('A first');
   await select(second.id);
   const requestB = api.draftTaskPlan.mock.calls[1][2];
-  generate(); // Explicitly cancel B; A and navigation did not cancel it.
+  w.document.getElementById('createPlan')!.click(); // Explicitly cancel B; A and navigation did not cancel it.
   expect(api.cancelTaskRequest.mock.calls).toEqual([[requestB]]);
   expect(api.cancelTaskRequest).not.toHaveBeenCalledWith(requestA);
   input.value = 'B replacement'; generate(); await settle();
@@ -3934,7 +4009,7 @@ it('keeps a cancelled automatic draft at its creation time as later messages arr
   const timeline = w.document.getElementById('timeline')!;
   const retired = timeline.querySelector<HTMLElement>('[data-input-id="retired-auto"]')!;
   expect(retired).not.toBeNull();
-  expect(retired.querySelector('time')!.textContent).toBe(new Date(T0 + 1000).toLocaleString());
+  expect(retired.querySelector('time')!.textContent).toBe(new Date(T0 + 1000).toLocaleString('en'));
   expect(w.document.getElementById('inputQueue')!.textContent).not.toContain('Unused automatic instruction');
   const before = () => timeline.textContent!.indexOf('Unused automatic instruction') < timeline.textContent!.indexOf('Later continuation');
   expect(before()).toBe(true);
@@ -3978,4 +4053,239 @@ it('keeps the plain Working label unless playful status words are turned on', as
 it('uses a playful work word when it is turned on in Settings', async () => {
   const { w } = await boot([{ seq: 1, time: T0, source: 'extension', kind: 'turn_start', turnId: 'held-turn' }], true, [], [], { playfulStatus: true });
   expect(w.document.getElementById('chatState')!.textContent).toMatch(PLAYFUL_WORDS);
+});
+
+it('offers copy and Markdown export under the answer of a completed turn only', async () => {
+  const ask: SessionEvent = { kind: 'user_message', seq: 1, origin: 1, time: T0, source: 'extension', turnId: 'done-turn', messageId: 'ask', message: text('Write hello.txt') };
+  const reply: SessionEvent = { kind: 'assistant_message', seq: 2, time: T0 + 1_000, source: 'extension', turnId: 'done-turn', messageId: 'reply', message: text('Created **hello.txt**.'), final: true, state: 'final' };
+  const { w, append } = await boot([ask, reply]);
+  const api = (w as any).api;
+  api.exportMarkdown = vi.fn(async () => ({ ok: true, data: { done: 'copied' } }));
+  // Still open: the answer may yet change, so it offers nothing.
+  expect(w.document.querySelector('.answer-actions')).toBeNull();
+
+  await append([{ seq: 3, time: T0 + 2_000, source: 'extension', kind: 'turn_end', turnId: 'done-turn', outcome: 'completed' }]);
+  const actions = w.document.querySelector('.ev-assistant_message .said .answer-actions');
+  expect(actions).not.toBeNull();
+  expect(w.document.querySelectorAll('.answer-actions')).toHaveLength(1);
+
+  (actions!.querySelector('button.answer-action') as HTMLButtonElement).click(); await settle();
+  expect(api.exportMarkdown).toHaveBeenCalledWith({ id: summary([]).id, scope: 'answer', turnId: 'done-turn', target: 'clipboard' });
+  expect(actions!.querySelector('button.answer-action')!.classList.contains('is-done')).toBe(true);
+
+  api.exportMarkdown = vi.fn(async () => ({ ok: true, data: { done: 'saved', name: 'chat.md' } }));
+  const choices = [...actions!.querySelectorAll<HTMLButtonElement>('.answer-export-choice')];
+  expect(choices.map(choice => choice.textContent)).toEqual(['This answer', 'Whole session']);
+  choices[1]!.click(); await settle();
+  expect(api.exportMarkdown).toHaveBeenCalledWith({ id: summary([]).id, scope: 'session', turnId: undefined, target: 'file' });
+});
+
+it('does not offer copy or export after an interrupted turn', async () => {
+  const reply: SessionEvent = { kind: 'assistant_message', seq: 1, time: T0, source: 'extension', turnId: 'cut-turn', messageId: 'cut', message: text('Half an answer'), final: true, state: 'final' };
+  const { w } = await boot([reply, { seq: 2, time: T0 + 1_000, source: 'extension', kind: 'turn_end', turnId: 'cut-turn', outcome: 'interrupted' }]);
+  expect(w.document.querySelector('.answer-actions')).toBeNull();
+});
+
+it('opens each turn with how long it has worked, live while running and still once ended', async () => {
+  const start: SessionEvent = { seq: 1, time: T0, source: 'extension', kind: 'turn_start', turnId: 'long-turn' };
+  const ask: SessionEvent = { kind: 'user_message', seq: 2, origin: 2, time: T0 + 100, source: 'extension', turnId: 'long-turn', messageId: 'q', message: text('Check the sites') };
+  const note: SessionEvent = { kind: 'assistant_message', seq: 3, time: T0 + 2_000, source: 'extension', turnId: 'long-turn', messageId: 'c', message: text('Checking both.'), final: true, state: 'final' };
+  const reply: SessionEvent = { kind: 'assistant_message', seq: 4, time: T0 + 70_000, source: 'extension', turnId: 'long-turn', messageId: 'r', message: text('Both sites return 200 OK.'), final: true, state: 'final' };
+  const { w, append } = await boot([start, ask, note, reply]);
+  (w as any).api.getSessionControls = (id: string) => Promise.resolve({ ok: true,
+    data: { sessionId: id, automation: 'off', activeTurnId: null, finishHeld: false, blocked: '', job: null } });
+  await append([{ seq: 5, time: T0 + 72_000, source: 'extension', kind: 'turn_end', turnId: 'long-turn', outcome: 'completed' }]);
+  const lines = [...w.document.querySelectorAll<HTMLElement>('#timeline .turn-worked')];
+  expect(lines.map(line => line.textContent)).toEqual(['Worked for 1m 11s']);
+  // At the top of the turn: after your message, before its first reply.
+  expect(lines[0]!.previousElementSibling?.matches('.ev-user_message')).toBe(true);
+  expect(lines[0]!.nextElementSibling?.textContent).toContain('Checking both.');
+  // The header no longer repeats it.
+  expect(w.document.getElementById('chatState')!.classList.contains('is-mirrored')).toBe(true);
+});
+
+it('keeps a still worked line on earlier turns while the latest turn has its own', async () => {
+  const turn = (id: string, at: number, seq: number): SessionEvent[] => [
+    { seq, time: at, source: 'extension', kind: 'turn_start', turnId: id },
+    { kind: 'user_message', seq: seq + 1, origin: seq + 1, time: at + 10, source: 'extension', turnId: id, messageId: `q-${id}`, message: text(`Ask ${id}`) },
+    { kind: 'assistant_message', seq: seq + 2, time: at + 5_000, source: 'extension', turnId: id, messageId: `r-${id}`, message: text(`Answer ${id}`), final: true, state: 'final' },
+    { seq: seq + 3, time: at + 9_000, source: 'extension', kind: 'turn_end', turnId: id, outcome: 'completed' }
+  ];
+  const { w, append } = await boot([...turn('first', T0, 1), ...turn('second', T0 + 60_000, 5)]);
+  (w as any).api.getSessionControls = (id: string) => Promise.resolve({ ok: true,
+    data: { sessionId: id, automation: 'off', activeTurnId: null, finishHeld: false, blocked: '', job: null } });
+  await append([]);
+  const lines = [...w.document.querySelectorAll<HTMLElement>('#timeline .turn-worked')];
+  expect(lines.map(line => line.textContent)).toEqual(['Worked for 8s', 'Worked for 8s']);
+  expect(lines.map(line => line.nextElementSibling?.textContent ?? '')).toEqual([expect.stringContaining('Answer first'), expect.stringContaining('Answer second')]);
+});
+
+it('shows the running turn working at its top while it works', async () => {
+  const running: SessionEvent[] = [
+    { seq: 1, time: Date.now() - 12_000, source: 'extension', kind: 'turn_start', turnId: 'held-turn' },
+    { kind: 'user_message', seq: 2, origin: 2, time: Date.now() - 11_900, source: 'extension', turnId: 'held-turn', messageId: 'q-live', message: text('Build it') },
+    { kind: 'assistant_message', seq: 3, time: Date.now() - 9_000, source: 'extension', turnId: 'held-turn', messageId: 'c-live', message: text('Starting the build.'), final: true, state: 'final' }
+  ];
+  const { w } = await boot(running);
+  const line = w.document.querySelector<HTMLElement>('#timeline .turn-status')!;
+  expect(line.textContent).toMatch(/^Working for /);
+  expect(line.classList.contains('is-working')).toBe(true);
+  expect(line.previousElementSibling?.matches('.ev-user_message')).toBe(true);
+});
+
+it('ends the running turn with a row saying what it is doing now', async () => {
+  const asked = Date.now() - 12_000;
+  const { w, append } = await boot([
+    { seq: 1, time: asked - 100, source: 'extension', kind: 'turn_start', turnId: 'held-turn' },
+    { kind: 'user_message', seq: 2, origin: 2, time: asked, source: 'extension', turnId: 'held-turn', messageId: 'q-now', message: text('Run the tests') }
+  ]);
+  const now = () => w.document.querySelector<HTMLElement>('#timeline .turn-now')!;
+  // The Working line keeps only its clock; the step is the last row of the turn's work.
+  expect(w.document.querySelector('#timeline .turn-status')!.textContent).toMatch(/^Working for \d+s$/);
+  expect(now().parentElement!.lastElementChild).toBe(now());
+  const shown = () => now().hidden ? null : [now().querySelector('.turn-now-text')!.textContent, now().querySelector('.turn-now-time')!.textContent];
+  // Nothing visible has happened since the message.
+  expect(shown()).toEqual(['Thinking', '']);
+  // A call of this app runs for this chat: it is named, with its own clock once it lasts.
+  const asks: string[][] = [];
+  (w as any).api.runningTools = (ids: string[]) => {
+    asks.push(ids);
+    return Promise.resolve({ ok: true, data: [{ title: 'Running npm test', kind: 'run', since: Date.now() - 5_000 }] });
+  };
+  await append([]); await append([]);
+  expect(asks.at(-1)).toEqual(['chat-b', 'chat-a']);
+  expect(shown()).toEqual(['Running npm test', '5s']);
+  // No call of ours: ChatGPT's own step, while it is still going on.
+  (w as any).api.runningTools = () => Promise.resolve({ ok: true, data: [] });
+  await append([{ seq: 3, time: Date.now(), source: 'extension', kind: 'page_tool', messageId: 'thought-1', label: 'Searching the web' }]);
+  await append([]);
+  expect(shown()?.[0]).toBe('Searching the web');
+  // It follows the work: a new step lands above it, and it stays the last row.
+  expect(now().previousElementSibling?.textContent).toContain('Searching the web');
+  expect(now().parentElement!.lastElementChild).toBe(now());
+  // Prose speaks for itself while it is being written…
+  await append([{ kind: 'assistant_message', seq: 4, time: Date.now(), source: 'extension', messageId: 'a-now', message: text('Two tests fail…'), final: false, state: 'streaming' }]);
+  expect(shown()).toBeNull();
+  // …and once it stops changing the turn is still working: an interim paragraph stays "streaming".
+  await new Promise(resolve => setTimeout(resolve, 2_600));
+  await append([]);
+  expect(shown()?.[0]).toBe('Thinking');
+});
+
+it('shows a just-started turn working right after your message, never in the header first', async () => {
+  // The controls report a running turn before any of its rows reached the timeline.
+  const { w } = await boot([]);
+  const line = w.document.querySelector<HTMLElement>('.turn-status')!;
+  expect(line.textContent).toMatch(/^Working/);
+  expect(line.classList.contains('is-working')).toBe(true);
+  expect(line.previousElementSibling?.id).toBe('inputQueue');
+  expect(w.document.getElementById('chatState')!.classList.contains('is-mirrored')).toBe(true);
+});
+
+it('anchors the worked line to your message when the page reports an empty turn and untagged work', async () => {
+  // Measured in a live session: the page opened and closed an empty turn right after the message,
+  // then every row of the real work arrived with no turn id at all.
+  const asked = T0;
+  const rows: SessionEvent[] = [
+    { kind: 'user_message', seq: 1, origin: 1, time: asked, source: 'extension', turnId: 'message-scope-id', messageId: 'ask-5', message: text('Legal, mais uma vez') },
+    { seq: 2, time: asked + 200, source: 'extension', kind: 'turn_start', turnId: 'ghost-turn' },
+    { seq: 3, time: asked + 300, source: 'extension', kind: 'turn_end', turnId: 'ghost-turn', outcome: 'completed' },
+    { kind: 'assistant_message', seq: 4, time: asked + 2_000, source: 'extension', messageId: 'plan-5', message: text('Claro. Vou repetir em um quinto arquivo.'), final: true, state: 'final' },
+    { kind: 'assistant_message', seq: 5, time: asked + 21_000, source: 'extension', messageId: 'done-5', message: text('Feito novamente.'), final: true, state: 'final' }
+  ];
+  const { w, append } = await boot(rows);
+  (w as any).api.getSessionControls = (id: string) => Promise.resolve({ ok: true,
+    data: { sessionId: id, automation: 'off', activeTurnId: null, finishHeld: false, blocked: '', job: null } });
+  await append([]);
+  const lines = [...w.document.querySelectorAll<HTMLElement>('#timeline .turn-worked')];
+  expect(lines.map(line => line.textContent)).toEqual(['Worked for 21s']);
+  expect(lines[0]!.previousElementSibling?.matches('.ev-user_message')).toBe(true);
+  expect(lines[0]!.nextElementSibling?.textContent).toContain('quinto arquivo');
+});
+
+it('titles a finished round with the native step that ends it, by position and in any language', async () => {
+  // ChatGPT closes a round of work with a recap and titles the block with it. It is picked by where
+  // it sits, never by its wording: the step that ends the round, once prose follows. Spanish labels.
+  const note = (seq: number, label: string): SessionEvent => ({ seq, time: T0 + seq * 1000, source: 'extension', kind: 'page_tool', messageId: `note-${seq}`, label });
+  const prose: SessionEvent = { kind: 'assistant_message', seq: 5, time: T0 + 5000, source: 'extension', messageId: 'after-round', message: text('Listo.'), final: true, state: 'final' };
+  const { w } = await boot([note(1, 'Planificando la comprobación'), toolCall(2, 'call-a'), toolCall(3, 'call-b'), note(4, 'Se ejecutó la comprobación exacta'), prose]);
+  const group = w.document.querySelector<HTMLDetailsElement>('#timeline details.tool-group')!;
+  expect(group.querySelector('.activity-title')!.textContent).toBe('Se ejecutó la comprobación exacta');
+  expect(group.querySelector('.activity-symbol .ph-check-circle')).not.toBeNull();
+  // The recap heads the group rather than repeating inside it; the calls and the earlier note stay,
+  // and a step written before any call keeps the globe.
+  const inside = [...group.querySelectorAll<HTMLElement>('.tool-group-body .thinking-line')];
+  expect(inside.map(line => line.textContent)).toEqual(['Planificando la comprobación']);
+  expect(inside[0]!.querySelector('.ph-globe-hemisphere-west')).not.toBeNull();
+  expect(group.querySelectorAll('.tool-group-body .ev-tool_call')).toHaveLength(2);
+});
+
+/** A page_tool event, and how a test reads the group title and the latest call's own title. */
+const nativeStep = (seq: number, label: string): SessionEvent => ({ seq, time: T0 + seq * 1000, source: 'extension', kind: 'page_tool', messageId: `note-${seq}`, label });
+const groupTitle = (document: Document) => document.querySelector('#timeline details.tool-group .activity-title')!.textContent;
+const latestCallTitle = (document: Document) => {
+  const tool = [...document.querySelectorAll<HTMLElement>('#timeline .ev-tool_call')].at(-1)!;
+  return tool.querySelector('.tool > summary b')?.textContent ?? tool.querySelector('.tool > summary span')?.textContent;
+};
+
+it('names a round still in progress after its latest real action, until prose ends it', async () => {
+  // The turn still works and nothing follows the step: it is a note, whatever it says, not a recap.
+  const { w, append } = await boot([toolCall(2, 'call-a'), toolCall(3, 'call-b'), nativeStep(4, 'Executed exact command check')]);
+  expect(latestCallTitle(w.document)).toBeTruthy();
+  expect(groupTitle(w.document)).toBe(latestCallTitle(w.document));
+  const pending = [...w.document.querySelectorAll<HTMLElement>('#timeline .tool-group-body .thinking-line')];
+  expect(pending.map(line => line.textContent)).toEqual(['Executed exact command check']);
+  expect(pending[0]!.querySelector('.ph-check-circle')).toBeNull();
+  // Once prose follows, the same step ends a finished round and titles it.
+  await append([{ kind: 'assistant_message', seq: 5, time: T0 + 5000, source: 'extension', messageId: 'after-round', message: text('Done.'), final: true, state: 'final' }]);
+  expect(groupTitle(w.document)).toBe('Executed exact command check');
+});
+
+it('names a finished round that ends in a call after that call, and keeps the globe on a step before its calls', async () => {
+  const { w } = await boot([nativeStep(1, 'Searched 3 websites'), toolCall(2, 'call-a'), toolCall(3, 'call-b'),
+    { kind: 'assistant_message', seq: 5, time: T0 + 5000, source: 'extension', messageId: 'after-search', message: text('Done.'), final: true, state: 'final' }]);
+  expect(latestCallTitle(w.document)).toBeTruthy();
+  expect(groupTitle(w.document)).toBe(latestCallTitle(w.document));
+  expect(w.document.querySelector('#timeline .tool-group-body .thinking-line .ph-globe-hemisphere-west')).not.toBeNull();
+});
+
+it('offers a way back to the end of the chat that clears any reserved space', async () => {
+  const { w } = await boot([]);
+  const jump = w.document.getElementById('jumpLatest') as HTMLButtonElement;
+  expect(jump).not.toBeNull();
+  expect(jump.getAttribute('aria-label')).toBe('Jump to latest');
+  expect(jump.closest('#chatBody')).not.toBeNull();
+  const content = w.document.getElementById('timelineContent')!;
+  content.style.setProperty('--timeline-scroll-reserve', '300px');
+  jump.click();
+  expect(content.style.getPropertyValue('--timeline-scroll-reserve')).toBe('');
+});
+
+it('opens the next chat at its end after the reader scrolled away from a sent message', async () => {
+  const rows = Array.from({ length: 40 }, (_, i): SessionEvent => ({ seq: i + 1, time: T0 + i,
+    source: 'extension', kind: 'user_message', messageId: `reading-${i}`, message: text(`Reading item ${i + 1}`) }));
+  const first = summary(rows), second = { ...summary(rows), id: '2026-09-02-test0002', title: 'Other chat' };
+  const { w, append } = await boot(rows, false, [], [], { sessions: [first, second] });
+  const pane = w.document.getElementById('chatBody')!;
+  const timeline = w.document.getElementById('timeline')!;
+  Object.defineProperties(pane, { clientHeight: { value: 400 },
+    scrollHeight: { get: () => timeline.querySelectorAll('[data-timeline-key]').length * 100 } });
+  const select = async (id: string) => {
+    (w.document.querySelector(`#sessionList [data-id="${id}"]`) as HTMLElement).click();
+    await settle();
+  };
+  await select(first.id);
+  const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
+  input.value = 'Hold this one'; input.dispatchEvent(new w.Event('input'));
+  (w.document.getElementById('chatSend') as HTMLButtonElement).click();
+  await settle();
+  // The reader scrolls up with the wheel, releasing the hold on the sent message.
+  pane.dispatchEvent(new w.WheelEvent('wheel'));
+  pane.scrollTop = 300;
+  pane.dispatchEvent(new w.Event('scroll'));
+  await select(second.id);
+  expect(pane.scrollTop).toBe(pane.scrollHeight);
+  // Its answer keeps growing: the reader who just opened it follows the end.
+  await append([{ seq: 100, time: T0 + 100, source: 'extension', kind: 'assistant_message', messageId: 'grown', message: text('A new answer'), final: false }]);
+  expect(pane.scrollTop).toBe(pane.scrollHeight);
 });
