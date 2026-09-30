@@ -642,6 +642,7 @@ Load command 11
       'Chat-On-Steroids-Setup-x64.exe',
       'Chat-On-Steroids-Extension.zip',
       'Chat-On-Steroids-Native-Sources.tar.gz',
+      'Actualizar-ChatOnSteroids.cmd',
       'SHA256SUMS.txt'
     ];
     const checksumStep = release.slice(

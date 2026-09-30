@@ -319,16 +319,19 @@ jobs:
       - name: Create SHA-256 checksums
         run: |
           set -euo pipefail
+          cp Actualizar-ChatOnSteroids.cmd release/Actualizar-ChatOnSteroids.cmd
           files=(
             release/Chat-On-Steroids-Setup-x64.exe
             release/Chat-On-Steroids-Extension.zip
             release/Chat-On-Steroids-Native-Sources.tar.gz
+            release/Actualizar-ChatOnSteroids.cmd
           )
           for file in "${files[@]}"; do test -f "$file" || { echo "Missing $file" >&2; exit 1; }; done
           (cd release && sha256sum \
             Chat-On-Steroids-Setup-x64.exe \
             Chat-On-Steroids-Extension.zip \
-            Chat-On-Steroids-Native-Sources.tar.gz > SHA256SUMS.txt)
+            Chat-On-Steroids-Native-Sources.tar.gz \
+            Actualizar-ChatOnSteroids.cmd > SHA256SUMS.txt)
           cat release/SHA256SUMS.txt
 
       - name: Upload release candidate
@@ -341,6 +344,7 @@ jobs:
             release/Chat-On-Steroids-Setup-x64.exe
             release/Chat-On-Steroids-Extension.zip
             release/Chat-On-Steroids-Native-Sources.tar.gz
+            release/Actualizar-ChatOnSteroids.cmd
             release/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 30

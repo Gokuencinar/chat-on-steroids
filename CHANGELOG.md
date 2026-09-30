@@ -23,6 +23,11 @@ This fork release integrates the official 2.1.21 update while retaining the fork
 - Saved GPT-6 Pro/model refresh handling, language-independent Pro detection and immediate browser-preference refresh.
 - Chat-view, terminal, deleted-workspace, legacy-chat-title and restricted-extension-access fixes.
 
+### Fork updater
+
+- Added Actualizar-ChatOnSteroids.cmd, a double-click Windows updater that verifies the published SHA-256, installs only when the app is older, and then uses CoS's own safe extension synchronization/reload path.
+- The updater does not delete or replace the per-user data directory, preserving configuration, encrypted secrets, sessions and plugins.
+
 ### Fork-specific behavior retained
 
 - Windows x64-only packaging and fork-only update/release URLs.
