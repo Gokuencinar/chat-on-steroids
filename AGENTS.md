@@ -3087,7 +3087,12 @@ outside that clip. `scripts/verify-settings-focus.cjs` checks unchanged geometry
 restoration after closing/blurring, and hit testing options beyond the card edge.
 
 Appearance uses `ui.appearance` in the existing config, with separate Light/Dark background,
-sidebar and accent RGB colors plus contrast. Native color pickers and HEX fields allow every
+sidebar and accent palettes plus contrast. Its optional `style` is `classic` (legacy default) or `cyberpunk`.
+The Cyberpunk preset in Appearance selects dark neon colors and scoped HUD styling; colors and
+typography remain editable. It uses the same queued Settings save and field-wise merge, so an
+older window's color-only save cannot discard another window's selected skin. Reset restores
+classic styling; no remote assets, new permissions or conversation authority are introduced.
+Native color pickers and HEX fields allow every
 six-digit RGB color. A shared font choice, 12–18px base text size and translucent-sidebar switch
 apply immediately; Reset appearance restores both palettes and typography without changing the
 theme, language or setup profile. Text size scales the existing typography hierarchy, including

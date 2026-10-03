@@ -1,5 +1,6 @@
 /** Saved appearance is presentation only. Theme remains the existing ui.theme choice. */
 export const APPEARANCE_FONTS = ['system', 'sans', 'serif', 'mono'] as const;
+export const APPEARANCE_STYLES = ['classic', 'cyberpunk'] as const;
 export type AppearanceTheme = 'light' | 'dark';
 export interface AppearancePalette {
   background: string;
@@ -8,6 +9,7 @@ export interface AppearancePalette {
   contrast: number;
 }
 export interface AppearanceSettings {
+  style?: typeof APPEARANCE_STYLES[number];
   light: AppearancePalette;
   dark: AppearancePalette;
   font: typeof APPEARANCE_FONTS[number];
@@ -16,10 +18,18 @@ export interface AppearanceSettings {
 }
 export function defaultAppearance(): AppearanceSettings {
   return {
+    style: 'classic',
     light: { background: '#f4f4f5', sidebar: '#e9edf2', accent: '#486f9d', contrast: 45 },
     dark: { background: '#181818', sidebar: '#1a2129', accent: '#b0cbed', contrast: 60 },
     font: 'system', fontSize: 14, translucentSidebar: true
   };
+}
+
+/** Local preset: typography stays readable while the surface language becomes a neon HUD. */
+export function cyberpunkAppearance(current = defaultAppearance()): AppearanceSettings {
+  return { ...current, style: 'cyberpunk',
+    dark: { background: '#080b14', sidebar: '#0c1020', accent: '#47f1ff', contrast: 70 },
+    translucentSidebar: false };
 }
 
 /** Field-wise three-way merge, so an unrelated save cannot undo another window's colors. */
@@ -34,7 +44,8 @@ export function mergeAppearance(live: AppearanceSettings | undefined, base: Appe
     accent: pick(current[theme].accent, before[theme].accent, wanted[theme].accent),
     contrast: pick(current[theme].contrast, before[theme].contrast, wanted[theme].contrast)
   });
-  return { light: palette('light'), dark: palette('dark'), font: pick(current.font, before.font, wanted.font),
+  return { style: wanted.style === undefined ? current.style : pick(current.style ?? 'classic', before.style ?? 'classic', wanted.style),
+    light: palette('light'), dark: palette('dark'), font: pick(current.font, before.font, wanted.font),
     fontSize: pick(current.fontSize, before.fontSize, wanted.fontSize),
     translucentSidebar: pick(current.translucentSidebar, before.translucentSidebar, wanted.translucentSidebar) };
 }

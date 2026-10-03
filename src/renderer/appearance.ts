@@ -1,4 +1,4 @@
-import { defaultAppearance, mixColor, paletteTokens, type AppearanceSettings, type AppearanceTheme } from '../shared/appearance.js';
+import { cyberpunkAppearance, defaultAppearance, mixColor, paletteTokens, type AppearanceSettings, type AppearanceTheme } from '../shared/appearance.js';
 import type { UiPrefs } from '../shared/types.js';
 import { $ } from './dom.js';
 
@@ -19,6 +19,7 @@ function tokens(element: HTMLElement, values: Record<string, string>): void {
 export function applyAppearance(theme: AppearanceTheme, settings?: AppearanceSettings): void {
   const value = settings ?? defaultAppearance(), palette = value[theme], root = document.documentElement;
   root.dataset.theme = theme;
+  root.dataset.appearanceStyle = value.style ?? 'classic';
   root.dataset.translucentSidebar = String(value.translucentSidebar);
   tokens(root, paletteTokens(palette.background, palette.accent, palette.contrast));
   root.style.setProperty('--text-scale', String(value.fontSize / 14));
@@ -43,6 +44,7 @@ export function initAppearance(save: (patch: { theme?: AppearanceTheme; appearan
   const colorKeys = ['accent', 'background', 'sidebar'] as const;
   function paint(): void {
     applyAppearance(theme, current);
+    $('appearanceCyberpunk').setAttribute('aria-pressed', String(current.style === 'cyberpunk'));
     $<HTMLSelectElement>('appearanceTheme').value = theme;
     $<HTMLSelectElement>('appearanceFont').value = current.font;
     $<HTMLInputElement>('appearanceSize').value = String(current.fontSize);
@@ -96,6 +98,10 @@ export function initAppearance(save: (patch: { theme?: AppearanceTheme; appearan
       control.removeAttribute('aria-invalid');
       if (control.dataset.hex) control.value = current[theme][control.dataset.hex as typeof colorKeys[number]].toUpperCase();
     }
+  });
+  $('appearanceCyberpunk').addEventListener('click', () => {
+    editing = false; theme = 'dark'; current = cyberpunkAppearance(current);
+    paint(); save({ theme, appearance: current });
   });
   $('appearanceReset').addEventListener('click', () => {
     editing = false; current = defaultAppearance(); paint(); save({ appearance: current });

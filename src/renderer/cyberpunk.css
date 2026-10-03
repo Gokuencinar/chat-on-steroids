@@ -1,0 +1,79 @@
+/* Optional local skin. Semantic colors still come from Appearance; no changed layout authority. */
+.appearance-preset-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.appearance-preset-actions > .btn { min-height: 34px; padding: 7px 10px; font-size: calc(11.5px * var(--text-scale, 1)); }
+.cyberpunk-preset { border: 1px solid var(--accent-edge); color: var(--accent); }
+.cyberpunk-preset[aria-pressed='true'] { background: var(--accent-wash); box-shadow: inset 0 -2px var(--accent); }
+
+:root[data-appearance-style='cyberpunk'] {
+  --r-sm: 4px; --r-md: 7px; --r-lg: 10px; --r-xl: 12px;
+  --neon-secondary: #fa65df;
+  --neon-line: color-mix(in srgb, var(--accent) 38%, transparent);
+  --neon-glow: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+:root[data-appearance-style='cyberpunk'][data-theme='light'] { --neon-secondary: #a32987; }
+:root[data-appearance-style='cyberpunk'] .app,
+:root[data-appearance-style='cyberpunk'] .app[data-screen='chat'] {
+  background-color: var(--page);
+  background-image: radial-gradient(ellipse at 90% 0%, color-mix(in srgb, var(--neon-secondary) 15%, transparent), transparent 52%),
+    radial-gradient(ellipse at 15% 100%, color-mix(in srgb, var(--accent) 11%, transparent), transparent 55%),
+    linear-gradient(color-mix(in srgb, var(--accent) 4%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 4%, transparent) 1px, transparent 1px);
+  background-size: auto, auto, 44px 44px, 44px 44px;
+}
+:root[data-appearance-style='cyberpunk'] :is(.sidebar, .connection-popover, .appearance-preview-sidebar) {
+  background: linear-gradient(155deg, color-mix(in srgb, var(--accent) 6%, transparent), transparent 35%), var(--sidebar-color);
+  border-color: var(--neon-line);
+}
+:root[data-appearance-style='cyberpunk'] .sidebar { box-shadow: inset 2px 0 var(--accent), inset -1px 0 var(--neon-line); }
+:root[data-appearance-style='cyberpunk'] .app-topbar { box-shadow: inset 0 -1px var(--neon-line), inset 0 2px var(--neon-secondary); }
+:root[data-appearance-style='cyberpunk'] .sidebar-brand .mark {
+  display: grid; flex: none; width: 28px; height: 28px; border-radius: 6px;
+  background: var(--accent-wash); color: var(--accent); border: 1px solid var(--accent-edge);
+  box-shadow: 0 0 18px var(--neon-glow);
+}
+:root[data-appearance-style='cyberpunk'] :is(.sidebar-brand strong, .settings-page-head h1, .plugin-page-head h1) { letter-spacing: .035em; }
+:root[data-appearance-style='cyberpunk'] :is(.sidebar-session-label, .sidebar-sessions h2, .work-dock-tab) { font-family: var(--mono); }
+:root[data-appearance-style='cyberpunk'] :is(.sess.is-sel, .sidebar-primary-link.is-sel, .sidebar-bottom > .btn.is-sel, .nav > button.is-sel) {
+  background: linear-gradient(90deg, var(--accent-wash), color-mix(in srgb, var(--neon-secondary) 9%, transparent));
+  box-shadow: inset 2px 0 var(--accent); color: var(--ink);
+}
+:root[data-appearance-style='cyberpunk'] :is(.sess, .sidebar-primary-link, .sidebar-bottom > .btn):hover { box-shadow: inset 2px 0 var(--neon-secondary); }
+:root[data-appearance-style='cyberpunk'] :is(.settings-surface, .plugin-entry, .appearance-preview, .pane, dialog) {
+  border-color: var(--neon-line);
+  box-shadow: inset 0 1px color-mix(in srgb, var(--accent) 10%, transparent), 0 12px 30px #00000020;
+}
+:root[data-appearance-style='cyberpunk'] :is(.composer, .appearance-preview-composer) {
+  border-radius: 12px; border-color: var(--neon-line);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 4%, transparent), transparent 48%), var(--card);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--neon-secondary) 12%, transparent), 0 0 32px var(--neon-glow);
+}
+:root[data-appearance-style='cyberpunk'] .composer:focus-within {
+  border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-edge), 0 0 34px var(--neon-glow);
+}
+:root[data-appearance-style='cyberpunk'] .composer::after {
+  content: ''; position: absolute; top: -1px; right: 18px; width: 64px; height: 2px;
+  background: var(--neon-secondary); box-shadow: 0 0 12px var(--neon-secondary); pointer-events: none;
+}
+:root[data-appearance-style='cyberpunk'] .welcome-mark {
+  color: var(--accent); filter: drop-shadow(0 0 12px var(--neon-glow));
+}
+:root[data-appearance-style='cyberpunk'] #chatSend:not([data-action='stop']):not(:disabled) {
+  background: var(--accent-fill); color: var(--on-accent); border-radius: 8px;
+  box-shadow: 0 0 16px var(--neon-glow);
+}
+:root[data-appearance-style='cyberpunk'] :is(.sidebar-connection.is-connected .sidebar-connection-dot, .appearance-preview-badge) {
+  box-shadow: 0 0 12px color-mix(in srgb, var(--green) 35%, transparent);
+}
+:root[data-appearance-style='cyberpunk'] :is(.user-message-text, .said.is-user) { border-radius: 10px; }
+:root[data-appearance-style='cyberpunk'] .user-message-text {
+  border-color: var(--accent-edge); background-color: color-mix(in srgb, var(--accent) 8%, var(--card));
+}
+:root[data-appearance-style='cyberpunk'] :is(pre, .tool-group, .terminal-bar, .work-dock-bar) { border-color: var(--neon-line); }
+:root[data-appearance-style='cyberpunk'] .work-dock-tab.is-active { box-shadow: inset 0 -2px var(--accent); color: var(--accent); }
+:root[data-appearance-style='cyberpunk'] :is(.btn, summary, input, select):focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 3px;
+}
+:root[data-appearance-style='cyberpunk'] ::selection { background: var(--accent-fill); color: var(--on-accent); }
+@media (max-width: 760px) {
+  .appearance-panel .appearance-page-head { flex-wrap: wrap; align-items: flex-start; }
+}

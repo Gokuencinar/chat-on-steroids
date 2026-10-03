@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.1.33] - 2026-10-03
+
+- Add an optional Cyberpunk gaming preset under Settings → Appearance: cyan/magenta neon, a dark grid background, HUD panel borders and an illuminated composer.
+- Keep editable colors and typography, persistent selection and Reset to classic. Legacy settings and concurrent saves from older windows remain compatible.
+- Preserve Windows x64-only distribution, paired app/extension versions, bridge protocol 14 and all existing fork safeguards.
+
 ## [2.1.32] - 2026-10-03
 
 - Reliable first-message receipts and live narration, exact selected-model confirmation, deeper React tree discovery, and visible-chat-only recording.

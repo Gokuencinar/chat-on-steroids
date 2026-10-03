@@ -1,9 +1,20 @@
 import { describe, it, expect } from 'vitest';
 import { appearanceSchema } from '../src/main/appearance-schema.js';
-import { defaultAppearance, mergeAppearance, paletteTokens, contrastRatio, readableInk } from '../src/shared/appearance.js';
+import { cyberpunkAppearance, defaultAppearance, mergeAppearance, paletteTokens, contrastRatio, readableInk } from '../src/shared/appearance.js';
 import { titleBarOverlayForTheme, windowBackgroundForTheme } from '../src/main/window-layout.js';
 
 describe('custom appearance', () => {
+  it('retains a concurrent skin change when an older window saves only its color preferences', () => {
+    const base = defaultAppearance(), live = cyberpunkAppearance(base), wanted = defaultAppearance();
+    delete wanted.style;
+    wanted.light.accent = '#7700ee';
+    const merged = mergeAppearance(live, base, wanted)!;
+    expect(merged.style).toBe('cyberpunk');
+    expect(merged.dark).toEqual(live.dark);
+    expect(merged.light.accent).toBe('#7700ee');
+    expect(appearanceSchema.safeParse({ ...live, style: 'url(remote)' }).success).toBe(false);
+    expect(appearanceSchema.parse(wanted).style).toBeUndefined();
+  });
   it('accepts arbitrary RGB colors, including identical accent and background, and bounds other preferences', () => {
     const appearance = defaultAppearance();
     appearance.dark = { background: '#51a20F', sidebar: '#fE0193', accent: '#51a20F', contrast: 0 };

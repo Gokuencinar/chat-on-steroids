@@ -58,6 +58,7 @@ Windows 10/11, **macOS 13 Ventura or newer**, or a current desktop Linux. Chrome
 - **Unsigned beta:** Windows is not publisher-signed; macOS is unsigned and unnotarized. Verify the package against the release checksums.
 - **Linux:** a Secret Service keyring is required. Prefer the DEB; when unprivileged user namespaces are disabled, the AppImage launcher can fall back to <code>--no-sandbox</code>.
 - **Permissions:** choose your approved folders and review capabilities before connecting. Fresh installs enable Core capabilities and two workers; Windows also enables Desktop permissions. Shell commands run with your normal user privileges.
+- **Cyberpunk appearance:** Choose **Settings → Appearance → Cyberpunk** for cyan/magenta neon, a dark grid background, HUD panels and a glowing composer. Customize its colors and typography, or use **Reset appearance** to return to the classic design.
 - **Languages:** English, German, Spanish, French, Korean, Portuguese (Brazil and Portugal), Russian, Turkish, Vietnamese, Japanese, and Simplified and Traditional Chinese. Choose one in **Appearance → Language**.
 - **After updating:** reload the companion extension and refresh the CoS apps in ChatGPT when prompted.
 

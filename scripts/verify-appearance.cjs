@@ -7,6 +7,8 @@ const root = path.resolve(__dirname, '..');
 const { fixtureConfigSource } = require('./fixtures/app-defaults.cjs');
 const output = path.join(root, 'outputs/appearance');
 app.setPath('userData', path.join(output, 'runtime'));
+// Cleanup must not quit before the outer error handler can report a failed assertion.
+app.on('window-all-closed', () => {});
 app.whenReady().then(async () => {
   const { createServer } = await import('vite');
   const fixture = `
@@ -162,7 +164,37 @@ app.whenReady().then(async () => {
     await change('uiLanguage','en');
     await js(`document.getElementById('backToChat').click();document.getElementById('chatInput').value='A workspace in your colors.'`);
     await screenshot('chat.png');
-    fs.writeFileSync(path.join(output,'results.json'),JSON.stringify({arbitraryColors:true,separateThemes:true,translucency:true,dirtyPush:true,queuedSave:true,saveFailureRollback:true,reload:true,reset:true,layout},null,2));
+    await change('uiLanguage','es');
+    await js(`document.querySelector('[data-tab="appearance"]').click();document.getElementById('appearanceCyberpunk').click()`);
+    await js('new Promise(r=>setTimeout(r,100))');
+    assert.equal(await js('document.documentElement.dataset.appearanceStyle'),'cyberpunk');
+    assert.equal(await js('window.fixtureState.config.ui.appearance.style'),'cyberpunk');
+    assert.equal(await js('window.fixtureState.config.ui.theme'),'dark');
+    const cyberpunkLayout=[];
+    for(const [width,zoom] of [[1100,1],[800,1.17],[1100,1.5],[640,1]]) {
+      win.setSize(width,900); win.webContents.setZoomFactor(zoom);
+      await js('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
+      // Chromium applies the new zoom asynchronously after the native resize.
+      await js('new Promise(r=>setTimeout(r,200))');
+      const geometry=await js(`(() => {const panel=document.getElementById('appearancePanel');return {viewport:innerWidth,scroll:panel.scrollWidth,width:panel.clientWidth,body:document.documentElement.scrollWidth};})()`);
+      assert.ok(geometry.scroll<=geometry.width+1,JSON.stringify({width,zoom,geometry}));
+      assert.ok(geometry.body<=geometry.viewport+1,JSON.stringify(geometry));
+      cyberpunkLayout.push({windowWidth:width,zoom,...geometry});
+    }
+    win.setSize(1100,900);win.webContents.setZoomFactor(1);
+    await screenshot('cyberpunk-appearance.png');
+    const cyberUi = await js('window.fixtureState.config.ui');
+    await win.reload();
+    for(let i=0;i<100 && !(await js('!!window.fixtureReady'));i++) await new Promise(r=>setTimeout(r,25));
+    await js(`window.fixtureState.config.ui=${JSON.stringify(cyberUi)};window.pushState();document.querySelector('[data-tab="appearance"]').click()`);
+    assert.equal(await js('document.documentElement.dataset.appearanceStyle'),'cyberpunk');
+    await js(`document.getElementById('backToChat').click();document.getElementById('chatInput').value='Vamos a construir el siguiente nivel.'`);
+    await screenshot('cyberpunk-chat.png');
+    await js(`document.querySelector('[data-tab="appearance"]').click();document.getElementById('appearanceReset').click()`);
+    await js('new Promise(r=>setTimeout(r,100))');
+    assert.equal(await js('document.documentElement.dataset.appearanceStyle'),'classic');
+    fs.writeFileSync(path.join(output,'results.json'),JSON.stringify({arbitraryColors:true,separateThemes:true,translucency:true,dirtyPush:true,queuedSave:true,saveFailureRollback:true,reload:true,reset:true,cyberpunkPersistence:true,cyberpunkReset:true,cyberpunkLayout,layout},null,2));
     console.log('Appearance Electron checks passed. '+output);
-  } finally { win?.destroy(); await server.close(); app.quit(); }
+  } finally { win?.destroy(); await server.close(); }
+  app.quit();
 }).catch(error=>{console.error(error);app.exit(1)});
