@@ -26,6 +26,9 @@ app.whenReady().then(async () => {
   await server.listen();
   const win = new BrowserWindow({ show: false, width: 1440, height: 960,
     webPreferences: { sandbox: true, offscreen: true, backgroundThrottling: false } });
+  // Windows clamps the constructor bounds to the runner's display. These checks exercise the
+  // stated viewport, including a right dock; size the offscreen contents explicitly after creation.
+  win.setContentSize(1440, 960);
   const errors = [];
   win.webContents.on('console-message', event => { if (event.level === 'error') errors.push(event.message); });
   await win.loadURL('http://127.0.0.1:4420'); await pause(2200);
@@ -97,7 +100,7 @@ app.whenReady().then(async () => {
   await check('Stop reaches native controller', `composerFixture.controls.activeTurnId===null`);
   await js(`composerFixture.scenario('empty')`); await pause(400);
   await click('#rightDockToggle'); await pause(300);
-  await check('Composer controls fit with the right work panel open', `(()=>{const mode=document.getElementById('createPlan').getBoundingClientRect(),context=document.getElementById('contextMeter').getBoundingClientRect();const fits=mode.right<=context.left+0.001||mode.bottom<=context.top+0.001;if(!fits)console.error(JSON.stringify({mode:mode.toJSON(),context:context.toJSON()}));return fits})()`);
+  await check('Composer controls fit with the right work panel open', `(()=>{const mode=document.getElementById('createPlan').getBoundingClientRect(),context=document.getElementById('contextMeter').getBoundingClientRect();return mode.right<=context.left+0.001||mode.bottom<=context.top+0.001})()`);
   await click('#rightDockToggle');
   for (const width of [1440, 900]) {
     win.setContentSize(width, 960); await pause(250);

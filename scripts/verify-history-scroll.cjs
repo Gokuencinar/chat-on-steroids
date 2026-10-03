@@ -30,6 +30,9 @@ app.whenReady().then(async () => {
   const show = process.argv.includes('--show');
   const win = new BrowserWindow({ show, title: 'CoS history scroll verification', width: 1400, height: 1000,
     webPreferences: { sandbox: true, backgroundThrottling: false, offscreen: !show } });
+  // A hosted Windows display can clamp constructor height below the 600 px reserve below,
+  // putting every transcript anchor offscreen. Exercise the intended viewport on every runner.
+  if (!show) win.setContentSize(1400, 1000);
   await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
   await win.webContents.executeJavaScript(`(() => {
     const ok = data => Promise.resolve({ok:true, data});
