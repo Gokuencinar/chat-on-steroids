@@ -165,7 +165,7 @@ async function settleHistoryFrame(w: Pick<Window, 'requestAnimationFrame'>): Pro
   await settle();
 }
 
-async function boot(events: SessionEvent[], selectExisting = true, pausedHelpers: Array<{ id: string; sourceSessionId: string }> = [], projects: LocalProject[] = [], options: { origin?: SessionSummary["origin"]; developerMode?: boolean; playfulStatus?: boolean; sessions?: SessionSummary[]; pro?: boolean; astra?: boolean; reserveOpenings?: boolean; handoff?: Handoff | null } = {}) {
+async function boot(events: SessionEvent[], selectExisting = true, pausedHelpers: Array<{ id: string; sourceSessionId: string }> = [], projects: LocalProject[] = [], options: { origin?: SessionSummary["origin"]; developerMode?: boolean; playfulStatus?: boolean; followOutput?: boolean; sessions?: SessionSummary[]; pro?: boolean; astra?: boolean; reserveOpenings?: boolean; handoff?: Handoff | null } = {}) {
   const html = await fs.readFile(path.join(process.cwd(), 'src', 'renderer', 'index.html'), 'utf8');
   dom = new JSDOM(html, { url: 'https://local.test/', pretendToBeVisual: true });
   const w = dom.window;
@@ -196,7 +196,7 @@ async function boot(events: SessionEvent[], selectExisting = true, pausedHelpers
     },
     commandAllowlist: { enabled: false, mode: 'allow' as const, rules: [] as string[] },
     tunnel: { kind: 'openai', tunnelId: 'tunnel_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', desktopTunnelId: '', binaryPath: '' },
-    ui: { minimizeToTray: true, autoConnect: false, privacyScreenshots: false, theme: 'light', developerMode: options.developerMode ?? false, playfulStatus: options.playfulStatus ?? false },
+    ui: { minimizeToTray: true, autoConnect: false, privacyScreenshots: false, theme: 'light', developerMode: options.developerMode ?? false, playfulStatus: options.playfulStatus ?? false, ...(options.followOutput === undefined ? {} : { followOutput: options.followOutput }) },
     sessions: { record: true, retainDays: 30, advisoryTokens: 300000, limitTokens: 400000 },
     compaction: { auto: true, autoTokens: 300000 },
     multiAgent: { enabled: false, maxWorkers: 2, allowUnattributedCalls: false, recoverAgentTabs: true },
@@ -259,7 +259,7 @@ async function boot(events: SessionEvent[], selectExisting = true, pausedHelpers
         entry.state = 'cancelled'; entry.cancelledByUser = true;
         return ok(true);
       }),
-      runningTools: () => ok([]), listPausedHelpers: () => ok(pausedHelpers),
+      runningTools: () => ok([]), livePreview: () => ok(null), listPausedHelpers: () => ok(pausedHelpers),
       retryHelper: (id: string, sourceSessionId: string) => {
         live.controlCalls.push({ id: sourceSessionId, action: `retry:${id}` });
         pausedHelpers = pausedHelpers.filter(row => row.id !== id);
@@ -3286,7 +3286,12 @@ it('shows Pro Loop delivery before sending and freezes changes made while the op
   expect(row.hidden).toBe(true);
   choose('pro'); expect(row.hidden).toBe(false);
   expect(delivery.value).toBe('finish');
+  // The choice names when Loop continues, and its title says what that means.
+  expect(row.firstChild!.textContent).toBe('When to continue');
+  expect([...delivery.options].map(option => option.textContent)).toEqual(['Session Finish only', 'Also after the turn']);
+  expect(delivery.title).toBe('Only inside the Session Finish tool result; never start a new turn');
   delivery.value = 'after-turn'; delivery.dispatchEvent(new w.Event('change'));
+  expect(delivery.title).toBe('At Session Finish, or as a new message after verified turn completion');
   choose('high'); expect(row.hidden).toBe(true);
   choose('pro'); expect(row.hidden).toBe(false);
   expect(delivery.value).toBe('after-turn');
@@ -3669,20 +3674,26 @@ it('opens every selected chat at the bottom and preserves manual reading during 
     expect(pane.scrollTop).toBe(pane.scrollHeight); // Chromium clamps to the actual bottom.
   };
   await select(first.id);
+  // The reader's own scrolling: a wheel, then the position it lands on.
+  const readTo = (top: number) => {
+    pane.dispatchEvent(new w.WheelEvent('wheel'));
+    pane.scrollTop = top;
+    pane.dispatchEvent(new w.Event('scroll'));
+  };
   // A global notification from another chat still refreshes this idle selection.
   // A deliberate small scroll away from its bottom must remain a reading position.
-  pane.scrollTop = pane.scrollHeight - pane.clientHeight - 20;
+  readTo(pane.scrollHeight - pane.clientHeight - 20);
   const nearTail = pane.scrollTop;
   for (let index = 0; index < 3; index++) {
     await append([]);
     expect(pane.scrollTop).toBe(nearTail);
   }
   for (let i = 0; i < 3; i++) {
-    pane.scrollTop = 700;
+    readTo(700);
     await append([]);
     expect(pane.scrollTop).toBe(700);
     await select(second.id);
-    pane.scrollTop = 0;
+    readTo(0);
     await select(first.id);
   }
 
@@ -4172,6 +4183,34 @@ it('ends the running turn with a row saying what it is doing now', async () => {
   expect(shown()?.[0]).toBe('Thinking');
 });
 
+it('says what a new chat\'s first turn is writing before ChatGPT publishes it (#942)', async () => {
+  const asked = Date.now() - 12_000;
+  const { w, append } = await boot([
+    { seq: 1, time: asked - 100, source: 'extension', kind: 'turn_start', turnId: 'held-turn' },
+    { kind: 'user_message', seq: 2, origin: 2, time: asked, source: 'extension', turnId: 'held-turn', messageId: 'q-first', message: text('Run three commands') }
+  ]);
+  const now = () => w.document.querySelector<HTMLElement>('#timeline .turn-now')!;
+  const shown = () => now().hidden ? null : now().querySelector('.turn-now-text')!.textContent;
+  const asks: string[][] = [];
+  (w as any).api.livePreview = (ids: string[]) => {
+    asks.push(ids);
+    return Promise.resolve({ ok: true, data: 'First command printed one; now running the second.' });
+  };
+  await append([]); await append([]);
+  expect(asks.at(-1)).toEqual(['chat-b', 'chat-a']);
+  expect(shown()).toBe('First command printed one; now running the second.');
+  expect(now().classList.contains('is-thinking')).toBe(true);
+  // A call of this app that runs right now is what the turn is doing.
+  (w as any).api.runningTools = () => Promise.resolve({ ok: true, data: [{ title: 'Running echo two', kind: 'run', since: Date.now() }] });
+  await append([]); await append([]);
+  expect(shown()).toBe('Running echo two');
+  // Once the page clears it, the row is back to its ordinary state.
+  (w as any).api.runningTools = () => Promise.resolve({ ok: true, data: [] });
+  (w as any).api.livePreview = () => Promise.resolve({ ok: true, data: null });
+  await append([]); await append([]);
+  expect(shown()).toBe('Thinking');
+});
+
 it('shows a just-started turn working right after your message, never in the header first', async () => {
   // The controls report a running turn before any of its rows reached the timeline.
   const { w } = await boot([]);
@@ -4259,6 +4298,31 @@ it('offers a way back to the end of the chat that clears any reserved space', as
   content.style.setProperty('--timeline-scroll-reserve', '300px');
   jump.click();
   expect(content.style.getPropertyValue('--timeline-scroll-reserve')).toBe('');
+});
+
+it.each([
+  { setting: undefined, reader: 'moved', follows: true },
+  { setting: undefined, reader: 'wheel', follows: false },
+  { setting: false, reader: 'moved', follows: false }
+])('follows new output unless the reader scrolled away (setting $setting, view $reader)', async ({ setting, reader, follows }) => {
+  // 2026-10-02: in a busy chat the view often stopped short of the end although the reader had not
+  // scrolled. Anything that moved it (an interrupted smooth scroll, a clamp during heavy repaints)
+  // made the next repaint read "scrolled away". With "Follow new output" only the reader's own
+  // scrolling counts; switched off, the per-repaint check stays as it was.
+  const rows = Array.from({ length: 40 }, (_, i): SessionEvent => ({ seq: i + 1, time: T0 + i,
+    source: 'extension', kind: 'user_message', messageId: `follow-${i}`, message: text(`Follow item ${i + 1}`) }));
+  const { w, append } = await boot(rows, true, [], [], setting === undefined ? {} : { followOutput: setting });
+  const pane = w.document.getElementById('chatBody')!;
+  const timeline = w.document.getElementById('timeline')!;
+  Object.defineProperties(pane, { clientHeight: { value: 400 },
+    scrollHeight: { get: () => timeline.querySelectorAll('[data-timeline-key]').length * 100 } });
+  pane.scrollTop = pane.scrollHeight; pane.dispatchEvent(new w.Event('scroll'));
+  await settle();
+  if (reader === 'wheel') pane.dispatchEvent(new w.WheelEvent('wheel'));
+  pane.scrollTop = 300;
+  pane.dispatchEvent(new w.Event('scroll'));
+  await append([{ seq: 100, time: T0 + 100, source: 'extension', kind: 'assistant_message', messageId: 'follow-answer', message: text('A growing answer'), final: false }]);
+  expect(pane.scrollTop).toBe(follows ? pane.scrollHeight : 300);
 });
 
 it('opens the next chat at its end after the reader scrolled away from a sent message', async () => {

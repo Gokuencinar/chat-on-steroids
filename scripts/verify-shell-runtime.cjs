@@ -50,6 +50,8 @@ globalThis.fixture = fixture; globalThis.usageSource = usageSource;`, { loader: 
 // Any Chromium works; it runs headless with its own throwaway profile. COS_CHROME overrides the search.
 const executable = [
   process.env.COS_CHROME,
+  process.env.ProgramFiles && path.join(process.env.ProgramFiles, 'Google/Chrome/Application/chrome.exe'),
+  process.env['ProgramFiles(x86)'] && path.join(process.env['ProgramFiles(x86)'], 'Microsoft/Edge/Application/msedge.exe'),
   process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'ms-playwright/chromium-1243/chrome-win64/chrome.exe'),
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   '/Applications/Chromium.app/Contents/MacOS/Chromium',

@@ -60,7 +60,11 @@ const entrySchema = inputArgs.extend({
   /** The active turn at admission; its final may already be waiting in the browser journal. */
   queuedTurn: z.object({ conversationId: z.string().min(1).max(256), turnId: z.string().min(1).max(256) }).optional(),
   /** Shared unfinished-response fallback belongs to this question in every mode. */
-  recovery: z.object({ questionId: z.string(), episode: z.string().max(200).optional(), pro: z.boolean(), busyUntil: z.number(), phase: z.enum(['ready', 'stopping', 'reloading', 'resumed']), reloadOwner: z.string().optional() }).optional(),
+  recovery: z.object({ questionId: z.string(), episode: z.string().max(200).optional(), pro: z.boolean(), busyUntil: z.number(), phase: z.enum(['ready', 'stopping', 'reloading', 'resumed']), reloadOwner: z.string().optional(),
+    /** First release of an unbroken run of pages withdrawing this Continue before Send (#820). */
+    withdrawnSince: z.number().optional(),
+    /** A page refused this Continue before claiming it, so it ended unsent; see endRecoveryInput. */
+    ended: z.literal('page-final').optional() }).optional(),
   /** Exact tool-free turn this explicit browser correction may interrupt. */
   directTurn: z.object({ id: z.string().min(1).max(256), startedAt: z.number() }).optional(),
   finishOwner: z.object({ turnId: z.string().min(1).max(256), periodic: z.boolean(), mode: z.enum(['goal', 'loop']).optional(), userRequested: z.boolean().optional() }).optional(),
@@ -109,6 +113,12 @@ const UNCERTAIN_SEND_MS = 15 * 60_000;
  * each kept its chat protected and told the extension an input was still in flight.
  */
 const ABANDONED_SEND_MS = 6 * 60 * 60_000;
+const UNCONFIRMED_SEND = 'Stopped waiting for delivery confirmation. The message may already have been sent; it will not be resent.';
+/**
+ * The page clicked native Send, but no row it could read proved the message arrived (#821: an
+ * opening read back with `&#x20;` for spaces). The same code in extension/content.js.
+ */
+const RECEIPT_UNCONFIRMED = 'Native Send receipt was not confirmed.';
 export const TOOL_INPUT_HEADER = '\n--- New instructions from the user ---\n';
 export interface ToolInputBatch {
   messages: Array<{ text: string; images: InputImage[] }>;
@@ -474,7 +484,7 @@ async function expireQueued(current: InputEntry[]): Promise<InputEntry[]> {
       if (row.recovery) return releaseRecoveryClaim(row);
       return { ...row, state: 'cancelled', error: row.requiresAuthorization && row.sendAuthorizedAt === undefined
         ? 'Not sent: browser preparation timed out. This attempt was cancelled.'
-        : 'Stopped waiting for delivery confirmation. The message may already have been sent; it will not be resent.' };
+        : UNCONFIRMED_SEND };
     }
     // An authorized claim that never reports its outcome is already unsendable: a
     // browser row past authorization is not preparable, so no path re-offers or
@@ -484,9 +494,9 @@ async function expireQueued(current: InputEntry[]): Promise<InputEntry[]> {
     // combined delivery keep their existing custody.
     if (row.state === 'browser' && row.sendAuthorizedAt !== undefined && !row.recovery && !row.opening &&
         !row.companionInputId && manualInput(row) && Date.now() - row.sendAuthorizedAt >= UNCERTAIN_SEND_MS)
-      return { ...row, state: 'cancelled', error: 'Stopped waiting for delivery confirmation. The message may already have been sent; it will not be resent.' };
+      return { ...row, state: 'cancelled', error: UNCONFIRMED_SEND };
     if (row.state === 'browser' && row.sendAuthorizedAt !== undefined && Date.now() - row.sendAuthorizedAt >= ABANDONED_SEND_MS)
-      return { ...row, state: 'cancelled', error: 'Stopped waiting for delivery confirmation. The message may already have been sent; it will not be resent.' };
+      return { ...row, state: 'cancelled', error: UNCONFIRMED_SEND };
     return row;
   }));
   for (let i = 0; i < next.length; i++) {
@@ -1150,6 +1160,9 @@ export function fileRecoveryInput(sessionId: string, conversationId: string, tur
     if (current.some(row => row.sessionId === sessionId && row.recovery && row.silenceBoundary?.turnId === turnId &&
         (row.sendAuthorizedAt !== undefined ||
           (!terminal(row) && (!row.recovery.episode || row.recovery.episode === episode))))) return refused('this turn already has its restart');
+    // A Continue a page already refused for this exact work is not filed again unchanged.
+    if (current.some(row => row.sessionId === sessionId && row.recovery?.ended && row.silenceBoundary?.turnId === turnId &&
+        row.silenceBoundary.workSeq === workSequence(work))) return refused('pages refused this restart and nothing has changed since');
     const now = Date.now();
     const row: InputEntry = { id: randomUUID(), sessionId, conversationId, owner: null, state: 'queued',
       mode: 'after-turn', dueAt: now, createdAt: now, model: null, reasoningEffort: null,
@@ -1573,21 +1586,76 @@ export function authorizeBrowserHelperRetry(id: string, sourceSessionId: string)
   });
 }
 
-/** Only a pre-send failure can be declared failed. An ambiguous click stays claimed. */
-export function failBrowserInput(id: string, owner: string, error: string): Promise<boolean> {
+/**
+ * Only a pre-send failure can be declared failed. An ambiguous click stays claimed, unless the
+ * page reports that its receipt was never confirmed: that retires it as an uncertain send.
+ */
+/**
+ * How long pages may keep withdrawing one automatic Continue before Send. Measured in #820: a page
+ * that refuses for a reason it cannot get past released the same ticket about once a second for
+ * many minutes, its text left in the composer. Past this, the Continue ends and the log says why.
+ */
+export const RECOVERY_WITHDRAW_LIMIT_MS = 3 * 60_000;
+
+/**
+ * Ends an automatic Continue that a page refuses before ever claiming it, because ChatGPT shows
+ * the native final of its turn.
+ *
+ * Measured 2026-10-02: a Continue was filed for a turn whose final the app had missed. Every page
+ * it was offered to saw that final and refused before claiming, and said nothing, so the withdraw
+ * limit above never started, and the pickup schedule reloaded the chat every fifteen minutes for
+ * six hours. A typed message is never ended here. Only an unsent, unclaimed automatic Continue is.
+ */
+export function endRecoveryInput(id: string, conversationId: string): Promise<boolean> {
+  return serial(async () => {
+    const current = await load();
+    const row = current.find(entry => entry.id === id && entry.recovery && entry.state === 'queued' &&
+      entry.offeredAt === undefined && entry.sendAuthorizedAt === undefined);
+    if (!row?.sessionId || !row.recovery || (await getSession(row.sessionId))?.conversationId !== conversationId) return false;
+    const error = 'Automatic Continue was not needed: the page shows a finished answer.';
+    logWarn(`input ${row.id}: ${error}`);
+    await commit(current.map(entry => entry === row
+      ? { ...entry, state: 'cancelled', owner: null, error, recovery: { ...row.recovery!, ended: 'page-final' } } : entry));
+    return true;
+  });
+}
+
+export function failBrowserInput(id: string, owner: string, error: string, detail?: string): Promise<boolean> {
   return serial(async () => {
     const current = await load();
     const entry = current.find((row) => row.id === id && row.owner === owner && row.state === 'browser');
     if (!entry || companionOf(current, entry)) return false;
+    // The page clicked Send and could not prove the result (#821). This is the outcome an
+    // unreported send reaches in expireQueued, without the wait: the session is free again,
+    // nothing is replayed, and a late exact receipt still confirms it (acknowledgeBrowserInput
+    // accepts a cancelled row). Openings and Continue included: they held their chat until then.
+    if (entry.sendAuthorizedAt !== undefined && error === RECEIPT_UNCONFIRMED) {
+      logWarn(`input ${entry.id}: native Send was clicked, but its receipt was not confirmed`);
+      await commit(current.map(row => sameDelivery(entry, row) ? { ...row, state: 'cancelled', error: UNCONFIRMED_SEND } : row));
+      decisionWaiters.get(id)?.reject(new Error('goal_browser_send_failed: ' + UNCONFIRMED_SEND));
+      decisionWaiters.delete(id);
+      return true;
+    }
     if (entry.recovery && entry.requiresAuthorization === true && entry.sendAuthorizedAt === undefined) {
       // Said once per reason, not once per attempt: the pickup schedule can hand the same ticket to
       // the same page every few seconds, and an unbounded log is its own kind of silence.
-      if (recoveryReleaseTold.get(entry.id) !== error) {
-        recoveryReleaseTold.set(entry.id, error);
+      const told = detail ? `${error} (${detail})` : error;
+      if (recoveryReleaseTold.get(entry.id) !== told) {
+        recoveryReleaseTold.set(entry.id, told);
         if (recoveryReleaseTold.size > 200) for (const old of [...recoveryReleaseTold.keys()].slice(0, 50)) recoveryReleaseTold.delete(old);
-        logWarn(`input ${entry.id}: the browser could not send this recovery message — ${error.slice(0, 160)}`);
+        logWarn(`input ${entry.id}: the browser could not send this recovery message — ${told.slice(0, 200)}`);
       }
-      await commit(current.map(row => row === entry ? releaseRecoveryClaim(row, error) : row));
+      const now = Date.now();
+      const since = entry.recovery.withdrawnSince ?? now;
+      if (now - since >= RECOVERY_WITHDRAW_LIMIT_MS) {
+        logWarn(`input ${entry.id}: automatic Continue ended — pages withdrew it before Send for ` +
+          `${Math.round((now - since) / 60_000)} minutes (last: ${told.slice(0, 160)})`);
+        await commit(current.map(row => row === entry
+          ? { ...row, state: 'failed', owner: null, error: `Automatic Continue was not sent: ${detail ?? 'withdrawn before Send'}`.slice(0, 200) } : row));
+        return true;
+      }
+      await commit(current.map(row => row === entry
+        ? { ...releaseRecoveryClaim(row, error), recovery: { ...releaseRecoveryClaim(row, error).recovery!, withdrawnSince: since } } : row));
       return true;
     }
     // The document reports this only while its native Send has never been attempted.
@@ -1651,7 +1719,12 @@ export async function requestBrowserDecision(text: string, signal: AbortSignal, 
       const current = await load();
       if (current.filter((row) => row.purpose === 'decision' && ['queued', 'browser', 'decision'].includes(row.state)).length >= 4) throw new Error('goal_browser_busy');
       if (options.sourceSessionId && current.some(row => row.decisionSourceSessionId === options.sourceSessionId && !terminal(row))) throw new Error('goal_browser_busy');
-      if (options.sourceSessionId && !options.conversationId && current.some(row => row.decisionSourceSessionId === options.sourceSessionId && row.state === 'cancelled' && !row.conversationId)) {
+      // Only a helper cancelled before any receipt is ambiguous: it may or may not have reached a
+      // chat nobody can name, so a second one could duplicate it. A confirmed Temporary Chat send
+      // keeps no conversation id and is not ambiguous; refusing its retry stopped every Goal whose
+      // helper answer was lost (2026-10-02) with "could not confirm" about a confirmed prompt.
+      if (options.sourceSessionId && !options.conversationId && current.some(row => row.decisionSourceSessionId === options.sourceSessionId &&
+          row.state === 'cancelled' && !row.conversationId && row.deliveredAt === undefined)) {
         throw new Error('goal_browser_send_unconfirmed');
       }
       const entry = entrySchema.parse({ id, sessionId: null, text, mode: 'after-turn', dueAt: Date.now(),

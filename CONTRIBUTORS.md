@@ -228,3 +228,7 @@ This is a growing attribution record, not a complete list of everyone who has he
 Keep original authorship when merging a contribution. When adapting or consolidating contributed work, name the original author and PR, and preserve appropriate `Co-authored-by` trailers using the contributor's public GitHub noreply identity. Reports and review deserve explicit acknowledgment without inventing code authorship. See [CONTRIBUTING.md](CONTRIBUTING.md#credit-and-attribution).
 
 The September 2026 attribution correction adds a new public record and retroactive co-author credit for incorporated work. It does not rewrite released commits or imply that contributors authored the correction's prose. GitHub's automatic contributor displays are separate from this maintained record.
+
+## Fork upstream 2.1.32 integration
+
+The official 2.1.22–2.1.26 merge history is retained with its original authors. Incorporated work includes [@Maximapple](https://github.com/Maximapple), [@Haz4rdovisk](https://github.com/Haz4rdovisk) (#829, #900/#902, #951, #953, #965, #967, #968), [@xuan2261](https://github.com/xuan2261) (#899, #907, #909, #918, #919, #932, #948, #949, #973), [@AcureroAdrian](https://github.com/AcureroAdrian) (#848–#851), [@lavalava45](https://github.com/lavalava45) (#872, #887, #895), [@redzrush101](https://github.com/redzrush101) (#874, #963, #964), and [@sumit171204](https://github.com/sumit171204) (#867). See the [integration inventory](docs/worklogs/upstream-2.1.26-integration.md) for the selected official history and excluded release automation.

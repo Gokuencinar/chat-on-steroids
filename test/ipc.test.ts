@@ -86,6 +86,32 @@ const removeRoot = (payload: unknown): Promise<any> => handlers.get('roots:remov
 const sessionEvents = (payload: unknown): Promise<any> => handlers.get('sessions:events')!(null, payload) as Promise<any>;
 const sessionList = (): Promise<any> => handlers.get('sessions:list')!(null, undefined) as Promise<any>;
 
+it('keeps the reported interface language and the extension preferences through a Settings save', async () => {
+  // Neither is part of the settings form. The save replaces the whole `ui` object, so both must be
+  // carried through, or the extension would lose its language and its kept preferences.
+  await handlers.get('ui:language')!(null, 'en');
+  expect(getConfig().ui.language).toBe('en');
+  expect(await handlers.get('ui:language')!(null, 'klingon')).toMatchObject({ ok: false });
+  expect(getConfig().ui.language).toBe('en');
+  await saveConfig({ ...getConfig(), ui: { ...getConfig().ui, browserPreferences: { overwrite: false, durations: true } } });
+  const base = getConfig();
+  expect(await save({ ...base, ui: { ...base.ui, theme: base.ui.theme === 'light' ? 'dark' : 'light' } }, base)).toMatchObject({ ok: true });
+  expect(getConfig().ui.language).toBe('en');
+  expect(getConfig().ui.browserPreferences).toEqual({ overwrite: false, durations: true });
+});
+
+it.each(['playfulStatus', 'followOutput'] as const)('saves the %s display switch from Settings', async key => {
+  // Both are plain ui booleans saved by the general Settings save. The save schema dropped keys
+  // it did not list, so a switch that was not listed reverted on the next state push.
+  const base = getConfig();
+  const wanted = !(base.ui[key] ?? (key === 'followOutput'));
+  expect(await save({ ...base, ui: { ...base.ui, [key]: wanted } }, base)).toMatchObject({ ok: true });
+  expect(getConfig().ui[key]).toBe(wanted);
+  // A stale snapshot that never touched the switch keeps the saved value.
+  expect(await save({ ...base, ui: { ...base.ui, theme: base.ui.theme === 'light' ? 'dark' : 'light' } }, base)).toMatchObject({ ok: true });
+  expect(getConfig().ui[key]).toBe(wanted);
+});
+
 it('saves port choices, merges stale snapshots and serializes concurrent port edits', async () => {
   const ports = await import('../src/main/bridge-ports.js');
   const bridge = await import('../src/main/bridge.js');
@@ -950,6 +976,25 @@ describe('settings writes from more than one UI', () => {
     expect(result.ok, result.error).toBe(true);
     expect(getConfig().ui.tabsToKeepOpen).toBe(6);
     expect(getConfig().goal).toMatchObject({ helperModel: 'account-helper', helperReasoning: 'medium', model: base.goal.model });
+  });
+  it('persists and clears ordinary new-chat defaults independently through settings merge', async () => {
+    const base = defaultConfig();
+    await saveConfig(base);
+    const configured = { ...base, ui: { ...base.ui, defaultChatModel: 'gpt-5.6-sol', defaultChatReasoning: 'xhigh' as const } };
+    expect((await save(configured, base)).ok).toBe(true);
+    expect(getConfig().ui).toMatchObject({ defaultChatModel: 'gpt-5.6-sol', defaultChatReasoning: 'xhigh' });
+
+    const withBoth = getConfig();
+    expect((await save({ ...withBoth, ui: { ...withBoth.ui, defaultChatModel: undefined } }, withBoth)).ok).toBe(true);
+    expect(getConfig().ui.defaultChatModel).toBeUndefined();
+    expect(getConfig().ui.defaultChatReasoning).toBe('xhigh');
+
+    const reasoningOnly = getConfig();
+    expect((await save({ ...reasoningOnly, ui: { ...reasoningOnly.ui, defaultChatReasoning: undefined } }, reasoningOnly)).ok).toBe(true);
+    expect(getConfig().ui.defaultChatReasoning).toBeUndefined();
+    const stored = JSON.parse(await fs.readFile(path.join(dir, 'config.json'), 'utf8'));
+    expect(stored.ui).not.toHaveProperty('defaultChatModel');
+    expect(stored.ui).not.toHaveProperty('defaultChatReasoning');
   });
   it('persists the planner backend and preserves it across an unrelated stale settings save', async () => {
     const base = defaultConfig();

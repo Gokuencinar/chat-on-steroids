@@ -15,7 +15,7 @@ import { messageReaction, withoutMessageReaction } from '../shared/message-react
 import { goalErrorMessage } from '../shared/goal-errors.js';
 import type { GoalModel } from '../shared/goal-reasoning.js';
 import { renderGoalReasoning } from './goal-reasoning.js';
-import { preserveTimelineViewport } from './timeline-scroll.js';
+import { preserveTimelineViewport, ROUNDING_PX } from './timeline-scroll.js';
 import { createSidebarOrder, SIDEBAR_PROJECT_SCOPE } from './sidebar-order.js';
 import { createSidebarCompletionState } from './sidebar-completion.js';
 import { toolResultText } from './tool-result.js';
@@ -225,6 +225,7 @@ function restoreDraft(): void {
   const task = selectedId === null ? newChatTasks.get(draftKey()) : undefined;
   const automation = $<HTMLSelectElement>('chatAutomation'); automation.value = task?.automation ?? 'off'; delete automation.dataset.edited;
   $<HTMLSelectElement>('loopDelivery').value = task?.loopDelivery ?? 'finish';
+  paintLoopDeliveryTitle();
   $<HTMLTextAreaElement>('sessionObjective').value = task?.objective ?? '';
   delete $('sessionObjective').dataset.edited; delete $('sessionObjective').dataset.sessionId; delete $('sessionObjective').dataset.saved;
   paintTaskPlan(); paintComposerImages();
@@ -1194,6 +1195,13 @@ async function queuePreparedPlan(key: string, plan: TaskPlanDraft & { stages: st
     if (taskPlans.get(key) === plan && draftKey() === key) paintTaskPlan();
   }
 }
+/** The option names stay short; the title says what the chosen timing does. */
+function paintLoopDeliveryTitle(): void {
+  const select = $<HTMLSelectElement>('loopDelivery');
+  ui(select, 'title', () => select.value === 'after-turn'
+    ? t("At Session Finish, or as a new message after verified turn completion")
+    : t("Only inside the Session Finish tool result; never start a new turn"));
+}
 function paintTaskActions(): void {
   const objective = $<HTMLTextAreaElement>('sessionObjective');
   const save = $<HTMLButtonElement>('saveSessionObjective');
@@ -1243,7 +1251,7 @@ function paintAutomationSwitch(): void {
   $<HTMLSelectElement>('sessionObjectiveMode').value = editMode;
   const loop = editMode === 'loop';
   ui(document.querySelector('label[for="sessionObjective"]')!, 'textContent', () => loop ? t("Loop instructions") : t("Goal"));
-  ui($<HTMLTextAreaElement>('sessionObjective'), 'placeholder', () => loop ? t("What should each continuation focus on?") : t("What should this chat achieve?"));
+  ui($<HTMLTextAreaElement>('sessionObjective'), 'placeholder', () => loop ? t("What should each continuation focus on?") : t("Optional. Leave empty to work toward what you asked in this chat."));
   paintTaskActions();
 }
 async function refreshSessionControls(): Promise<void> {
@@ -1272,6 +1280,7 @@ async function refreshSessionControls(): Promise<void> {
     goalDraftView = null; goalWaitView = null; finishGoalDraftView = null; controlledRecovery = [];
     $<HTMLSelectElement>('chatAutomation').value = opening?.automation ?? 'off';
     $<HTMLSelectElement>('loopDelivery').value = opening?.loopAfterTurn ? 'after-turn' : 'finish';
+    paintLoopDeliveryTitle();
     const objective = $<HTMLTextAreaElement>('sessionObjective');
     objective.value = opening?.objective ?? ''; objective.disabled = true;
     objective.dataset.sessionId = id;
@@ -1313,6 +1322,7 @@ async function refreshSessionControls(): Promise<void> {
   if (!draftMode.dataset.edited) draftMode.value = controls.automation;
   if (!$<HTMLSelectElement>('loopDelivery').disabled)
     $<HTMLSelectElement>('loopDelivery').value = controls.loopAfterTurn ? 'after-turn' : 'finish';
+  paintLoopDeliveryTitle();
   paintAutomationSwitch();
   $<HTMLButtonElement>('compactSession').disabled = !!controls.blocked || !!controls.job?.busy;
   $('cancelCompaction').hidden = !controls.job?.busy;
@@ -1680,7 +1690,6 @@ function citationPill(pill: CitationPill): HTMLElement {
   if (total > 1) link.append(el('span', 'citation-pill-more', `+${total - 1}`));
   const card = el('span', 'citation-card');
   card.hidden = true;
-  card.setAttribute('role', 'tooltip');
   // Built once: paging rewrites only the words, so the arrow just clicked keeps focus and stays
   // under the pointer. Rebuilding the card removed the focused button and closed the card.
   const site = el('span', 'citation-card-site');
@@ -1769,7 +1778,9 @@ const WRITING_BLOCK: TokenizerAndRendererExtension = {
   name: 'writingBlock', level: 'block',
   start: value => value.match(/^:::writing\b/m)?.index,
   tokenizer(value) {
-    const match = value.match(/^:::writing(\{[^}\n]*\})?[ \t]*\n([\s\S]*?)\n:::[ \t]*(?:\n|$)/);
+    // Without its closing `:::` the block runs to the end of the message, as ChatGPT draws it:
+    // the block is still streaming, or the answer was stopped inside it.
+    const match = value.match(/^:::writing(\{[^}\n]*\})?[ \t]*\n([\s\S]*?)(?:\n:::[ \t]*(?:\n|$)|$)/);
     if (!match) return undefined;
     const title = match[1]?.match(/\btitle="([^"\n]*)"/)?.[1] ?? '';
     return { type: 'writingBlock', raw: match[0], title, tokens: this.lexer.blockTokens(match[2] ?? '', []) };
@@ -1954,6 +1965,14 @@ const USER_MESSAGE_KEY = 'message:user_message\u0000';
 let sendAnchor: { key: string; inputId: string; messageId?: string; before: Set<string>; session: string | null; seen: boolean; smoothUntil: number } | null = null;
 /** The reader scrolled away from a held message: they are reading, not following the end. */
 let readingAfterSend = false;
+/**
+ * "Follow new output" (ui.followOutput, on unless switched off): the reader is at the end and has not
+ * scrolled away from it. Only the reader's own scrolling changes this, never growth, so a busy turn
+ * whose rows grow between repaints keeps following (2026-10-02: the view stopped short of the end
+ * whenever much moved at once). Off keeps the send hold and the per-repaint end check.
+ */
+let readerAtEnd = true;
+const followOutput = (): boolean => deps.state()?.config.ui.followOutput !== false;
 
 function userMessageKeys(): Set<string> {
   const keys = new Set<string>();
@@ -2020,7 +2039,7 @@ function paintJumpLatest(): void {
 }
 
 function jumpToLatest(): void {
-  sendAnchor = null; readingAfterSend = false;
+  sendAnchor = null; readingAfterSend = false; readerAtEnd = true;
   const pane = $('chatBody');
   $('timelineContent').style.removeProperty('--timeline-scroll-reserve');
   scrollPane(pane, pane.scrollHeight, true);
@@ -3182,7 +3201,8 @@ function paintDetail(followBottom = historyBefore === null): void {
   const pane = $('chatBody');
   // Released by the reader, the reserve still fills the view to its bottom; that is a reading
   // position, not the end to follow.
-  const restoreViewport = preserveTimelineViewport(pane, $('timelineContent'), followBottom && !readingAfterSend);
+  const restoreViewport = preserveTimelineViewport(pane, $('timelineContent'), followBottom && !readingAfterSend,
+    followOutput() ? readerAtEnd : undefined);
   const timelineRows: HTMLElement[] = [];
   const keep = new Set<string>();
   let activityBoundary = '';
@@ -3400,6 +3420,9 @@ let runningToolsFor: string | null = null;
 let runningToolsAt = 0;
 let runningToolsEvents = -1;
 let runningToolsRequest = 0;
+/** The newest sentence the running turn shows that ChatGPT has not published yet (#942). */
+let livePreviewText: string | null = null;
+let livePreviewFor: string | null = null;
 /**
  * Prose speaks for itself only while it is being written. Interim paragraphs stay "streaming" once
  * finished, so what counts is whether its text changed in the last moments, not its state.
@@ -3433,6 +3456,10 @@ function liveActivity(): { text: string; icon: string; working: boolean; since?:
   const thinking = { text: t('Thinking'), icon: '', working: false };
   // A message not yet recorded opens a turn that has done nothing visible so far.
   if ($('inputQueue').querySelector('.pending-message')) return thinking;
+  // A new chat's first turn: ChatGPT shows the model's sentences long before it publishes them as
+  // messages, so the newest one stands here until it can be recorded in its place.
+  const preview = livePreviewFor === selectedId ? livePreviewText : null;
+  if (preview) return { text: preview, icon: '', working: false };
   let asked = Number.NEGATIVE_INFINITY;
   for (const event of events) if (event.kind === 'user_message') asked = Math.max(asked, event.time);
   let newest: SessionEvent | undefined;
@@ -3475,7 +3502,7 @@ function paintTurnNow(): void {
  */
 function pollRunningTools(): void {
   const summary = sessions.find(entry => entry.id === selectedId);
-  if (!summary || !turnStatusLine.classList.contains('is-working')) { runningTools = []; return; }
+  if (!summary || !turnStatusLine.classList.contains('is-working')) { runningTools = []; livePreviewText = null; return; }
   if (Date.now() - runningToolsAt < 900 && events.length === runningToolsEvents) return;
   runningToolsAt = Date.now();
   runningToolsEvents = events.length;
@@ -3486,6 +3513,12 @@ function pollRunningTools(): void {
     if (request !== runningToolsRequest || session !== selectedId) return;
     runningTools = reply.ok ? reply.data : [];
     runningToolsFor = session;
+    paintTurnNow();
+  });
+  void api.livePreview(conversationIds).then(reply => {
+    if (request !== runningToolsRequest || session !== selectedId) return;
+    livePreviewText = reply.ok ? reply.data : null;
+    livePreviewFor = session;
     paintTurnNow();
   });
 }
@@ -3866,7 +3899,8 @@ export function chatSettingsPatch(current: Config): {
       maxWorkers: number('maWorkers', current.multiAgent.maxWorkers, 1, 8),
       allowUnattributedCalls: $<HTMLInputElement>('allowUnattributedCalls').checked,
       recoverAgentTabs: $<HTMLInputElement>('recoverAgentTabs').checked,
-      waitForSubAgents: $<HTMLInputElement>('waitForSubAgents').checked
+      waitForSubAgents: $<HTMLInputElement>('waitForSubAgents').checked,
+      endSleepingWorkerProcesses: $<HTMLInputElement>('endSleepingWorkerProcesses').checked
     },
     goal: {
       enabled: current.goal.enabled, mode: current.goal.mode,
@@ -3916,6 +3950,7 @@ let selectedGoalModel: GoalModel | undefined;
 let goalCatalogEpoch = 0;
 let goalTotal = 0;
 let goalLoading = false;
+let goalModelQuery = '';
 
 function invalidateGoalModels(): void {
   goalCatalogEpoch++;
@@ -3935,7 +3970,7 @@ function paintGoalReasoning(selected?: Config['goal']['reasoning'], changingMode
 /** The release date OpenRouter publishes, as a person would date a model. */
 function releasedOn(created: number): string {
   if (!created) return t("release date not published");
-  return new Date(created * 1000).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  return new Date(created * 1000).toLocaleDateString(currentLanguage(), { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
 /**
@@ -3945,17 +3980,24 @@ function releasedOn(created: number): string {
  * the question this list answers — what is new — is answered by the first screen of it.
  */
 async function loadGoalModels(reset: boolean): Promise<void> {
+  // A new query invalidates an older in-flight page immediately. The older request may still
+  // finish, but its epoch can no longer paint rows for the new query.
+  if (reset) invalidateGoalModels();
   if (goalLoading) return;
   goalLoading = true;
-  if (reset) {
-    invalidateGoalModels();
-  }
   const epoch = goalCatalogEpoch;
+  const query = goalModelQuery;
   ui($('goalModelsState'), 'textContent', () => t("Loading models from OpenRouter…"));
   $<HTMLButtonElement>('goalMore').disabled = true;
-  const page = await run(api.listGoalModels(goalModels.length));
+  const page = await run(api.listGoalModels(goalModels.length, query));
   goalLoading = false;
-  if (epoch !== goalCatalogEpoch) return;
+  if (epoch !== goalCatalogEpoch || query !== goalModelQuery) {
+    // If search changed while the request was in flight, service the newest query now that the
+    // old request released the single-flight guard. It starts at offset zero because reset()
+    // cleared the visible rows when the query changed.
+    void loadGoalModels(false);
+    return;
+  }
   if (!page) {
     // `run` has already shown the reason. Say what it means *here*: the list is empty and
     // the model in use has not changed.
@@ -4154,6 +4196,14 @@ function wireGoal(save: () => Promise<void>): void {
     ui($('goalPick'), 'textContent', () => panel.hidden ? t('Select model') : t('Close'));
     if (!panel.hidden && goalModels.length === 0) void loadGoalModels(true);
   });
+  const modelSearch = $<HTMLInputElement>('goalModelSearch');
+  modelSearch.maxLength = 160;
+  modelSearch.addEventListener('input', () => {
+    const next = modelSearch.value.slice(0, 160);
+    if (next === goalModelQuery) return;
+    goalModelQuery = next;
+    void loadGoalModels(true);
+  });
   $('goalMore').addEventListener('click', () => void loadGoalModels(false));
   $('goalReasoning').addEventListener('focus', () => {
     if ($<HTMLSelectElement>('goalProvider').value !== 'custom' && !goalModels.some(model => model.id === goalModel) && selectedGoalModel?.id !== goalModel)
@@ -4243,7 +4293,7 @@ const CHAT_INPUTS = [
   'chatBrowser', 'browserBridgePort',
   'goalIncludeToolCalls',
   'planBackend',
-  'finishTool', 'finishLeadMinutes', 'workerModel', 'workerReasoning', 'backgroundChats', 'browserOnly', 'autoRefreshPlugins',
+  'finishTool', 'finishLeadMinutes', 'defaultChatModel', 'defaultChatReasoning', 'workerModel', 'workerReasoning', 'backgroundChats', 'browserOnly', 'autoRefreshPlugins',
   'goalBackend',
   'loopBackend',
   'helperModel', 'helperReasoning',
@@ -4253,6 +4303,7 @@ const CHAT_INPUTS = [
   'allowUnattributedCalls',
   'recoverAgentTabs',
   'waitForSubAgents',
+  'endSleepingWorkerProcesses',
   'autoContinue',
   'goalProvider',
   'goalBaseUrl',
@@ -4283,6 +4334,7 @@ export function chatApply(state: AppState, previous?: Config): void {
     previous?.compaction.handoffPrompt
   );
   applyAutoCompactHint(config);
+  $<HTMLInputElement>('autoCompactTokens').disabled = !config.compaction.auto;
 
   applyChatValue($<HTMLInputElement>('maWorkers'), String(config.multiAgent.maxWorkers), previous?.multiAgent.maxWorkers);
   applyChatChecked(
@@ -4300,9 +4352,16 @@ export function chatApply(state: AppState, previous?: Config): void {
     config.multiAgent.waitForSubAgents === true,
     previous?.multiAgent.waitForSubAgents
   );
+  applyChatChecked(
+    $<HTMLInputElement>('endSleepingWorkerProcesses'),
+    config.multiAgent.endSleepingWorkerProcesses === true,
+    previous?.multiAgent.endSleepingWorkerProcesses
+  );
 
   applyChatValue($<HTMLSelectElement>('workerModel'), config.multiAgent.defaultModel ?? '', previous?.multiAgent.defaultModel);
   applyChatValue($<HTMLSelectElement>('workerReasoning'), config.multiAgent.defaultReasoning ?? '', previous?.multiAgent.defaultReasoning);
+  applyChatValue($<HTMLSelectElement>('defaultChatModel'), config.ui.defaultChatModel ?? '', previous?.ui.defaultChatModel);
+  applyChatValue($<HTMLSelectElement>('defaultChatReasoning'), config.ui.defaultChatReasoning ?? '', previous?.ui.defaultChatReasoning);
   applyChatValue($<HTMLSelectElement>('goalBackend'), config.goal.backend ?? 'chatgpt', previous?.goal.backend);
   applyChatValue($<HTMLSelectElement>('loopBackend'), config.goal.loopBackend ?? 'chatgpt', previous?.goal.loopBackend);
   applyChatValue($<HTMLSelectElement>('helperModel'), config.goal.helperModel ?? 'gpt-5.6-sol', previous?.goal.helperModel);
@@ -4777,7 +4836,8 @@ async function sendComposer(delivery?: 'finish', plan?: string[], planObjective?
   skillPicker?.restore();
   imageDrafts.delete(key); paintComposerImages();
   if (sessionId === null) pendingNewInput = { id, generation };
-  if (mode !== 'finish') { sendAnchor = { key: `input:${id}`, inputId: id, before: userMessageKeys(), session: selectedId, seen: false, smoothUntil: 0 }; readingAfterSend = false; }
+  if (mode !== 'finish' && followOutput()) { sendAnchor = null; readingAfterSend = false; readerAtEnd = true; }
+  else if (mode !== 'finish') { sendAnchor = { key: `input:${id}`, inputId: id, before: userMessageKeys(), session: selectedId, seen: false, smoothUntil: 0 }; readingAfterSend = false; }
   void refreshInputQueue();
   paintDeliveryControls();
   try {
@@ -4865,7 +4925,7 @@ function selectSession(id: string): void {
     // Retire the prior owner now; retain only its inert painted transcript until the
     // selected detail arrives. Existing async image/load generation fences still apply.
     // Reading away from a sent message belongs to the chat it happened in.
-    sendAnchor = null; readingAfterSend = false;
+    sendAnchor = null; readingAfterSend = false; readerAtEnd = true;
     events = [];
     totalEvents = 0;
     historyBefore = null;
@@ -4892,7 +4952,7 @@ function selectNewChat(projectId: string | null = null): void {
   inputQueueGeneration++;
   $('finishQueue').replaceChildren(); $('finishQueue').hidden = true;
   newChatSelected = true; selectedId = null; selectedProjectId = projectId; detailFor = null; detailCursor = null;
-  sendAnchor = null; readingAfterSend = false;
+  sendAnchor = null; readingAfterSend = false; readerAtEnd = true;
   if (projectId) expandedProjects.add(projectId);
   applyComposerSessionModel(null, null);
   // New Chat selects its existing draft, just like a session. Navigation is not
@@ -5005,9 +5065,11 @@ export function initChat(next: Deps): void {
       paintAutomationSwitch();
     }
   });
+  paintLoopDeliveryTitle();
   $('loopDelivery').addEventListener('change', async () => {
     const id = selectedId, generation = selectionGeneration;
     const select = $<HTMLSelectElement>('loopDelivery');
+    paintLoopDeliveryTitle();
     const opening = id && pendingComposerInputs.find(row => row.sessionId === id && row.opening && !row.deliveredAt && ['queued', 'browser'].includes(row.state));
     if (opening) {
       inputQueueGeneration++;
@@ -5273,9 +5335,13 @@ export function initChat(next: Deps): void {
     pane.addEventListener('keydown', event => {
       if (scrollKeys.has(event.key) && !(event.target as Element).closest('summary, button, a, input, textarea, select, [contenteditable]')) intent = Date.now();
     });
-    pane.addEventListener('pointerdown', event => { if (event.target === pane) intent = Date.now(); }, { passive: true });
+    // The scrollbar itself, and middle-button autoscroll, which starts anywhere over the content.
+    pane.addEventListener('pointerdown', event => { if (event.target === pane || event.button === 1) intent = Date.now(); }, { passive: true });
     pane.addEventListener('scroll', () => {
       if (Date.now() - intent < 300) {
+        // The absolute end, reserve included: scrolling up out of an underfilled page's blank
+        // space is reading too, and must not be pulled back down by the next delivery.
+        readerAtEnd = pane.scrollTop + pane.clientHeight >= pane.scrollHeight - 2;
         if (sendAnchor) { sendAnchor = null; readingAfterSend = true; }
         if (readingAfterSend && distanceFromTail() <= 1) readingAfterSend = false;
       }
@@ -5372,7 +5438,22 @@ export function initChat(next: Deps): void {
   // content and the pane corrects the hold after layout and before paint, so the held message never
   // shows a clamped frame.
   if (typeof ResizeObserver === 'function') {
-    const observer = new ResizeObserver(() => { holdSentMessage(); });
+    // Content height at the last observation. Following needs real growth: at a fractional zoom a
+    // badge can move the height by a rounding pixel, and following that moved every message.
+    let observedHeight = $('chatBody').scrollHeight;
+    const observer = new ResizeObserver(() => {
+      holdSentMessage();
+      // Growth that no repaint saw (a row expanding, an image loading, streamed text): follow it
+      // while the reader is at the end. Older history pages never follow.
+      const pane = $('chatBody');
+      const grew = pane.scrollHeight - observedHeight >= ROUNDING_PX;
+      observedHeight = pane.scrollHeight;
+      if (grew && followOutput() && readerAtEnd && !sendAnchor && !readingAfterSend && historyBefore === null &&
+          distanceFromTail() >= ROUNDING_PX) {
+        pane.scrollTop = pane.scrollHeight;
+        paintJumpLatest();
+      }
+    });
     observer.observe($('timelineContent')); observer.observe($('chatBody'));
   } else $('timeline').addEventListener('toggle', () => { holdSentMessage(); }, true);
 

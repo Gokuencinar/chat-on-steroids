@@ -173,7 +173,8 @@ app.whenReady().then(async () => {
       return {width:menu.width, right:menu.right, triggerWidth:trigger.width, triggerRight:trigger.right, rows};
     })()`);
     // settings.css sizes the menu at min(260px, 100vw - 32px) since the 2026-09-28 Settings polish.
-    assert.ok(compactProfiles.width >= compactProfiles.triggerWidth && compactProfiles.width <= 260, JSON.stringify(compactProfiles));
+    // Chromium can report 260.00003 CSS px at fractional zoom; this is floating-point noise.
+    assert.ok(compactProfiles.width >= compactProfiles.triggerWidth && compactProfiles.width <= 260.001, JSON.stringify(compactProfiles));
     assert.ok(Math.abs(compactProfiles.right - compactProfiles.triggerRight) <= 1, JSON.stringify(compactProfiles));
     for (const row of compactProfiles.rows) {
       assert.ok(compactProfiles.right - row.removeRight <= 12, JSON.stringify(compactProfiles));
@@ -197,7 +198,7 @@ app.whenReady().then(async () => {
       choice.textContent = text;
       return result;
     })()`);
-    assert.ok(longProfile.width <= 260 && longProfile.left >= 0 && longProfile.right <= longProfile.viewport, JSON.stringify(longProfile));
+    assert.ok(longProfile.width <= 260.001 && longProfile.left >= 0 && longProfile.right <= longProfile.viewport, JSON.stringify(longProfile));
     assert.ok(longProfile.labelRight <= longProfile.removeLeft && !longProfile.overflow, JSON.stringify(longProfile));
     assert.ok(longProfile.right - longProfile.removeRight <= 12, JSON.stringify(longProfile));
     win.webContents.sendInputEvent({type:'keyDown',keyCode:'Escape'});

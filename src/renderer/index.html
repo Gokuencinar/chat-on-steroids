@@ -104,10 +104,7 @@
             </button>
             <section class="connection-popover scroll" id="connectionPopover" role="dialog" aria-label="Connection" hidden>
               <div class="connection-popover-head">
-                <div>
-                  <strong id="connectionPopoverTitle">Not connected</strong>
-                  <span id="connectionPopoverVerified" hidden>Connection is off</span>
-                </div>
+                <strong id="connectionPopoverTitle">Not connected</strong>
                 <span class="connection-popover-status-dot" aria-hidden="true"></span>
               </div>
               <div class="connection-popover-card">
@@ -122,39 +119,6 @@
                   <i aria-hidden="true"></i>
                 </div>
               </div>
-              <details class="connection-advanced" id="connectionAdvanced">
-                <summary aria-label="Advanced" title="Advanced">
-                  <i class="ico ph ph-plus" aria-hidden="true"></i>
-                </summary>
-                <div class="connection-advanced-body">
-                  <p class="connection-advanced-alert" id="connectionAdvancedAlert" hidden></p>
-
-                  <div class="connection-advanced-caption"><span>Session capture</span><span id="connectionPopoverExtension">—</span></div>
-                  <div class="connection-advanced-card">
-                    <div class="connection-advanced-row" id="connectionAdvancedTab"><span>ChatGPT tab</span><span class="meta sr-only">—</span><i aria-hidden="true"></i></div>
-                    <div class="connection-advanced-row" id="connectionAdvancedRecording"><span>Recording this chat</span><span class="meta sr-only">—</span><i aria-hidden="true"></i></div>
-                    <div class="connection-advanced-row" id="connectionAdvancedChat"><button class="copy" type="button">Chat ID</button><span class="meta sr-only">—</span><i aria-hidden="true"></i></div>
-                    <div class="connection-advanced-row" id="connectionAdvancedRequest"><button class="copy" type="button">Current request</button><span class="meta sr-only">—</span><i aria-hidden="true"></i></div>
-                    <div class="connection-advanced-row" id="connectionAdvancedApp"><span>Reaching the app</span><span class="meta sr-only">—</span><i aria-hidden="true"></i></div>
-                  </div>
-
-                  <details class="connection-runtime" id="connectionRuntime"><summary><svg class="disclosure-chevron details-chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M6 3.5 10.5 8 6 12.5"></path></svg>Runtime diagnostics</summary>
-                  <span class="connection-advanced-age" id="connectionAdvancedAge">Runtime diagnostics</span>
-                  <div class="connection-pipeline" id="connectionPipeline">
-                    <div class="connection-pipeline-stage" id="connectionPipelineRead"><i></i><span>Request ID found</span><em></em></div>
-                    <div class="connection-pipeline-stage" id="connectionPipelineSent"><i></i><span>Sent to app</span><em></em></div>
-                    <div class="connection-pipeline-stage" id="connectionPipelineOwner"><i></i><span>Owner confirmed</span><em></em></div>
-                    <p id="connectionPipelineWhy"></p>
-                    <div class="connection-pipeline-calls" id="connectionPipelineCalls"></div>
-                  </div>
-
-                  <dl class="connection-advanced-grid" id="connectionAdvancedGrid"></dl>
-                  <div class="connection-advanced-actions">
-                    <button class="btn" id="connectionAdvancedCopy" type="button">Copy</button>
-                    <button class="btn" id="connectionAdvancedRefresh" type="button">Refresh</button>
-                  </div></details>
-                </div>
-              </details>
               <div class="connection-popover-actions">
                 <button class="btn btn-solid" id="connectionPopoverToggle" type="button">Connect</button>
               </div>
@@ -224,14 +188,14 @@
               </div>
             </section>
             <section class="appearance-section">
-              <header class="settings-section-head"><div><h2>Colors</h2><p>Tune surfaces and accents for the selected theme.</p></div></header>
+              <header class="settings-section-head"><div><h2>Colors</h2><p>Fine-tune background and accent colors for the selected theme.</p></div></header>
               <div class="settings-surface pane appearance-settings-card">
               <label class="setting"><span class="setting-text"><b>Theme</b><em>Light and dark keep their own colors.</em></span><select id="appearanceTheme"><option value="light">Light</option><option value="dark">Dark</option></select></label>
 
               <div class="setting"><label class="setting-text" for="appearance-accent"><b>Accent color</b></label><div class="appearance-color"><input id="appearance-accent" type="color" data-color="accent" aria-label="Accent color" /><input id="appearance-accent-hex" type="text" data-hex="accent" aria-label="Accent color HEX" pattern="#[0-9a-fA-F]{6}" maxlength="7" spellcheck="false" autocomplete="off" /></div></div>
               <div class="setting"><label class="setting-text" for="appearance-background"><b>Background color</b></label><div class="appearance-color"><input id="appearance-background" type="color" data-color="background" aria-label="Background color" /><input id="appearance-background-hex" type="text" data-hex="background" aria-label="Background color HEX" pattern="#[0-9a-fA-F]{6}" maxlength="7" spellcheck="false" autocomplete="off" /></div></div>
               <div class="setting"><label class="setting-text" for="appearance-sidebar"><b>Sidebar color</b></label><div class="appearance-color"><input id="appearance-sidebar" type="color" data-color="sidebar" aria-label="Sidebar color" /><input id="appearance-sidebar-hex" type="text" data-hex="sidebar" aria-label="Sidebar color HEX" pattern="#[0-9a-fA-F]{6}" maxlength="7" spellcheck="false" autocomplete="off" /></div></div>
-              <label class="setting"><span class="setting-text"><b>Contrast</b><em>Adjust the separation between surfaces and text.</em></span><span class="appearance-range"><input id="appearanceContrast" type="range" min="0" max="100" aria-label="Contrast" /><output id="appearanceContrastValue" for="appearanceContrast"></output></span></label>
+              <label class="setting"><span class="setting-text"><b>Contrast</b><em>How strongly text stands out from its background.</em></span><span class="appearance-range"><input id="appearanceContrast" type="range" min="0" max="100" aria-label="Contrast" /><output id="appearanceContrastValue" for="appearanceContrast"></output></span></label>
               <label class="setting"><span class="setting-text"><b>Translucent sidebar</b><em>Blend your sidebar color softly into the background.</em></span><input id="appearanceTranslucent" type="checkbox" /></label>
               </div>
             </section>
@@ -245,7 +209,7 @@
             <section class="appearance-section">
               <header class="settings-section-head"><div><h2>Preferences</h2><p>Language and setup profiles stay independent of appearance.</p></div></header>
               <div class="settings-surface pane appearance-settings-card">
-                <label class="setting" for="uiLanguage"><span class="setting-text"><b>Language</b><em>Changes the app interface immediately. Your messages stay as written.</em></span><select id="uiLanguage" class="language-select" translate="no"><option value="de" lang="de">Deutsch</option><option value="en" lang="en">English</option><option value="es" lang="es">Español</option><option value="fr" lang="fr">Français</option><option value="pt-BR" lang="pt-BR">Português (Brasil)</option><option value="pt-PT" lang="pt-PT">Português (Portugal)</option><option value="tr" lang="tr">Türkçe</option><option value="ja" lang="ja">日本語</option><option value="ko" lang="ko">한국어</option><option value="zh-CN" lang="zh-CN">简体中文</option><option value="zh-TW" lang="zh-TW">繁體中文</option></select></label>
+                <label class="setting" for="uiLanguage"><span class="setting-text"><b>Language</b><em>Changes the app interface immediately. Your messages stay as written.</em></span><select id="uiLanguage" class="language-select" translate="no"><option value="de" lang="de">Deutsch</option><option value="en" lang="en">English</option><option value="es" lang="es">Español</option><option value="fr" lang="fr">Français</option><option value="pt-BR" lang="pt-BR">Português (Brasil)</option><option value="pt-PT" lang="pt-PT">Português (Portugal)</option><option value="ru" lang="ru">Русский</option><option value="tr" lang="tr">Türkçe</option><option value="vi" lang="vi">Tiếng Việt</option><option value="ja" lang="ja">日本語</option><option value="ko" lang="ko">한국어</option><option value="zh-CN" lang="zh-CN">简体中文</option><option value="zh-TW" lang="zh-TW">繁體中文</option></select></label>
                 <div class="setting setup-profile-setting">
                   <span class="setting-text"><b id="setupProfileLabel">Setup profile</b></span>
                   <div class="setup-profile-controls">
@@ -518,7 +482,9 @@
                   </svg>
                 </button>
                 <button type="button" data-language="pt-PT" lang="pt-PT" translate="no" title="Português (Portugal)" aria-label="Português (Portugal)" aria-pressed="false"><svg class="language-flag" viewBox="0 0 900 600" aria-hidden="true"><image href="./flags/pt.svg" width="900" height="600"/></svg></button>
+                <button type="button" data-language="ru" lang="ru" translate="no" title="Русский" aria-label="Русский" aria-pressed="false"><svg class="language-flag" viewBox="0 0 60 40" aria-hidden="true"><path fill="#fff" d="M0 0h60v13.333H0z"/><path fill="#0039a6" d="M0 13.333h60v13.334H0z"/><path fill="#d52b1e" d="M0 26.667h60V40H0z"/></svg></button>
                 <button type="button" data-language="tr" lang="tr" translate="no" title="Türkçe" aria-label="Türkçe" aria-pressed="false"><svg class="language-flag" viewBox="0 0 60 40" aria-hidden="true"><path fill="#e30a17" d="M0 0h60v40H0z"/><circle cx="25" cy="20" r="10" fill="#fff"/><circle cx="28" cy="20" r="8" fill="#e30a17"/><path fill="#fff" d="m39 13 1.6 4.8h5l-4 3 1.5 4.7-4.1-2.9-4.1 2.9 1.5-4.7-4-3h5z"/></svg></button>
+                <button type="button" data-language="vi" lang="vi" translate="no" title="Tiếng Việt" aria-label="Tiếng Việt" aria-pressed="false"><svg class="language-flag" viewBox="0 0 60 40" aria-hidden="true"><path fill="#da251d" d="M0 0h60v40H0z"/><path fill="#ff0" d="m30 8 2.9 8.9h9.4l-7.6 5.5 2.9 8.9-7.6-5.5-7.6 5.5 2.9-8.9-7.6-5.5h9.4z"/></svg></button>
                 <button type="button" data-language="ja" lang="ja" translate="no" title="日本語" aria-label="日本語" aria-pressed="false"><svg class="language-flag" viewBox="0 0 60 40" aria-hidden="true"><path fill="#fff" d="M0 0h60v40H0z"/><circle cx="30" cy="20" r="12" fill="#bc002d"/></svg></button>
                 <button type="button" data-language="ko" lang="ko" translate="no" title="한국어" aria-label="한국어" aria-pressed="false"><svg class="language-flag" viewBox="0 0 60 40" aria-hidden="true"><path fill="#fff" d="M0 0h60v40H0z"/><g transform="rotate(-33.69 30 20)"><path fill="#cd2e3a" d="M22 20a8 8 0 0 1 16 0 4 4 0 0 1-8 0 4 4 0 0 0-8 0Z"/><path fill="#0047a0" d="M38 20a8 8 0 0 1-16 0 4 4 0 0 1 8 0 4 4 0 0 0 8 0Z"/></g><g fill="#111"><g transform="translate(7 6) rotate(-34 5.5 5)"><rect width="11" height="1.8"/><rect y="4" width="11" height="1.8"/><rect y="8" width="11" height="1.8"/></g><g transform="translate(42 25) rotate(-34 5.5 5)"><rect width="4.3" height="1.8"/><rect x="6.7" width="4.3" height="1.8"/><rect y="4" width="4.3" height="1.8"/><rect x="6.7" y="4" width="4.3" height="1.8"/><rect y="8" width="4.3" height="1.8"/><rect x="6.7" y="8" width="4.3" height="1.8"/></g><g transform="translate(42 6) rotate(34 5.5 5)"><rect width="4.3" height="1.8"/><rect x="6.7" width="4.3" height="1.8"/><rect y="4" width="11" height="1.8"/><rect y="8" width="4.3" height="1.8"/><rect x="6.7" y="8" width="4.3" height="1.8"/></g><g transform="translate(7 25) rotate(34 5.5 5)"><rect width="11" height="1.8"/><rect y="4" width="4.3" height="1.8"/><rect x="6.7" y="4" width="4.3" height="1.8"/><rect y="8" width="11" height="1.8"/></g></g></svg></button>
                 <button type="button" data-language="zh-CN" lang="zh-CN" translate="no" title="简体中文" aria-label="简体中文" aria-pressed="false"><svg class="language-flag" viewBox="0 0 60 40" aria-hidden="true"><path fill="#de2910" d="M0 0h60v40H0z"/><g fill="#ffde00"><path d="m10 5 1.8 5.5h5.7l-4.6 3.4 1.8 5.4-4.7-3.4-4.7 3.4 1.8-5.4-4.6-3.4h5.7z"/><path id="language-star" d="m20 3 .7 2.1h2.2l-1.8 1.3.7 2.1L20 7.2l-1.8 1.3.7-2.1-1.8-1.3h2.2z"/><use href="#language-star" transform="translate(5 5)"/><use href="#language-star" transform="translate(5 12)"/><use href="#language-star" transform="translate(0 17)"/></g></svg></button>
@@ -783,6 +749,8 @@
                 <label class="inline" id="privacyScreenshotsSetting"><input type="checkbox" id="privacyScreenshots" /> Privacy screenshots: default to the active window instead of the whole monitor</label>
                 <label class="inline"><input type="checkbox" id="developerMode" /> Developer mode: show turn boundaries and recovery events</label>
                 <label class="inline"><input type="checkbox" id="playfulStatus" /> Playful status words: show rotating gym jokes instead of “Working”</label>
+                <label class="inline"><input type="checkbox" id="followOutput" /> Follow new output: stay at the end of the chat while answers grow, here and on ChatGPT. Scrolling up pauses it.</label>
+                <label class="inline"><input type="checkbox" id="mentionCore" /> Mention Chat On Steroids Core on my messages: makes sure ChatGPT can use this app in every chat. Turn off if ChatGPT starts plain questions with an unneeded tool call; workers, Goal, Loop and Continue keep the mention.</label>
                 <label class="inline"><input type="checkbox" id="controlApiEnabled" /> Local control API: let agents on this computer read app status and chats</label>
                 <label class="inline"><input type="checkbox" id="controlApiAllowActions" disabled /> Allow actions: let local agents send and cancel messages</label>
               </div>
@@ -858,11 +826,13 @@
                   <div class="setting"><span class="setting-text"><b>Loop response source</b><em>Loop keeps going until you switch it off.</em></span><select id="loopBackend"><option value="api">API key · Most reliable</option><option value="chatgpt">Separate ChatGPT chat</option></select></div>
                   <div class="setting"><span class="setting-text"><b>Goal, Loop and Plan model</b><em>Model for ChatGPT-generated messages and plans. Select GPT-5.6 and High below for planning.</em></span><select id="helperModel" aria-label="Goal, Loop and Plan model"></select></div>
                   <div class="setting"><span class="setting-text"><b>Goal, Loop and Plan reasoning</b><em>Used with the ChatGPT model above; independent from API reasoning.</em></span><select id="helperReasoning" aria-label="Goal, Loop and Plan reasoning"></select></div>
-                  <label class="setting"><span class="setting-text"><b>Include tool details in handoffs</b><em>Handoff briefs retain tool details. Goal and Loop use user messages and assistant updates and answers.</em></span><input id="goalIncludeToolCalls" type="checkbox" /></label>
+                  <label class="setting"><span class="setting-text"><b>Include tool details in handoffs</b><em>Compact &amp; Resume briefs keep tool calls and their results. Goal and Loop always read only your messages and the assistant's updates and answers.</em></span><input id="goalIncludeToolCalls" type="checkbox" /></label>
                   </div>
-                <header class="settings-section-head automation-section-head"><div><h2 class="settings-section-title">ChatGPT models</h2><p>Use account-observed models for sub-agents.</p></div></header>
+                <header class="settings-section-head automation-section-head"><div><h2 class="settings-section-title">ChatGPT models</h2><p>Choose account-observed model and reasoning defaults for ordinary chats and sub-agents.</p></div></header>
                 <div class="settings-surface pane">
                   <div class="setting"><span class="setting-text"><b>Available ChatGPT models</b><em id="chatModelStatus">Read model choices from your account.</em></span><button class="btn" id="refreshChatModels" type="button">Refresh</button></div>
+                  <div class="setting"><span class="setting-text"><b>Default new-chat model</b><em>Used when you start a new chat. A chat you continue keeps its own model.</em></span><select id="defaultChatModel"><option value="">Automatic</option></select></div>
+                  <div class="setting"><span class="setting-text"><b>Default new-chat reasoning</b><em>Used with the ordinary chat model above; workers and helpers keep their own defaults.</em></span><select id="defaultChatReasoning"><option value="">Automatic</option></select></div>
                   <div class="setting"><span class="setting-text"><b>Default sub-agent model</b><em>Confirmed in ChatGPT before a worker starts.</em></span><select id="workerModel"><option value="" disabled>No observed choices</option></select></div>
                   <div class="setting"><span class="setting-text"><b>Default sub-agent reasoning</b><em>Selected independently from the model.</em></span><select id="workerReasoning"><option value="" disabled>No observed choices</option></select></div>
                   </div>
@@ -880,7 +850,7 @@
                   <label class="setting">
                     <span class="setting-text">
                       <b>Allow unattributed calls</b>
-                      <em>Allow tools, including computer use, file editing and JavaScript, without chat attribution. Sub-agents and other chat-owned actions still need an identified chat. Activity appears as Unattributed.</em>
+                      <em>Lets tools run, including computer use, file editing and JavaScript, even when the app can’t tell which chat called them. Sub-agents and other chat actions still need a known chat. These calls are listed under Unattributed activity.</em>
                     </span>
                     <input id="allowUnattributedCalls" type="checkbox" />
                   </label>
@@ -901,6 +871,14 @@
                     <input id="waitForSubAgents" type="checkbox" />
                   </label>
 
+                  <label class="setting">
+                    <span class="setting-text">
+                      <b>End background processes of workers asleep for more than 30 minutes</b>
+                      <em>The worker chat and history stay reusable. Off by default; each cleanup is recorded in that worker's transcript.</em>
+                    </span>
+                    <input id="endSleepingWorkerProcesses" type="checkbox" />
+                  </label>
+
                   <div id="swarmList"></div>
                   <div class="step-actions">
                     <button class="btn" id="swarmReset" type="button">Clear swarm</button>
@@ -909,9 +887,9 @@
                 <header class="settings-section-head automation-section-head"><div><h2 class="settings-section-title">Keep the turn open</h2><p>Control plan generation and what happens near the end of a turn.</p></div></header>
                 <div class="settings-surface pane">
                   <label class="setting"><span class="setting-text"><b>Plan generation</b><em>Create staged tasks. ChatGPT uses the Goal, Loop and Plan model above; API uses the model and reasoning in API provider settings.</em></span><select id="planBackend"><option value="chatgpt">ChatGPT</option><option value="api">API provider</option></select></label>
-                  <label class="setting"><span class="setting-text"><b>Session finish</b><em>Ask Astra to keep the turn open for your next instruction. With Automatic plugin refresh enabled, tool changes refresh the connector after 20 seconds.</em></span><input id="finishTool" type="checkbox" /></label>
-                  <div class="setting"><span class="setting-text"><b>When ChatGPT is wrapping up</b><em>When Goal or Loop is enabled for this chat, finishing generates a follow-up using your Loop instructions and source. When Off, you receive a notification.</em></span></div>
-                  <div class="setting"><span class="setting-text"><b>Requested notice</b><em>A request to the model, not a guaranteed countdown.</em></span><select id="finishLeadMinutes"><option value="3">3 minutes</option><option value="5">5 minutes</option></select></div>
+                  <label class="setting"><span class="setting-text"><b>Session finish</b><em>Holds the turn open near its end so the next step arrives in the same turn. Goal and Loop use it with GPT-6 Pro (Astra), Loop also with older Pro models; other models only when your message asks. Turning it on changes the connector's tools, so ChatGPT needs a plugin refresh (automatic after 20 seconds with Automatic plugin refresh).</em></span><input id="finishTool" type="checkbox" /></label>
+                  <div class="setting"><span class="setting-text"><b>Requested notice</b><em>How long before its end the model should hold the turn. A request to the model, not a guaranteed countdown.</em></span><select id="finishLeadMinutes"><option value="3">3 minutes</option><option value="5">5 minutes</option></select></div>
+                  <p class="muted">When the model ends the turn this way with Goal or Loop on in this chat, the next step is written from that prompt and response source. Otherwise you get a notification.</p>
                   </div>
                 <header class="settings-section-head automation-section-head"><div><h2 class="settings-section-title">Browser & history</h2><p>Manage background tabs, browser preferences, and history compaction.</p></div></header>
                 <div class="settings-surface pane">
@@ -986,6 +964,10 @@
                   </div>
 
                   <div class="field" id="goalModels" hidden>
+                    <label class="plugin-search goal-model-search">
+                      <i class="ico ph ph-magnifying-glass" aria-hidden="true"></i>
+                      <input id="goalModelSearch" type="search" placeholder="Search models" aria-label="Search models" />
+                    </label>
                     <div id="goalModelList" class="goal-models"></div>
                     <p class="hint" id="goalModelsState"></p>
                     <div class="step-actions">
@@ -1105,11 +1087,11 @@
                         <div class="mode-option"><button type="button" role="radio" aria-checked="false" data-mode="goal"><i class="ico ph ph-target" aria-hidden="true"></i><span class="mode-copy"><span>Goal</span><small>Continue until this objective is satisfied.</small></span><i class="ico ph ph-check mode-check" aria-hidden="true"></i></button><button type="button" class="mode-edit" data-edit-mode="goal" data-keep-menu="true" aria-label="Edit task" title="Edit task"><i class="ico ph ph-pencil-simple" aria-hidden="true"></i></button></div>
                         <div class="mode-option"><button type="button" role="radio" aria-checked="false" data-mode="loop"><i class="ico ph ph-arrows-clockwise" aria-hidden="true"></i><span class="mode-copy"><span>Loop</span><small>Keep working within the brief until paused.</small></span><i class="ico ph ph-check mode-check" aria-hidden="true"></i></button><button type="button" class="mode-edit" data-edit-mode="loop" data-keep-menu="true" aria-label="Edit task" title="Edit task"><i class="ico ph ph-pencil-simple" aria-hidden="true"></i></button></div>
                         </div><select hidden id="chatAutomation" aria-label="Chat automation"><option value="off">Off</option><option value="goal">Goal</option><option value="loop">Loop</option></select>
-                      <label id="loopDeliveryRow" hidden>Continuation timing<select id="loopDelivery"><option value="finish">Only finish</option><option value="after-turn">After this turn + finish</option></select></label>
+                      <label id="loopDeliveryRow" hidden>When to continue<select id="loopDelivery"><option value="finish">Session Finish only</option><option value="after-turn">Also after the turn</option></select></label>
               <div id="sessionControls" hidden>
                 <div class="session-controls-menu">
                   <label for="sessionObjective">This chat's goal</label>
-                  <textarea dir="auto" id="sessionObjective" rows="3" maxlength="16000" placeholder="What should this chat achieve?"></textarea>
+                  <textarea dir="auto" id="sessionObjective" rows="3" maxlength="16000" placeholder="Optional. Leave empty to work toward what you asked in this chat."></textarea>
                   <button id="saveSessionObjective" data-keep-menu="true" type="button"><i class="ico ph ph-check" aria-hidden="true"></i><span>Save task</span></button>
                   <select hidden id="sessionObjectiveMode" aria-label="Goal behavior"><option value="goal">Goal · stop when complete</option><option value="loop">Loop · keep going</option></select>
                   <button id="queueAtFinish" type="button" hidden><i class="ico ph ph-clock" aria-hidden="true"></i><span>Queue at Session finish</span></button>

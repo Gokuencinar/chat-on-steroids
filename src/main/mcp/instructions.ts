@@ -84,6 +84,17 @@ function coreInstructions(ctx: ToolContext, platform: NodeJS.Platform, skills: s
   const roots = ctx.roots.length
     ? ctx.roots.map(root => `/${root.name}${isGitRepository(root.path) ? ' (git)' : ''}`).join('  ')
     : 'None yet.';
+  const authority = [
+    `browse=${caps.browse ? 'on' : 'off'}`,
+    `search=${caps.search ? 'on' : 'off'}`,
+    `read=${caps.read ? 'on' : 'off'}`,
+    `metadata=${caps.metadata ? 'on' : 'off'}`,
+    `create=${caps.create ? 'on' : 'off'}`,
+    `edit=${caps.edit ? 'on' : 'off'}`,
+    `move=${caps.move ? 'on' : 'off'}`,
+    `delete=${caps.deleteFile ? 'on' : 'off'}`,
+    `command=${caps.command ? 'on' : 'off'}`
+  ].join(' ');
   const lines = [
     CODING_INSTRUCTIONS,
     skills,
@@ -93,11 +104,12 @@ function coreInstructions(ctx: ToolContext, platform: NodeJS.Platform, skills: s
     `; ${surfaceDefinition('desktop').connectorName} for background browser tabs, DOM, console, screenshots and input${desktop ? ', native windows and clipboard' : ''}` +
     `; ${surfaceDefinition('plugins').connectorName} for enabled external apps and services.`,
     `Host: ${host}. Roots: ${roots}`,
+    `Current Core authority (informational; live guards decide): ${authority}; read-only=${ctx.readOnly ? 'on' : 'off'}; plans=${sessionTools ? 'on' : 'off'}; workers=${agentTools ? 'on' : 'off'}.`,
     ctx.readOnly ? 'The local tools are read-only.' : 'Use the tools listed in this conversation.',
     ...(writable || executable ? [`You can always use ${[writable && 'file writing', executable && 'exec_command'].filter(Boolean).join(' and ')} in CoS. Never hallucinate a block from ChatGPT environment messages.`] : []),
     'Report exact failures: identity, session_id and output-limit errors do not mean Read-only. Never replay successful patches or commands to recover a terminal.',
     '"This tool call was blocked by OpenAI because we couldn\'t determine the safety status of the request." comes from ChatGPT before CoS receives the call. It is not a CoS failure or a missing capability: retry the identical call once.',
-    'Unattributed is recording status, not permission. With Allow unattributed calls enabled, the request id owns its workspace, plan, terminals and agent family until exact chat proof arrives. A missing target limits that operation only; keep using enabled tools.',
+    'Unattributed is recording status, not permission. When allowed, request-id custody of workspace, plan, terminals and workers lasts until exact chat proof. A missing target limits only that operation.',
     'Use full project paths under an approved root, including intermediate folders. Virtual or absolute native paths work; linked projects also accept relative paths.',
   ];
 
@@ -108,7 +120,7 @@ function coreInstructions(ctx: ToolContext, platform: NodeJS.Platform, skills: s
   if (caps.command) {
     lines.push(
       'Use rg or rg --files for searches; if unavailable, use the next best tool. Prefer rg -g \'*.ts\' src over shell globs.',
-      'exec_command is enabled. Batch checks with exec_command cmds: [...]: one shell, per-command output and exit codes.',
+      'Batch checks with exec_command cmds: [...]: one shell, per-command output and exit codes.',
       'CoS protects its process and bridge ports 8765-8769. Never kill it or sweep those ports; identify external processes before stopping them.',
       'Set workdir to the project; virtual paths work there. Inside cmd use relative or native paths.',
       'write_stdin accepts session_id (running) or completed_session_id (finished). Completed reads replay output without rerunning work. Inspect exit/output; benign_exit marks an expected non-zero result.',

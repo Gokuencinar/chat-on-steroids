@@ -26,6 +26,21 @@ app.whenReady().then(async () => {
     .replace('</head>', `<style>${css}</style></head>`);
   const win = new BrowserWindow({ show: false, width: 1100, height: 760,
     webPreferences: { sandbox: true, offscreen: true, backgroundThrottling: false } });
+  // Windows can reject capturePage's Viz surface for a hidden offscreen window. The paint
+  // event is that window's actual rendered bitmap and avoids a second GPU surface copy.
+  const capture = () => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      win.webContents.removeListener('paint', painted);
+      reject(new Error('Goal fixture did not produce an offscreen frame'));
+    }, 5000);
+    const painted = (_event, _dirty, image) => {
+      clearTimeout(timer);
+      if (image.isEmpty()) reject(new Error('Goal fixture produced an empty frame'));
+      else resolve(image);
+    };
+    win.webContents.once('paint', painted);
+    win.webContents.invalidate();
+  });
   await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
   await win.webContents.executeJavaScript(`(() => {
     const ok = data => Promise.resolve({ok:true,data});
@@ -55,7 +70,7 @@ app.whenReady().then(async () => {
     })()`);
     assert.ok(result.visible && result.fits, JSON.stringify({ width, zoom, ...result }));
     results.push({ width, zoom, ...result });
-    if (width === 1100 && zoom === 1) fs.writeFileSync(path.join(output, 'waiting.png'), (await win.webContents.capturePage()).toPNG());
+    if (width === 1100 && zoom === 1) fs.writeFileSync(path.join(output, 'waiting.png'), (await capture()).toPNG());
   }
   win.setContentSize(1100, 760); win.webContents.setZoomFactor(1);
   const generated = await win.webContents.executeJavaScript(`(async()=>{
@@ -63,7 +78,7 @@ app.whenReady().then(async () => {
     chat.chatVisible(false);chat.chatVisible(true);await frame();await frame();await frame();return document.getElementById('goalLifecycle').textContent;
   })()`);
   assert.ok(generated.includes('Generating a continuation') && generated.includes('remaining verification'), generated);
-  fs.writeFileSync(path.join(output, 'generating.png'), (await win.webContents.capturePage()).toPNG());
+  fs.writeFileSync(path.join(output, 'generating.png'), (await capture()).toPNG());
   fs.writeFileSync(path.join(output, 'measurements.json'), JSON.stringify(results, null, 2));
   console.log('Passed real Loop progress rendering, countdown fit at four size/zoom combinations, and generated text.');
   win.destroy(); app.exit(0);

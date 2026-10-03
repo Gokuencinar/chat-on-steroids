@@ -119,6 +119,10 @@ const api = {
   petsList: () => call<PetLibraryState>('pets:list'),
   petsOverlayState: () => call<PetOverlayControlState>('pets:overlayState'),
   petsSetOverlayVisible: (visible: boolean) => call<PetOverlayControlState>('pets:overlayVisible', { visible }),
+  /** The selected language's texts for the stopped-chat desktop notices (#855). */
+  setStopNoticeTexts: (texts: Record<string, string>) => call<void>('ui:stopNoticeTexts', texts),
+  /** The interface language, kept by the app for the browser extension. */
+  setUiLanguage: (language: string) => call<void>('ui:language', language),
   petsImport: () => call<PetLibraryState | null>('pets:import'),
   petsSetEnabled: (id: string, enabled: boolean) => call<PetLibraryState>('pets:enabled', { id, enabled }),
   petsSetFavorite: (id: string, favorite: boolean) => call<PetLibraryState>('pets:favorite', { id, favorite }),
@@ -194,7 +198,7 @@ const api = {
   setGoalKey: (value: string) => call<AppState>('secret:set', { value, key: 'openRouterApiKey' }),
   // The same, for a custom provider endpoint. Optional: keyless local servers need nothing stored.
   setCustomProviderKey: (value: string) => call<AppState>('secret:set', { value, key: 'customProviderApiKey' }),
-  listGoalModels: (offset: number) => call<GoalModelPage>('goal:models', { offset }),
+  listGoalModels: (offset: number, query = '') => call<GoalModelPage>('goal:models', { offset, query }),
   pickBinary: () => call<AppState>('binary:pick'),
   connect: () => call<AppState>('connection:connect'),
   disconnect: () => call<AppState>('connection:disconnect'),
@@ -280,6 +284,7 @@ const api = {
   listInputs: () => call<InputEntry[]>('sessions:outbox'),
   listPausedHelpers: () => call<Array<{ id: string; sourceSessionId: string }>>('sessions:pausedHelpers'),
   runningTools: (conversationIds: string[]) => call<RunningToolActivity[]>('sessions:runningTools', { conversationIds }),
+  livePreview: (conversationIds: string[]) => call<string | null>('sessions:livePreview', { conversationIds }),
   retryHelper: (id: string, sourceSessionId: string) => call<boolean>('sessions:retryHelper', { id, sourceSessionId }),
   editQueuedInput: (id: string, text: string, afterTurn?: boolean) => call<boolean>('sessions:editInput', { id, text, afterTurn }),
   reorderQueuedInputs: (sessionId: string, ids: string[]) => call<boolean>('sessions:reorderInputs', { sessionId, ids }),

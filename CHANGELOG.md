@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.1.32] - 2026-10-03
+
+- Reliable first-message receipts and live narration, exact selected-model confirmation, deeper React tree discovery, and visible-chat-only recording.
+- Goal/Loop/Continue and Compact & Resume recover interrupted streams, preserve questions and answers, retire stale automatic drafts, and avoid needless reloads during resumed work.
+- Native structured Core mentions for managed sends, with a preference for ordinary messages. Manual sends retain the fork's exact unchanged-draft native-send fallback.
+- Follow new output, saved window placement, default model and reasoning for new chats, OpenRouter model search, worker health, skill revisions, and optional sleeping-worker runtime cleanup (off by default).
+- Russian and Vietnamese, extension language synchronization and preference restoration, clearer settings and connection status, and per-round timeline summaries.
+- Windows WSL approved folders, own-window desktop exclusion, execution-session continuity, connector refresh improvements, and published dependency updates.
+
+- Preserve all fork safeguards; add Windows-only published asset verification and a version-pinned PowerShell updater.
+
+
 All notable changes to this project are documented here.
 
 This project is in **beta** despite its version number. Behavior may still change between

@@ -44,7 +44,7 @@ app.whenReady().then(async () => {
   let win;
   try {
     fs.mkdirSync(output,{recursive:true}); await server.listen();
-    win = new BrowserWindow({show:false,width:1100,height:800,webPreferences:{sandbox:true,backgroundThrottling:false}});
+    win = new BrowserWindow({show:false,width:1100,height:800,webPreferences:{sandbox:true,backgroundThrottling:false,offscreen:process.platform==='win32'}});
     win.webContents.on('console-message',event=>{if(event.level==='error')console.error(event.message)});
     await win.loadURL(server.resolvedUrls.local[0]+'fixture.html');
     const js = code=>win.webContents.executeJavaScript(code);
@@ -56,6 +56,7 @@ app.whenReady().then(async () => {
     for(const zoom of [1,1.17,1.5]) for(const width of [1100,600]) {
       win.setSize(width,800);win.webContents.setZoomFactor(zoom);
       await js('window.reaction(null)');await until('!document.querySelector(".message-reaction")');
+      await js('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
       const measure=`(()=>{const rect=s=>{const r=document.querySelector(s).getBoundingClientRect();return [r.x,r.y,r.width,r.height]};return {bubble:rect('.user-message-text'),answer:rect('.ev-assistant_message'),scroll:document.getElementById('chatBody').scrollTop}})()`;
       const before=await js(measure);
       await js('window.originalBubble=document.querySelector(".said.is-user");window.reaction("😂")');

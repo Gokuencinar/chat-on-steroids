@@ -255,8 +255,13 @@ export interface MessageReference {
   sources: Array<{ title: string; url: string; source?: string; date?: number; snippet?: string }>;
 }
 
-export const MAX_MESSAGE_REFERENCES = 64;
-export const MAX_REFERENCE_SOURCES = 12;
+export const MAX_MESSAGE_REFERENCES = 32;
+export const MAX_REFERENCE_SOURCES = 8;
+/**
+ * Characters of titles, links, source names and snippets one reply's references may hold in all.
+ * The per-field limits alone allowed megabytes per message revision; this bounds it whatever they are.
+ */
+export const MAX_REFERENCES_CHARS = 32_000;
 
 /** Revalidates references that crossed from the page: bounded, http(s) links only, anything else dropped. */
 export function messageReferences(value: unknown): MessageReference[] | undefined {
@@ -265,6 +270,7 @@ export function messageReferences(value: unknown): MessageReference[] | undefine
     typeof item === 'string' ? item.replace(/\s+/g, ' ').trim().slice(0, max) : '';
   const out: MessageReference[] = [];
   const indexes = new Set<number>();
+  let budget = MAX_REFERENCES_CHARS;
   for (const entry of value.slice(0, MAX_MESSAGE_REFERENCES)) {
     if (!entry || typeof entry !== 'object') continue;
     const { index, sources } = entry as { index?: unknown; sources?: unknown };
@@ -275,9 +281,12 @@ export function messageReferences(value: unknown): MessageReference[] | undefine
       const { title, url, source: name, date, snippet } = source as { title?: unknown; url?: unknown; source?: unknown; date?: unknown; snippet?: unknown };
       const link = text(url, 2000);
       if (!/^https?:\/\/[^\s]+$/i.test(link)) continue;
-      const label = text(name, 80), summary = text(snippet, 300);
+      const label = text(name, 80), summary = text(snippet, 300), heading = text(title, 300) || link;
+      const size = heading.length + link.length + label.length + summary.length;
+      if (size > budget) break;
+      budget -= size;
       const published = typeof date === 'number' && Number.isFinite(date) && date > 0 && date < 1e13 ? Math.round(date) : undefined;
-      kept.push({ title: text(title, 300) || link, url: link, ...(label ? { source: label } : {}),
+      kept.push({ title: heading, url: link, ...(label ? { source: label } : {}),
         ...(published ? { date: published } : {}), ...(summary ? { snippet: summary } : {}) });
     }
     if (!kept.length) continue;
@@ -471,7 +480,7 @@ export type SessionEvent =
    */
   | (BaseEvent & { kind: 'turn_start'; detail?: string })
   | (BaseEvent & { kind: 'turn_end'; outcome: TurnOutcome; detail?: string; reason?: 'thinking_failed'; providerMessageId?: string })
-  | (BaseEvent & { kind: 'chat_error'; message: StoredText; recoverable?: boolean; blocking?: boolean; reason?: 'thinking_failed' })
+  | (BaseEvent & { kind: 'chat_error'; message: StoredText; recoverable?: boolean; blocking?: boolean; reason?: 'thinking_failed' | 'stream_gone' })
   | (BaseEvent & { kind: 'tool_call'; call: ToolCallRecord; origin?: number })
   /**
    * An app-authored line. `continuation` names the Compact & Resume it is about, so the
@@ -516,9 +525,10 @@ export type SessionEventKind = SessionEvent['kind'];
  */
 export const CONTINUATION_MARKER = /^\s*\[\[CLF-(HANDOFF|RESUME):([A-Za-z0-9_-]{16,64})\]\](?:\s|$)/;
 
-/** Page readback may escape ASCII punctuation. Letters and digits cannot be escaped.
+/** Page readback may escape ASCII punctuation. Letters and digits cannot be escaped. A message
+ * that mentions an app is stored as Markdown, so the marker's line ends in a hard break (`\`).
  * Keep this grammar in sync with markedAs() in the unbundled extension/content.js. */
-const CONTINUATION_MARKER_ESCAPED = /^\s*(?:\\?\[){2}CLF\\?-(HANDOFF|RESUME)\\?:((?:[A-Za-z0-9]|\\?[_-]){16,64})(?:\\?\]){2}(?:\s|$)/;
+const CONTINUATION_MARKER_ESCAPED = /^\s*(?:\\?\[){2}CLF\\?-(HANDOFF|RESUME)\\?:((?:[A-Za-z0-9]|\\?[_-]){16,64})(?:\\?\]){2}\\?(?:\s|$)/;
 
 /**
  * Undo one layer of ASCII-punctuation escaping in page readback only. Callers try exact
@@ -526,8 +536,9 @@ const CONTINUATION_MARKER_ESCAPED = /^\s*(?:\\?\[){2}CLF\\?-(HANDOFF|RESUME)\\?:
  */
 export function unescapeMarkdown(value: string): string {
   // A backslash before a line break is the composer's Markdown hard break (see asTyped in
-  // shared/user-prompt.ts); ASCII punctuation is the other escape the page applies.
-  return value.replace(/\\\r?\n/g, '\n').replace(/\\([!-/:-@[-`{-~])/g, '$1');
+  // shared/user-prompt.ts); ASCII punctuation is the other escape the page applies, and an
+  // indented line's first space comes back as `&#x20;` (#821).
+  return value.replace(/\\\r?\n/g, '\n').replace(/\\([!-/:-@[-`{-~])/g, '$1').replace(/(^|\n)&#x20;/g, '$1 ');
 }
 
 /** The continuation marker at the head of `text`, as typed or as the composer escaped it. */

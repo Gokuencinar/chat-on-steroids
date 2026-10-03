@@ -1,4 +1,5 @@
 import { registerWorkspaceTerminalIpc } from './workspace-terminal-ipc.js';
+import { setStopNoticeTranslations } from './stuck-notice.js';
 import { applyLoginStartup, supportsLoginStartup } from './window-lifecycle.js';
 import { startControlApi, stopControlApi } from './control-api.js';
 import { appearanceSchema } from './appearance-schema.js';
@@ -59,10 +60,12 @@ import { MAX_GOAL_SYSTEM_PROMPT_CHARS } from '../shared/goal.js';
 import { MAX_HANDOFF_PROMPT_CHARS } from '../shared/handoff.js';
 import { applySettings, connect, disconnect, getStatus, onStatusChange } from './connection.js';
 import { effectiveCapabilities, getConfig, updateConfig, MAX_MCP_INSTRUCTIONS_CHARS, browserBridgePortSchema } from './config.js';
+import { UI_LANGUAGES } from '../shared/ui-language.js';
 import { bridgePortSelection } from './bridge-ports.js';
 import { clearAllGoalSwitches, draftTaskPlan, listGoalModels, MODEL_PAGE_SIZE, retireGoalDrafts, goalBackendFor, goalSwitchFor, setGoalSwitchNow, setGoalReplyActiveNow, setGoalObjectiveNow } from './goal.js';
 import { forgetExposedSurface } from './mcp/server.js';
 import { runningToolActivity } from './mcp/call-context.js';
+import { livePreview } from './live-preview.js';
 import { runDiagnostics } from './diagnostics.js';
 import { formatLogAsJson, formatLogForClipboard, getLog, logInfo, onLog } from './logger.js';
 import { RESERVED_ROOT_NAMES, uniqueRootName, validateNewRoot, SandboxError, resolvePath } from './sandbox.js';
@@ -171,8 +174,15 @@ const settingsPatch = z.object({
   ui: z.object({
     appearance: appearanceSchema.optional(),
     autoContinue: z.boolean().optional(),
+    defaultChatModel: z.string().trim().min(1).max(80).optional(),
+    defaultChatReasoning: z.enum(REASONING_EFFORTS).optional(),
     chatBrowser: z.enum(CHAT_BROWSERS).optional(),
     developerMode: z.boolean().optional(),
+    playfulStatus: z.boolean().optional(),
+    followOutput: z.boolean().optional(),
+    mentionCore: z.boolean().optional(),
+    language: z.enum(UI_LANGUAGES).optional(),
+    browserPreferences: z.object({ overwrite: z.boolean(), durations: z.boolean() }).strict().optional(),
     finishTool: z.boolean().optional(),
     planBackend: z.enum(['chatgpt', 'api']).optional(),
     finishAction: z.enum(['notify', 'goal']).optional(),
@@ -208,7 +218,8 @@ const settingsPatch = z.object({
     maxWorkers: z.number().int().min(1).max(8),
     allowUnattributedCalls: z.boolean(),
     recoverAgentTabs: z.boolean(),
-    waitForSubAgents: z.boolean().optional()
+    waitForSubAgents: z.boolean().optional(),
+    endSleepingWorkerProcesses: z.boolean().optional()
   }),
   mcp: z.object({ instructions: z.string().trim().max(MAX_MCP_INSTRUCTIONS_CHARS) }).strict().optional(),
   controlApi: z.object({ enabled: z.boolean(), allowActions: z.boolean().optional() }).strict().optional(),
@@ -319,8 +330,16 @@ function mergeSettings(current: Config, base: SettingsSnapshot, wanted: Settings
     ui: {
       appearance: mergeAppearance(current.ui.appearance, base.ui.appearance, wanted.ui.appearance),
       autoContinue: pick(current.ui.autoContinue, base.ui.autoContinue, wanted.ui.autoContinue),
+      defaultChatModel: pick(current.ui.defaultChatModel, base.ui.defaultChatModel, wanted.ui.defaultChatModel),
+      defaultChatReasoning: pick(current.ui.defaultChatReasoning, base.ui.defaultChatReasoning, wanted.ui.defaultChatReasoning),
       chatBrowser: pick(current.ui.chatBrowser, base.ui.chatBrowser, wanted.ui.chatBrowser),
       developerMode: pick(current.ui.developerMode, base.ui.developerMode, wanted.ui.developerMode),
+      playfulStatus: pick(current.ui.playfulStatus, base.ui.playfulStatus, wanted.ui.playfulStatus),
+      followOutput: pick(current.ui.followOutput, base.ui.followOutput, wanted.ui.followOutput),
+      mentionCore: pick(current.ui.mentionCore, base.ui.mentionCore, wanted.ui.mentionCore),
+      // Not part of the settings form: reported by the window and the extension, carried through.
+      language: current.ui.language,
+      browserPreferences: current.ui.browserPreferences,
       finishTool: pick(current.ui.finishTool, base.ui.finishTool, wanted.ui.finishTool),
       planBackend: pick(current.ui.planBackend, base.ui.planBackend, wanted.ui.planBackend),
       finishAction: pick(current.ui.finishAction, base.ui.finishAction, wanted.ui.finishAction),
@@ -379,6 +398,11 @@ function mergeSettings(current: Config, base: SettingsSnapshot, wanted: Settings
         current.multiAgent.waitForSubAgents,
         base.multiAgent.waitForSubAgents,
         wanted.multiAgent.waitForSubAgents
+      ),
+      endSleepingWorkerProcesses: pick(
+        current.multiAgent.endSleepingWorkerProcesses ?? false,
+        base.multiAgent.endSleepingWorkerProcesses ?? false,
+        wanted.multiAgent.endSleepingWorkerProcesses ?? false
       )
     },
     goal: {
@@ -652,6 +676,15 @@ export function registerIpc(getWindow: () => BrowserWindow | null, quitToInstall
   });
 
   handle('projects:list', () => listProjects());
+  handle('ui:language', async payload => {
+    // The renderer owns the choice; the main process keeps it for the browser extension.
+    const language = z.enum(UI_LANGUAGES).parse(payload);
+    if (getConfig().ui.language !== language) await updateConfig(config => ({ ...config, ui: { ...config.ui, language } }));
+  });
+  handle('ui:stopNoticeTexts', async payload => {
+    // The renderer's catalogs translate the stopped-chat notices (#855); bounded and allowlisted.
+    setStopNoticeTranslations(z.record(z.string().max(200), z.string().max(400)).refine(value => Object.keys(value).length <= 16).parse(payload));
+  });
   handle('pets:list', async () => petLibraryState());
   handle('pets:overlayState', async () => petOverlayControlState());
   handle('pets:overlayVisible', async payload => {
@@ -926,8 +959,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null, quitToInstall
    * module's own, so the renderer cannot ask for the whole catalogue in one call.
    */
   handle('goal:models', async (payload) => {
-    const { offset } = z.object({ offset: z.number().int().min(0).max(2000).default(0) }).parse(payload ?? {});
-    return listGoalModels(offset, MODEL_PAGE_SIZE);
+    const { offset, query } = z.object({
+      offset: z.number().int().min(0).max(2000).default(0),
+      query: z.string().max(160).default('')
+    }).parse(payload ?? {});
+    return listGoalModels(offset, MODEL_PAGE_SIZE, query);
   });
 
   handle('binary:pick', async () => {
@@ -1127,6 +1163,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null, quitToInstall
   handle('sessions:runningTools', async (payload) => {
     const { conversationIds } = z.object({ conversationIds: z.array(z.string().min(1).max(200)).max(16) }).parse(payload);
     return runningToolActivity(conversationIds);
+  });
+  // The newest sentence a working chat shows before ChatGPT publishes it (#942).
+  handle('sessions:livePreview', async (payload) => {
+    const { conversationIds } = z.object({ conversationIds: z.array(z.string().min(1).max(200)).max(16) }).parse(payload);
+    return livePreview(conversationIds);
   });
   handle('sessions:retryHelper', async (payload) => {
     const { id, sourceSessionId } = z.object({ id: z.string().uuid(), sourceSessionId: z.string().min(8).max(64) }).parse(payload);

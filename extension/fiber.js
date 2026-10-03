@@ -61,6 +61,12 @@
    * for the shape it wants; this number only keeps a detached or cyclic tree from looping.
    */
   const MAX_CLIMB = 80;
+  /**
+   * How far a node may sit below React's root. ChatGPT's tree reached 405 levels on 2026-10-02
+   * (#969); at the old limit of 400 the committed root was never found, so the model picker and
+   * the shell's query client read as unavailable and Send failed to confirm its model.
+   */
+  const MAX_ROOT_DEPTH = 2048;
   const MAX_TEXT = 200;
   /** A page with more connector rows than this is not one we need to read exhaustively. */
   const MAX_ROWS = 400;
@@ -93,6 +99,8 @@
   /** Aggregate authored text/HTML copied through MAIN -> isolated world in one scan. */
   const MAX_RESPONSE_TEXT = MAX_TURNS * 512 * 1024;
   const MAX_TURN_TEXT = 512 * 1024;
+  /** One live caption line; the full text is recorded once ChatGPT publishes its message. */
+  const MAX_PREVIEW_TEXT = 300;
 
   function budgetedText(value, budget, perValueLimit) {
     if (typeof value !== 'string' || !value || !budget || budget.remaining <= 0) return '';
@@ -178,7 +186,7 @@
       currentPaths?.set(node, value);
       if (node.alternate) currentPaths?.set(node.alternate, value);
     };
-    while (at && path.length < 400) {
+    while (at && path.length < MAX_ROOT_DEPTH) {
       if (seen.has(at)) return null;
       seen.add(at);
       const cached = currentPaths?.get(at);
@@ -452,6 +460,17 @@
    * Do not fall back to arbitrary object/string fields. This helper runs in the page world
    * and its allowlist is a privacy boundary: only the public text payload crosses worlds.
    */
+  /**
+   * A message that mentions a ChatGPT app stores the mention inline as `[$slug](app://asdk_app_…)`
+   * (#861). That is how the message attached the app, not what its author wrote, and the app adds
+   * one to every prompt it sends, so user text is read without it. Ordinary links are untouched.
+   */
+  const APP_MENTION_LINK = /[ \t]*\[\$[a-z0-9][a-z0-9-]{0,80}\]\(app:\/\/asdk_app_[A-Za-z0-9_-]{1,160}\)[ \t]*/g;
+  function withoutAppMentions(value) {
+    if (typeof value !== 'string' || !value.includes('](app://asdk_app_')) return value;
+    return value.replace(APP_MENTION_LINK, ' ').trim();
+  }
+
   function authoredText(message) {
     const content = message && typeof message === 'object' ? message.content : null;
     if (!content || typeof content !== 'object' || content.content_type !== 'text') return null;
@@ -639,7 +658,7 @@
           /^image\/[a-z0-9.+-]{1,80}$/i.test(file.mime_type) && Number.isSafeInteger(file.size) && file.size >= 0 && file.size <= 512 * 1024 * 1024)
           .slice(0, Math.min(4, imageCount)).map(file => ({ id: file.id, name: file.name, size: file.size, mimeType: file.mime_type })) : [];
       const authored = multimodal ? content.parts.filter(part => typeof part === 'string').join('\n') : authoredText(message);
-      const rawText = budgetedText(authored, budget, MAX_RENDERED_TEXT) || '';
+      const rawText = budgetedText(withoutAppMentions(authored), budget, MAX_RENDERED_TEXT) || '';
       if (!id || (!rawText && !attachments.length)) continue;
       if (seen.has(id)) continue;
       seen.add(id);
@@ -847,7 +866,7 @@
         const messageId = context && typeof context.messageId === 'string' && context.messageId.length <= 200 ? context.messageId : null;
         if (!sources || index < 0 || !messageId) continue;
         const kept = [];
-        for (const source of sources.slice(0, 12)) {
+        for (const source of sources.slice(0, 8)) {
           if (!source || typeof source !== 'object') continue;
           const url = typeof source.url === 'string' && source.url.length <= 2000 && /^https?:\/\//i.test(source.url) ? source.url : null;
           if (!url) continue;
@@ -861,7 +880,7 @@
         }
         if (!kept.length) continue;
         const references = byMessage.get(messageId) || [];
-        if (!references.some(entry => entry.index === index)) references.push({ index, sources: kept });
+        if (references.length < 32 && !references.some(entry => entry.index === index)) references.push({ index, sources: kept });
         byMessage.set(messageId, references);
       }
     }
@@ -1572,7 +1591,7 @@
   /** Read the currently mounted query owner; never retain a client across navigation. */
   function shellQueries(fiber) {
     try {
-      for (let at = fiber, up = 0; at && up < 400; up++, at = at.return) {
+      for (let at = fiber, up = 0; at && up < MAX_ROOT_DEPTH; up++, at = at.return) {
         const client = at.memoizedProps?.client;
         if (typeof client?.getQueryCache !== 'function') continue;
         const queries = client.getQueryCache()?.getAll();
@@ -1873,6 +1892,19 @@
     rendered.sort((a, b) => a.order - b.order);
     return { events, notifications: [] };
   }
+  /** The newest public preamble of a running shell turn whose source message ChatGPT has not
+   * published (#942: a new chat's first turn keeps them out of every mapping until history is
+   * fetched again). Presentation only: no identity, never recorded, gone once the turn ends or
+   * its source message becomes readable and is recorded the ordinary way. */
+  function shellLivePreview(shell, metadata) {
+    if (shell.endMessageId) return null;
+    const preambles = shell.entry.turn.items.flatMap(item => item?.type === 'chatgpt-reasoning-group' &&
+      Array.isArray(item.items) && item.reasoningRecap?.type !== 'hide_all' ? item.items : []).filter(item => item?.type === 'reasoning' &&
+        item.isTransient !== true && item.presentation === 'preamble' && typeof item.content === 'string');
+    const newest = preambles.at(-1);
+    if (!newest || metadata.some(source => source.preamble === newest.content)) return null;
+    return budgetedText(visibleText(newest.content), { remaining: MAX_PREVIEW_TEXT }, MAX_PREVIEW_TEXT) || null;
+  }
   /** Translate only publicly identified items in the mounted exchange. Missing item ids
    * stay missing; a stopped turn does not manufacture replies to its tool calls. */
   function shellTurnSource(fiber, section, turnId) {
@@ -1948,13 +1980,27 @@
     return { entry, messages, calls, slots, callSources, executionIds, images,
       endMessageId: imageAnswer ? imageEnd : turnEndMessageId(messages) };
   }
+  /**
+   * Whether a node belongs to an earlier page ChatGPT keeps mounted but undisplayed in this tab.
+   * After a Project resume the tab still holds the source chat that way; its turns name the
+   * source conversation and must not be read as this page's (same rule as chatgpt-dom.js).
+   */
+  function onKeptPage(node) {
+    for (let page = node?.closest?.('[data-app-shell-page-surface]'); page;
+      page = page.parentElement?.closest('[data-app-shell-page-surface]')) {
+      if (getComputedStyle(page).display === 'none') return true;
+    }
+    return false;
+  }
+
   function turnsOf(scanToken) {
     const out = [];
     let sections;
     try {
       sections = [...document.querySelectorAll(TURN_SECTION)].filter(section => {
         if (section.matches?.(SEARCH_TURN_ANCHOR) && section.closest?.(SHELL_TURN)) return false;
-        return !section.closest(`${OWN_SURFACES},.markdown,[data-markdown-text-style],[data-content-search-unit-key],[contenteditable]`);
+        return !section.closest(`${OWN_SURFACES},.markdown,[data-markdown-text-style],[data-content-search-unit-key],[contenteditable]`) &&
+          !onKeptPage(section);
       });
     } catch {
       return out;
@@ -1966,6 +2012,8 @@
     // desired stamp set first, then change only attributes whose value actually differs.
     const desiredTurnStamps = new Map();
     const desiredMessageStamps = new Map();
+    // An exchange whose user slot the shell did not render (see below, `data-clf-fiber-user`).
+    const desiredUserStamps = new Map();
     const desiredThoughtStamps = new Map();
     const desiredImageStamps = new Map();
     const groups = [];
@@ -2047,6 +2095,7 @@
         const generatedImages = generatedImagesOf(group.sections, messages, exactImageNodes, shell?.images);
         const activities = nativeActivities.events;
         const endMessageId = shell ? shell.endMessageId : turnEndMessageId(messages);
+        const preview = shell ? shellLivePreview(shell, metadata) : null;
         // The shell supplies the completed final item's own exact message id,
         // without the classic thought-parent/timestamp tuple. Preserve that
         // identity for handoff capture; streaming and cancelled items stay weak.
@@ -2058,7 +2107,7 @@
           codeModeCalls.length === 0 && calls.length === 0 &&
           requests.length === 0 &&
           renderedMessages.length === 0 &&
-          activities.length === 0 && nativeActivities.notifications.length === 0 && generatedImages.length === 0 && !endMessageId
+          activities.length === 0 && nativeActivities.notifications.length === 0 && generatedImages.length === 0 && !endMessageId && !preview
         ) continue;
         const index = out.length;
         entry = {
@@ -2074,7 +2123,8 @@
           messages: renderedMessages,
           activities,
           thoughtNotifications: nativeActivities.notifications,
-          images: generatedImages
+          images: generatedImages,
+          ...(preview ? { preview } : {})
         };
         // The isolated-world renderer needs to know which visible section this exact Fiber
         // turn descriptor came from. Remember the desired ephemeral scan index now and apply
@@ -2090,6 +2140,16 @@
             // A slot and its inner Markdown are one native message. Publishing
             // both as placement anchors would make every shell final ambiguous.
             for (const [node, id] of exactAnchors) if (id === slot.id) exactAnchors.delete(node);
+          }
+          // A fresh chat can draw its first exchange with no user slot at all, while the page
+          // model holds the exact user message (2026-10-02: a resumed chat, a Goal helper and a
+          // Temporary Chat). Without a slot there was no user message to read, so no Send receipt
+          // and no turn. Name that one exact provider id on the exchange; isolated readers accept
+          // it only under this scan's turn stamp. Several user messages stay unnamed.
+          const users = renderedMessages.filter(message => message.role === 'user');
+          const userSlot = shell.slots.some(slot => /:user$/.test(slot.node.getAttribute('data-content-search-unit-key') || ''));
+          if (!conversation.conflict && !userSlot && users.length === 1 && users[0].rawMessageId) {
+            desiredUserStamps.set(section, `${scanToken}:${index}:${encodeURIComponent(users[0].rawMessageId)}`);
           }
           // Busy hint only, never a completion receipt or a Stop action target.
           const running = shell.entry.turn.status === 'in_progress' ? location.pathname : null;
@@ -2177,6 +2237,11 @@
           section.removeAttribute('data-clf-temporary-chat');
           section.removeAttribute('data-clf-regular-chat');
         }
+        const wantedUser = desiredUserStamps.get(section);
+        const currentUser = section.getAttribute('data-clf-fiber-user');
+        if (wantedUser === undefined) {
+          if (currentUser !== null) section.removeAttribute('data-clf-fiber-user');
+        } else if (currentUser !== wantedUser) section.setAttribute('data-clf-fiber-user', wantedUser);
         for (const stamped of [section, ...section.querySelectorAll('[data-content-search-unit-key], [data-chatgpt-search-unit-key]')]) {
           const wanted = desiredTurnStamps.get(stamped);
           const current = stamped.getAttribute('data-clf-fiber-turn');
@@ -2426,6 +2491,19 @@
     return null;
   }
 
+  /**
+   * What reading one connector's declarations back from the page may cost (#864 follow-up).
+   *
+   * The app publishes at most 250,000 UTF-8 bytes of Plugins declarations
+   * (src/main/plugins/exposure.ts). copySchema charges each character as three bytes, the
+   * worst case, plus key overhead, so the old 280,000 rejected anything above roughly 93 KB of
+   * text: a Unity plugin's 82 tools (about 116 KB) made every Plugins refresh fail with an
+   * unreadable settings card. Three times the publication budget, with room for key overhead,
+   * reads back everything the app can publish; the isolated world and the app still cap the
+   * projected JSON at 300,000 characters.
+   */
+  const PLUGIN_SCHEMA_READ_BYTES = 900000;
+
   function copySchema(value, budget, depth = 0) {
     if (depth > 32 || --budget.nodes < 0) throw new Error('schema_bound');
     const spend = bytes => { budget.bytes -= bytes; if (budget.bytes < 0) throw new Error('schema_bound'); };
@@ -2486,7 +2564,7 @@
     if (!connector || !Array.isArray(connector.actions) || typeof connector.name !== 'string') return null;
     const externalPlugins = connector.name === 'Chat On Steroids Plugins';
     if ((!connector.actions.length && !externalPlugins) || connector.actions.length > (externalPlugins ? 257 : 16)) return null;
-    const budget = { bytes: 280000, nodes: 20000 };
+    const budget = { bytes: PLUGIN_SCHEMA_READ_BYTES, nodes: 20000 };
     // Measured 2026-09-27: this page sends `description_model: ""` rather than null, so `??`
     // read every declaration as empty and no refresh could ever match the published schema.
     const tools = connector.actions.map(action => ({ name: action.name, description: copySchema(action.description_model || action.description, budget), inputSchema: copySchema(action.params, budget) }));
@@ -2532,7 +2610,7 @@
         observedActions = props.actions;
         const externalPlugins = props.connector.name === 'Chat On Steroids Plugins';
         if ((!props.actions.length && !externalPlugins) || props.actions.length > (externalPlugins ? 257 : 16) || typeof props.connector.name !== 'string') return null;
-        const budget = { bytes: 280000, nodes: 20000 };
+        const budget = { bytes: PLUGIN_SCHEMA_READ_BYTES, nodes: 20000 };
         const tools = props.actions.map(action => ({ name: action.name, description: copySchema(action.description_model ?? action.description, budget), inputSchema: copySchema(action.params, budget) }));
         if (tools.some(tool => !NAME.test(tool.name) || typeof tool.description !== 'string' || !tool.inputSchema || tool.inputSchema.type !== 'object') ||
             new Set(tools.map(tool => tool.name)).size !== tools.length) return null;

@@ -132,6 +132,10 @@ export type ChatBrowser = (typeof CHAT_BROWSERS)[number];
 export interface UiPrefs {
   /** Recover an unfinished silent executor turn only while Goal and Loop are both off. */
   autoContinue?: boolean;
+  /** Preferred account-observed model for a fresh ordinary chat; omitted keeps the catalog fallback. */
+  defaultChatModel?: string;
+  /** Preferred reasoning for a fresh ordinary chat; omitted keeps the model's normal fallback. */
+  defaultChatReasoning?: ReasoningEffort;
   /** Maintenance may reuse existing tabs but cannot open helpers or missing chats. */
   browserOnly?: boolean;
   backgroundChats?: boolean;
@@ -147,6 +151,17 @@ export interface UiPrefs {
   developerMode?: boolean;
   /** Rotating joke words instead of "Working" in a chat's status line. Off by default. */
   playfulStatus?: boolean;
+  /** Keep the chat at its end while it grows, here and on ChatGPT, until the reader scrolls up. On unless false. */
+  followOutput?: boolean;
+  /** Add the Chat On Steroids Core mention to the user's own prompts sent from the app. On unless false. */
+  mentionCore?: boolean;
+  /** The interface language the window last reported; the browser extension follows it. */
+  language?: import('./ui-language.js').UiLanguage;
+  /**
+   * The extension's own preferences as it last reported them stored. The app keeps them so a
+   * reinstalled extension, which starts with empty storage under a new id, gets them back.
+   */
+  browserPreferences?: { overwrite: boolean; durations: boolean };
   minimizeToTray: boolean;
   autoConnect: boolean;
   startAtLogin?: boolean;
@@ -315,6 +330,12 @@ export interface MultiAgentSettings {
    * context that is about to change. Off by default; a chat with no workers is never held.
    */
   waitForSubAgents?: boolean;
+  /**
+   * Reclaim only terminal processes owned by an exactly identified worker that has remained
+   * sleeping beyond the runtime-retention threshold. Off by default; durable worker/chat
+   * identity and history are never reclaimed by this switch.
+   */
+  endSleepingWorkerProcesses?: boolean;
 }
 
 /** The user's own additions to what each MCP connector tells the model about itself. */

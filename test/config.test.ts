@@ -516,6 +516,7 @@ describe('shipped defaults', () => {
     // Waiting for a run's own workers is a workflow preference, not a first-launch exposure
     // decision, so it starts off even where unattributed calls start on.
     expect(loaded.multiAgent.waitForSubAgents).toBe(false);
+    expect(loaded.multiAgent.endSleepingWorkerProcesses).toBe(false);
   });
 
   it.each(['win32', 'darwin', 'linux'] as const)(
@@ -531,6 +532,7 @@ describe('shipped defaults', () => {
       expect(config.multiAgent.allowUnattributedCalls).toBe(true);
       expect(config.multiAgent.recoverAgentTabs).toBe(false);
       expect(config.multiAgent.waitForSubAgents).toBe(false);
+      expect(config.multiAgent.endSleepingWorkerProcesses).toBe(false);
     }
   );
 
@@ -550,6 +552,7 @@ describe('shipped defaults', () => {
     expect(loaded.multiAgent.allowUnattributedCalls).toBe(false);
     expect(loaded.multiAgent.recoverAgentTabs).toBe(false);
     expect(loaded.multiAgent.waitForSubAgents).toBe(false);
+    expect(loaded.multiAgent.endSleepingWorkerProcesses).toBe(false);
     expect(loaded.readOnly).toBe(true);
   });
 
@@ -898,4 +901,15 @@ it.each(REASONING_EFFORTS)('retains canonical worker/helper effort %s across set
   const loaded = await loadConfig();
   expect(loaded.multiAgent.defaultReasoning).toBe(effort);
   expect(loaded.goal.helperReasoning).toBe(effort);
+});
+
+it('persists optional ordinary new-chat model defaults without inventing them for legacy config', async () => {
+  const config = defaultConfig();
+  expect(config.ui.defaultChatModel).toBeUndefined();
+  expect(config.ui.defaultChatReasoning).toBeUndefined();
+  Object.assign(config.ui, { defaultChatModel: 'gpt-5.6-sol', defaultChatReasoning: 'xhigh' });
+  await saveConfig(config);
+  const loaded = await loadConfig();
+  expect(loaded.ui.defaultChatModel).toBe('gpt-5.6-sol');
+  expect(loaded.ui.defaultChatReasoning).toBe('xhigh');
 });

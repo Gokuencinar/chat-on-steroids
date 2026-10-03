@@ -933,6 +933,12 @@ describe('2025-era clients', () => {
     expect(instructions).toContain('/skills/<id>/SKILL.md');
     // The requested upstream collaboration prose replaces the old minimal tool preamble.
     expect(instructions).toContain('User authorization and preferences persist across turns.');
+    expect(instructions).toContain(
+      'Current Core authority (informational; live guards decide): ' +
+      'browse=on search=on read=on metadata=on create=off edit=off move=off delete=off command=on; ' +
+      'read-only=off; plans=off; workers=off.'
+    );
+    expect(instructions).not.toContain(approved);
     expect(instructions.length).toBeLessThan(18_000);
   });
 
@@ -3270,24 +3276,37 @@ describe('exec sessions belong to the chat that opened them', () => {
     expect(textOf(stranger)).toContain('EXEC_SESSION_OWNER_MISMATCH');
     expect(textOf(stranger)).not.toContain('may already have delivered');
 
-    // An unresolved request can continue processes it opened itself, but a bare numeric id
-    // does not grant custody over a process that belongs to another request/session.
+    // An unresolved request from another turn has no authority from the numeric id alone.
+    // If exact proof never arrives, the bounded wait must still fail closed without sending
+    // input or reading process output.
     const unproven = await asChat('wfr_execown_unattributed', 'write_stdin', {
       session_id: sessionId,
-      chars: 'anon\r',
+      chars: 'unproven\r',
       yield_time_ms: 1_000
     });
     expect(unproven.body.result?.isError).toBe(true);
-    expect(textOf(unproven)).not.toContain('echo=anon');
+    expect(textOf(unproven)).not.toContain('echo=unproven');
     expect(textOf(unproven)).toContain('EXEC_CALLER_UNIDENTIFIED');
     expect(textOf(unproven)).toContain('not Read-only mode');
 
-    expect(prove('wfr_execown_unattributed', 'conv-execown-opener')).toBe('stored');
-    const recovered = await asChat('wfr_execown_unattributed', 'write_stdin', {
+    // A later request from the same durable session can race the page proof for its exact
+    // request id. The one call should recover when that proof arrives instead of making the
+    // model retry a session it already owns.
+    const lateRequestId = 'wfr_execown_late_same_owner';
+    let lateProofResult: string | undefined;
+    const lateProof = new Promise<void>((resolve) => {
+      setTimeout(() => {
+        lateProofResult = prove(lateRequestId, 'conv-execown-opener');
+        resolve();
+      }, 250);
+    });
+    const recovered = await asChat(lateRequestId, 'write_stdin', {
       session_id: sessionId,
       chars: 'anon\r',
       yield_time_ms: 1_000
     });
+    await lateProof;
+    expect(lateProofResult).toBe('stored');
     expect(recovered.body.result?.isError).not.toBe(true);
     expect(textOf(recovered)).toContain('echo=anon');
 
@@ -3420,6 +3439,16 @@ describe('exec sessions belong to the chat that opened them', () => {
     expect(prove('wfr_execown_new_recycled', 'conv-execown-new')).toBe('stored');
 
     const random = vi.spyOn(Math, 'random').mockReturnValue(0);
+    // Keep publication pending even if a loaded runner resumes this test after the real yield.
+    // The shell and manager remain real; only the response boundary is held for the authority check.
+    const realExec = unifiedExecManager.execCommand.bind(unifiedExecManager);
+    let releaseYield!: () => void;
+    const yieldGate = new Promise<void>(resolve => { releaseYield = resolve; });
+    const execution = vi.spyOn(unifiedExecManager, 'execCommand').mockImplementation(async (...args) => {
+      const output = await realExec(...args);
+      await yieldGate;
+      return output;
+    });
     try {
       // Block in the shell process itself. Spawning a second cold `node` here made this
       // ownership regression depend on hosted-runner process startup rather than on the
@@ -3456,6 +3485,7 @@ describe('exec sessions belong to the chat that opened them', () => {
       expect(stolen.body.result?.isError).toBe(true);
       expect(textOf(stolen)).toContain('EXEC_SESSION_UNAVAILABLE');
 
+      releaseYield();
       const started = await starting;
       expect(started.body.result?.isError, textOf(started)).not.toBe(true);
       expect(Number(textOf(started).match(/Process running with session ID (\d+)/)?.[1])).toBe(recycledId);
@@ -3474,6 +3504,8 @@ describe('exec sessions belong to the chat that opened them', () => {
       expect(textOf(owner)).toContain('got=owner');
       expect(textOf(owner)).toContain('Process exited with code 0');
     } finally {
+      releaseYield();
+      execution.mockRestore();
       random.mockRestore();
       await unifiedExecManager.terminateAllProcesses();
       resetExecOwnershipForTests();

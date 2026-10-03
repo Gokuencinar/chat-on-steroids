@@ -27,6 +27,9 @@ for (const id of ['blender', 'unity', 'playwright', 'memory']) {
       if (id === 'playwright') {
         await runInstaller(launch.command, [path.join(directory, 'node_modules/playwright/cli.js'), 'install', 'chromium'], directory);
         launch.args.push('--headless', '--browser', 'chromium', '--isolated');
+        // A machine may restrict downloaded executables while permitting its installed Chrome.
+        // Keep the same real MCP/page assertions; CI still exercises downloaded Chromium by default.
+        if (process.env.COS_CHROME) launch.args.push('--executable-path', process.env.COS_CHROME);
       }
       transport = new StdioClientTransport({ command: launch.command, args: launch.args, cwd: directory, stderr: 'ignore' });
       await client.connect(transport, { timeout: 20000 });

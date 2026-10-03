@@ -1,6 +1,6 @@
 <!-- CI checks this description. A PR that fails "PR checklist" or CI is not reviewed. See CONTRIBUTING.md. -->
 
-Fixes #
+<!-- Optional: "Fixes #123" when this closes an issue. No issue is needed otherwise. -->
 
 ## Why
 
@@ -16,6 +16,8 @@ Fixes #
      The "Fail-first test" check runs it against main's code to prove that.
      If a test is truly impossible, write: No test: <reason>
      If your tests only follow a refactor, write: Fail-first: n/a <reason> -->
+
+Release note: <!-- Optional: one sentence for users, used to draft the release notes. Write "none" for changes users never notice. Leave it out and the PR title is used. -->
 
 ## Screenshots
 

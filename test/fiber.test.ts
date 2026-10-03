@@ -289,6 +289,8 @@ interface TurnFixture {
   staleStamp?: string;
   conversationProps?: Record<string, unknown>;
   rect?: { top: number; bottom: number; left: number; right: number } | 'throw';
+  /** Mounted on an earlier page ChatGPT keeps undisplayed in the same tab. */
+  keptPage?: boolean;
 }
 
 async function scan(
@@ -406,7 +408,11 @@ async function scan(
       };
       for (let clone = 0; clone < Math.max(1, entry.clones ?? 1); clone++) add();
     }
-    document.body.append(section);
+    if (turn.keptPage) {
+      const page = document.createElement('div');
+      page.setAttribute('data-app-shell-page-surface', 'true'); page.style.display = 'none';
+      page.append(section); document.body.append(page);
+    } else document.body.append(section);
   }
 
   const elements = fibers.map((fiber) => {
@@ -800,12 +806,46 @@ describe('the calls a turn says it made', () => {
     ]);
   });
 
+  it('ignores the turns of an earlier page ChatGPT keeps undisplayed in the same tab', async () => {
+    // Measured 2026-10-01: after a Project resume the tab kept the source chat as a hidden page.
+    // Its turns named the source conversation, the bridge refused every sighting as foreign to
+    // the URL, and the resumed chat's whole answer went unrecorded until a reload.
+    const { turns } = await scan([], [
+      { id: 'source-turn', messages: [authored('source-message', 'Old chat.')], rendered: ['Old chat.'],
+        conversationProps: { conversation: { id: '99999999-8888-4777-8666-555555555555' } }, keptPage: true },
+      { id: 'resumed-turn', messages: [authored('resumed-message', 'New chat.')], rendered: ['New chat.'],
+        conversationProps: { conversation: { id: THREAD } } }
+    ]);
+    expect(turns.map(turn => turn.turnId)).toEqual(['resumed-turn']);
+    expect(turns[0]).toMatchObject({ conversationId: THREAD, conversationConflict: false });
+  });
+
   it('reads the mounted conversation object identity used by helper answers', async () => {
     const { turns } = await scan([], [{
       id: 'helper-final', messages: [authored('helper-message', 'Complete.')],
       rendered: ['Complete.'], conversationProps: { conversation: { id: THREAD } }
     }]);
     expect(turns[0]).toMatchObject({ conversationId: THREAD, conversationConflict: false });
+  });
+
+  it.each([
+    ['at the end', 'Run the review. [$chat-on-steroids-core](app://asdk_app_6aa5b6651c3c81919f03cb5dc38bf019)', 'Run the review.'],
+    ['at the start', '[$chat-on-steroids-core](app://asdk_app_6aa5b6651c3c81919f03cb5dc38bf019) run echo ok', 'run echo ok'],
+    ['in the middle', 'Ask [$chat-on-steroids-core](app://asdk_app_6aa5b6651c3c81919f03cb5dc38bf019) to list files', 'Ask to list files']
+  ])('reads a user message without its ChatGPT app mention %s (#861)', async (_where, stored, authored_) => {
+    const { turns } = await scan([], [{
+      id: 'mention-user', messages: [{ ...authored('mention-user-message', stored), author: { role: 'user' } }],
+      conversationProps: { conversation: { id: THREAD } }
+    }]);
+    expect(turns[0]!.messages[0]).toMatchObject({ role: 'user', rawText: authored_ });
+  });
+
+  it('keeps an ordinary Markdown link a user wrote', async () => {
+    const { turns } = await scan([], [{
+      id: 'link-user', messages: [{ ...authored('link-user-message', 'See [the docs](https://example.com/app) first.'), author: { role: 'user' } }],
+      conversationProps: { conversation: { id: THREAD } }
+    }]);
+    expect(turns[0]!.messages[0]).toMatchObject({ rawText: 'See [the docs](https://example.com/app) first.' });
   });
 
   it('reads the durable server identity instead of the mounted WEB identity', async () => {
