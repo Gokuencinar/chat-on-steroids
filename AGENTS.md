@@ -942,6 +942,11 @@ rechecks composer and attachment nodes, crosses app authorization, then **rechec
 every await before Send**. Native stable user-message and conversation identity establish
 acceptance. Composer insertion, button disappearance and a local “sent” variable do not.
 
+Native attachment receipts also recognize the current span tile inside
+`data-composer-attachments`: exactly one filename-labelled open button, a matching
+filename leaf and its translated remove button. Only the remove control owns the file;
+extra actions, mismatched names and controls outside the attachment host prove nothing.
+
 Direct active-turn corrections freeze `directTurn` in the same outbox entry. The existing
 turn-start and last-tool evidence plus in-flight MCP custody decide eligibility; no separate
 tool-seen flag owns it. Recheck the exact claim before native interruption and before Send.

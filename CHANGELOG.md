@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.1.34] - 2026-10-03
+
+- Recognize current ChatGPT file tiles with translated removal labels so uploaded attachments can reach authorized native Send instead of remaining in the draft until timeout.
+- Require exact filename evidence and reject ambiguous tiles; preserve draft ownership, single-send authorization and native acceptance receipts.
+- Preserve the Cyberpunk preset, Windows x64-only distribution, paired app/extension versions and bridge protocol 14.
+
 ## [2.1.33] - 2026-10-03
 
 - Add an optional Cyberpunk gaming preset under Settings → Appearance: cyan/magenta neon, a dark grid background, HUD panel borders and an illuminated composer.
