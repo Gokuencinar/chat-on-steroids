@@ -213,18 +213,27 @@ app.whenReady().then(async () => {
     fixture.signal();await waitFor(()=>document.querySelector('#inputQueue .pending-message'));await frame();
     const pane=document.getElementById('chatBody'),timeline=document.getElementById('timeline');
     const root=document.getElementById('timelineContent')||timeline;
+    const settlePosition=async position=>{
+      const deadline=performance.now()+5000;let previous=null,stable=0;
+      while(performance.now()<deadline){
+        await frame();const current=JSON.stringify([position(),pane.scrollTop,pane.scrollHeight]);
+        stable=current===previous?stable+1:0;previous=current;
+        if(stable>=4)return;
+      }
+      throw new Error('Interjection layout did not settle');
+    };
     // A legitimate underfilled-page reserve must stay below the entire transcript,
     // including the input which is still awaiting its first tool receipt.
     root.style.setProperty('--timeline-scroll-reserve','600px');
     pane.scrollTop=pane.scrollHeight;await frame();
     const pending=document.querySelector('#inputQueue .pending-message');
     for(const animation of pending.getAnimations()) animation.finish();
-    await frame();
+    await settlePosition(()=>pending.getBoundingClientRect().top);
     const last=timeline.lastElementChild;
     const gap=pending.getBoundingClientRect().top-last.getBoundingClientRect().bottom;
     const before=pending.getBoundingClientRect().top,scrollBefore=pane.scrollTop;
     pane.dispatchEvent(new WheelEvent('wheel',{deltaY:-80}));
-    pane.scrollTop=Math.max(0,scrollBefore-80);await frame();
+    pane.scrollTop=Math.max(0,scrollBefore-80);await settlePosition(()=>pending.getBoundingClientRect().top);
     const movement=pending.getBoundingClientRect().top-before;
     const pendingBeforeDelivery=pending.getBoundingClientRect().top;
     const count=()=>[...document.querySelectorAll('#timeline .said.is-user,#inputQueue .pending-message')]
@@ -234,6 +243,7 @@ app.whenReady().then(async () => {
     fixture.inputs[0]={...fixture.inputs[0],state:'tool',messageId:'input:interjection',offeredAt:52,historyAnchored:true,historySeq:52};
     fixture.signal();await waitFor(()=>!document.querySelector('#inputQueue .pending-message'));await frame();
     const delivered=[...timeline.querySelectorAll('[data-timeline-key]')].find(row=>row.dataset.timelineKey==='input:interjection')?.querySelector('.user-message-text');
+    await settlePosition(()=>delivered?.getBoundingClientRect().top);
     return {gap,movement,scrollDelta:scrollBefore-(scrollBefore-80<0?0:scrollBefore-80),copies:count(),
       deliveryDrift:delivered?Math.abs(delivered.getBoundingClientRect().top-pendingBeforeDelivery):null};
   })()`);

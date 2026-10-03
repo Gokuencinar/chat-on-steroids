@@ -171,11 +171,11 @@ app.whenReady().then(async () => {
     }
     await js(`window.api.terminalWrite(${JSON.stringify(second)}, ${JSON.stringify(sh.second + '\r')})`);
     await until(`outputs[${JSON.stringify(second)}]?.includes('SECOND_project')`);
-    // PowerShell prints a fresh "PS C:" prompt after Ctrl+C; elsewhere the marker below arriving
+    // PowerShell prints a fresh drive-qualified prompt after Ctrl+C; elsewhere the marker below arriving
     // long before the 30 s sleep ends is the proof that the interrupt landed.
-    const promptsBeforeInterrupt = WINDOWS ? await js(`(outputs[${JSON.stringify(second)}].match(/PS C:/g) || []).length`) : 0;
+    const promptsBeforeInterrupt = WINDOWS ? await js(`(outputs[${JSON.stringify(second)}].match(/PS [A-Z]:/gi) || []).length`) : 0;
     await js(`window.api.terminalWrite(${JSON.stringify(second)}, "\\u0003")`);
-    if (WINDOWS) await until(`(outputs[${JSON.stringify(second)}].match(/PS C:/g) || []).length > ${promptsBeforeInterrupt}`);
+    if (WINDOWS) await until(`(outputs[${JSON.stringify(second)}].match(/PS [A-Z]:/gi) || []).length > ${promptsBeforeInterrupt}`);
     await js(`window.api.terminalWrite(${JSON.stringify(second)}, ${JSON.stringify(sh.interrupt + '\r')})`);
     await until(`outputs[${JSON.stringify(second)}]?.includes('INTERRUPT_OK')`);
     win.setSize(830, 700); await new Promise(resolve => setTimeout(resolve, 300));
