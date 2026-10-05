@@ -116,3 +116,7 @@ d4018953 Merge pull request #1098 from Maximapple/fix/subagent-count-singular
 89e45e07 Merge pull request #1103 from xuan2261/fix/canary-checksum-manifest
 911b5d56 Merge pull request #1055 from Maximapple/release/2.1.27
 ```
+
+## Hosted CI follow-up
+
+The initial main CI UI job failed before launching the recovery fixture: Electron 44 has no npm postinstall and lazily downloads its binary when required. The focused hosted gates now initialize the existing pinned Electron module once before opening the executable. This is a CI-only follow-up; the immutable v2.1.35 release tag and production payload remain unchanged. Local recovery and Plan fixtures passed and the hosted rerun must confirm the corrected cold-start order.

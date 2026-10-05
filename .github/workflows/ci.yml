@@ -96,6 +96,11 @@ jobs:
         if: steps.scope.outputs.run == 'true'
         run: npm run build
 
+      - name: Initialize the lazy Electron binary
+        if: steps.scope.outputs.run == 'true'
+        # Electron 44 installs its runtime on first require, not during npm ci.
+        run: node -e "require('electron')"
+
       - name: Verify recovery capture on the hosted compositor
         if: steps.scope.outputs.run == 'true'
         # These two focused gates run exactly once: no UI skip list, retry loop or timeout wrapper.
