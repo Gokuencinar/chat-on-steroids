@@ -52,7 +52,7 @@ it('does not overwrite a focused dirty settings field on an unsolicited state pu
     ui: { minimizeToTray: true, autoConnect: false, privacyScreenshots: false, theme: 'light' },
     sessions: { record: true, retainDays: 30, advisoryTokens: 300000, limitTokens: 400000 },
     compaction: { auto: true, autoTokens: 300000, handoffPrompt: DEFAULT_HANDOFF_PROMPT },
-    multiAgent: { enabled: false, maxWorkers: 2, allowUnattributedCalls: false, recoverAgentTabs: true },
+    multiAgent: { enabled: false, maxWorkers: 2, globalMaxWorkers: 0, allowUnattributedCalls: false, recoverAgentTabs: true },
     goal: {
       enabled: false,
       model: 'deepseek/deepseek-v4-flash',
@@ -232,7 +232,7 @@ it('serializes settings intent so rapid toggles and later UI changes cannot undo
     ui: { minimizeToTray: true, autoConnect: false, privacyScreenshots: false, theme: 'light' as 'light' | 'dark' },
     sessions: { record: true, retainDays: 30, advisoryTokens: 300000, limitTokens: 400000 },
     compaction: { auto: true, autoTokens: 300000, handoffPrompt: DEFAULT_HANDOFF_PROMPT },
-    multiAgent: { enabled: false, maxWorkers: 2, allowUnattributedCalls: false, recoverAgentTabs: true },
+    multiAgent: { enabled: false, maxWorkers: 2, globalMaxWorkers: 0, allowUnattributedCalls: false, recoverAgentTabs: true },
     goal: {
       enabled: false,
       model: 'deepseek/deepseek-v4-flash',
@@ -389,7 +389,7 @@ async function mountChat(
     ui: { minimizeToTray: true, autoConnect: false, privacyScreenshots: false, theme: 'light' as const },
     sessions: { record: true, retainDays: 30, advisoryTokens: 300000, limitTokens: 400000 },
     compaction: { auto: true, autoTokens: 300000, handoffPrompt: DEFAULT_HANDOFF_PROMPT },
-    multiAgent: { enabled: false, maxWorkers: 2, allowUnattributedCalls: false, recoverAgentTabs: true },
+    multiAgent: { enabled: false, maxWorkers: 2, globalMaxWorkers: 0, allowUnattributedCalls: false, recoverAgentTabs: true },
     goal: {
       enabled: false,
       model: 'deepseek/deepseek-v4-flash',
@@ -518,6 +518,128 @@ it('commits a project summary click before an immediate state repaint replaces i
   expect(group().open).toBe(true);
   mounted.push(structuredClone(mounted.state));
   expect(group().open).toBe(true);
+});
+
+it('keeps strict chat allowlisting separate from Block and exposes explicit Trust on session rows', async () => {
+  const session = {
+    id: 'strict-session', title: 'Strict policy chat', conversationId: 'strict-chat-0001', chatIds: ['strict-chat-0001'],
+    startedAt: 1, updatedAt: 2, endedAt: null, events: 0, userMessages: 0, toolCalls: 0,
+    lastToolCallAt: null, processExitNonzero: 0, toolRejected: 0, toolInternalErrors: 0, errors: 0,
+    estimatedTokens: 0, contextTokens: 0, lastHandoffId: null, lastHandoffAt: null,
+    lastTurnOutcome: null, activeTurnId: null, agents: [], origin: null
+  };
+  const workerSession = {
+    ...session,
+    id: 'strict-worker-session', title: 'Strict worker chat', conversationId: 'strict-worker-chat-0001',
+    chatIds: ['strict-worker-chat-0001'],
+    origin: { kind: 'worker' as const, fromSessionId: null, agentId: 'worker-1', task: 'owned work' }
+  };
+  const setSessionTrusted = vi.fn(async () => ({ ok: true, data: [session.conversationId] }));
+  const setSessionBlocked = vi.fn(async () => ({ ok: true, data: [session.conversationId] }));
+  const mounted = await mountChat({}, [], {
+    listProjects: async () => ({ ok: true, data: [] }),
+    listSessions: async () => ({ ok: true, data: {
+      sessions: [session, workerSession], activeId: null, pressure: [], blocked: [], trusted: []
+    } }),
+    setSessionTrusted,
+    setSessionBlocked
+  });
+  const doc = mounted.window.document;
+  mounted.state.config.multiAgent.strictChatAllowlist = true;
+  mounted.push(structuredClone(mounted.state));
+  const primeRow = () => doc.querySelector<HTMLElement>(`[data-id="${session.id}"]`)!;
+  const workerRow = () => doc.querySelector<HTMLElement>(`[data-id="${workerSession.id}"]`)!;
+  await vi.waitFor(() => expect(primeRow().querySelector('.sess-trust')).not.toBeNull());
+  expect(workerRow().querySelector('.sess-trust')).toBeNull();
+  expect(workerRow().querySelector('.sess-block')).not.toBeNull();
+
+  (primeRow().querySelector('.sess-trust') as HTMLButtonElement).click();
+  await vi.waitFor(() => expect(setSessionTrusted).toHaveBeenCalledWith(session.id, session.conversationId, true));
+  expect(setSessionBlocked).not.toHaveBeenCalled();
+
+  (primeRow().querySelector('.sess-block') as HTMLButtonElement).click();
+  await vi.waitFor(() => expect(setSessionBlocked).toHaveBeenCalledWith(session.id, true));
+});
+
+it('shows committed resume inheritance as trusted and revokes it through the current row', async () => {
+  const source = 'strict-resume-source-0001';
+  const current = 'strict-resume-current-0001';
+  const session = {
+    id: 'strict-resume-session', title: 'Resumed trusted chat', conversationId: current, chatIds: [source, current],
+    startedAt: 1, updatedAt: 2, endedAt: null, events: 0, userMessages: 0, toolCalls: 0,
+    lastToolCallAt: null, processExitNonzero: 0, toolRejected: 0, toolInternalErrors: 0, errors: 0,
+    estimatedTokens: 0, contextTokens: 0, lastHandoffId: 'handoff-resume-0001', lastHandoffAt: 1,
+    lastCommittedResumeHandoffId: 'handoff-resume-0001',
+    lastTurnOutcome: null, activeTurnId: null, agents: [], origin: null
+  };
+  const setSessionTrusted = vi.fn(async () => ({ ok: true, data: [] }));
+  const setSessionBlocked = vi.fn(async () => ({ ok: true, data: [] }));
+  const mounted = await mountChat({}, [], {
+    listProjects: async () => ({ ok: true, data: [] }),
+    listSessions: async () => ({ ok: true, data: {
+      sessions: [session], activeId: null, pressure: [], blocked: [], trusted: [source]
+    } }),
+    setSessionTrusted,
+    setSessionBlocked
+  });
+  const doc = mounted.window.document;
+  mounted.state.config.multiAgent.strictChatAllowlist = true;
+  mounted.push(structuredClone(mounted.state));
+  const row = () => doc.querySelector<HTMLElement>(`[data-id="${session.id}"]`)!;
+  await vi.waitFor(() => expect(row().querySelector('.sess-trust')).not.toBeNull());
+  const trust = row().querySelector('.sess-trust') as HTMLButtonElement;
+  expect(trust.classList.contains('is-trusted')).toBe(true);
+  const block = row().querySelector('.sess-block') as HTMLButtonElement;
+  expect(block.classList.contains('is-blocked')).toBe(false);
+  trust.click();
+  await vi.waitFor(() => expect(setSessionTrusted).toHaveBeenCalledWith(session.id, current, false));
+});
+
+it('shows an inherited Block ahead of Trust on a committed resumed row', async () => {
+  const source = 'strict-resume-blocked-source-0001';
+  const current = 'strict-resume-blocked-current-0001';
+  const session = {
+    id: 'strict-resume-blocked-session', title: 'Resumed blocked chat', conversationId: current, chatIds: [source, current],
+    startedAt: 1, updatedAt: 2, endedAt: null, events: 0, userMessages: 0, toolCalls: 0,
+    lastToolCallAt: null, processExitNonzero: 0, toolRejected: 0, toolInternalErrors: 0, errors: 0,
+    estimatedTokens: 0, contextTokens: 0, lastHandoffId: 'handoff-resume-blocked-0001', lastHandoffAt: 1,
+    lastCommittedResumeHandoffId: 'handoff-resume-blocked-0001',
+    lastTurnOutcome: null, activeTurnId: null, agents: [], origin: null
+  };
+  const mounted = await mountChat({}, [], {
+    listProjects: async () => ({ ok: true, data: [] }),
+    listSessions: async () => ({ ok: true, data: {
+      sessions: [session], activeId: null, pressure: [], blocked: [source], trusted: [source]
+    } })
+  });
+  const doc = mounted.window.document;
+  mounted.state.config.multiAgent.strictChatAllowlist = true;
+  mounted.push(structuredClone(mounted.state));
+  const row = () => doc.querySelector<HTMLElement>(`[data-id="${session.id}"]`)!;
+  await vi.waitFor(() => expect(row().querySelector('.sess-trust')).not.toBeNull());
+  expect((row().querySelector('.sess-block') as HTMLButtonElement).classList.contains('is-blocked')).toBe(true);
+  expect((row().querySelector('.sess-trust') as HTMLButtonElement).classList.contains('is-trusted')).toBe(false);
+});
+
+it('saves strict chat allowlisting and disables the unattributed switch while strict mode is on', async () => {
+  const mounted = await mountChat();
+  const doc = mounted.window.document;
+  const strict = doc.getElementById('strictChatAllowlist') as HTMLInputElement;
+  const unattributed = doc.getElementById('allowUnattributedCalls') as HTMLInputElement;
+  const copy = strict.closest('.setting')!.textContent ?? '';
+  expect(copy).toContain("Only chats you trust can use this computer's tools.");
+  expect(copy).toContain('Existing chats start untrusted');
+  expect(copy).toMatch(/sidebar.*Trust/i);
+  expect(copy).not.toContain('Sessions');
+
+  strict.checked = true;
+  strict.dispatchEvent(new mounted.window.Event('change', { bubbles: true }));
+  await vi.waitFor(() => expect(mounted.calls.some(call => call.multiAgent?.strictChatAllowlist === true)).toBe(true));
+
+  const next = structuredClone(mounted.state);
+  next.config.multiAgent.strictChatAllowlist = true;
+  mounted.push(next);
+  expect(unattributed.disabled).toBe(true);
 });
 
 it('keeps project keyboard focus across activity repaint without taking composer focus or reloading on disclosure', async () => {
@@ -882,6 +1004,41 @@ it('saves the ChatGPT browser choice from its settings control and restores it o
   expect(browser.value).toBe('chrome');
 });
 
+it('saves Auto-select Skills from Settings and restores it on state push', async () => {
+  const mounted = await mountChat();
+  const w = mounted.window;
+  const toggle = w.document.getElementById('autoSelectSkills') as HTMLInputElement;
+  expect(toggle).not.toBeNull();
+  expect(toggle.checked).toBe(false);
+  toggle.checked = true;
+  toggle.dispatchEvent(new w.Event('change', { bubbles: true }));
+  await vi.waitFor(() => expect(mounted.calls).toHaveLength(1));
+  expect(mounted.calls[0].ui.autoSelectSkills).toBe(true);
+  mounted.push({ ...mounted.state, config: { ...mounted.state.config, ui: { ...mounted.state.config.ui, autoSelectSkills: false } } });
+  expect(toggle.checked).toBe(false);
+});
+
+it('saves and restores the global worker admission cap from Settings', async () => {
+  const mounted = await mountChat();
+  const w = mounted.window;
+  const globalWorkers = w.document.getElementById('globalMaWorkers') as HTMLInputElement;
+  expect(globalWorkers.value).toBe('0');
+
+  globalWorkers.value = '5';
+  globalWorkers.dispatchEvent(new w.Event('change', { bubbles: true }));
+  await vi.waitFor(() => expect(mounted.calls).toHaveLength(1));
+  expect(mounted.calls[0].multiAgent.globalMaxWorkers).toBe(5);
+
+  mounted.push({
+    ...mounted.state,
+    config: {
+      ...mounted.state.config,
+      multiAgent: { ...mounted.state.config.multiAgent, globalMaxWorkers: 7 }
+    }
+  });
+  expect(globalWorkers.value).toBe('7');
+});
+
 it('saves and clears ordinary new-chat model defaults from either selector independently', async () => {
   const catalog = {
     state: 'ready', requestedAt: 1, observedAt: 2,
@@ -1233,6 +1390,27 @@ it('keeps folder access discoverable after setup and navigates without granting 
   expect(mounted.calls).toEqual([]);
 });
 
+it('keeps the app-wide options on the General page, not in Setup, and saves them from there', async () => {
+  const mounted = await mountChat();
+  const doc = mounted.window.document;
+  const general = doc.querySelector('[data-panel="general"]')!;
+  const setup = doc.querySelector('[data-panel="setup"]')!;
+  for (const id of ['followOutput', 'playfulStatus', 'mentionCore', 'privacyScreenshots', 'developerMode', 'controlApiEnabled', 'controlApiAllowActions']) {
+    expect(general.contains(doc.getElementById(id)), id).toBe(true);
+    expect(setup.contains(doc.getElementById(id)), id).toBe(false);
+  }
+  doc.querySelector<HTMLButtonElement>('#tabs [data-tab="general"]')!.click();
+  expect(doc.querySelector('.panel.is-active')?.getAttribute('data-panel')).toBe('general');
+  expect(doc.querySelector('#tabs [data-tab="general"]')!.classList.contains('is-sel')).toBe(true);
+  // Allow actions needs the control API first.
+  expect(doc.getElementById('controlApiAllowActions')!.hasAttribute('disabled')).toBe(true);
+  const follow = doc.getElementById('followOutput') as HTMLInputElement;
+  expect(follow.checked).toBe(true);
+  follow.checked = false;
+  follow.dispatchEvent(new mounted.window.Event('change', { bubbles: true }));
+  await vi.waitFor(() => expect(mounted.calls.at(-1)?.ui.followOutput).toBe(false));
+});
+
 it('always requires the live browser because recording is an invariant', async () => {
   const mounted = await mountChat({
     hasApiKey: true,
@@ -1539,6 +1717,24 @@ it('opens, saves and restores the editable goal prompt', async () => {
   expect(mounted.calls.at(-1)?.goal.prompt).toBe(DEFAULT_GOAL_SYSTEM_PROMPT);
 });
 
+it('asks before Clear workers ends running workers and removes their histories', async () => {
+  const resetSwarm = vi.fn(async () => ({ ok: true as const, data: { running: false, agents: [], retainedHistory: false } }));
+  const mounted = await mountChat({ hasGoalKey: true }, [], { resetSwarm });
+  const w = mounted.window;
+  const button = w.document.getElementById('swarmReset') as HTMLButtonElement;
+  button.disabled = false;
+  const confirm = vi.fn(() => false);
+  w.confirm = confirm;
+  button.click();
+  await settle();
+  expect(confirm).toHaveBeenCalledWith(expect.stringContaining('removed for good'));
+  expect(resetSwarm).not.toHaveBeenCalled();
+  confirm.mockReturnValue(true);
+  button.click();
+  await settle();
+  expect(resetSwarm).toHaveBeenCalledTimes(1);
+});
+
 it('opens, saves and restores the editable handoff prompt', async () => {
   const mounted = await mountChat({ hasGoalKey: true });
   const doc = mounted.window.document;
@@ -1561,6 +1757,19 @@ it('opens, saves and restores the editable handoff prompt', async () => {
   await settle();
   await settle();
   expect(prompt.value).toBe(DEFAULT_HANDOFF_PROMPT);
+  expect(mounted.calls.at(-1)?.compaction.handoffPrompt).toBe(DEFAULT_HANDOFF_PROMPT);
+});
+
+it('offers the handoff length, starting at the thorough default, and saves a shorter choice', async () => {
+  const mounted = await mountChat({ hasGoalKey: true });
+  const length = mounted.window.document.getElementById('handoffLength') as HTMLSelectElement;
+  expect(length.value).toBe('thorough');
+  expect([...length.options].map(option => option.value)).toEqual(['thorough', 'standard', 'short']);
+  length.value = 'short';
+  length.dispatchEvent(new mounted.window.Event('change'));
+  await settle();
+  await settle();
+  expect(mounted.calls.at(-1)?.compaction.handoffLength).toBe('short');
   expect(mounted.calls.at(-1)?.compaction.handoffPrompt).toBe(DEFAULT_HANDOFF_PROMPT);
 });
 
@@ -1831,6 +2040,54 @@ it('gives twenty rapid New Chat sends independent visible local chats before any
   expect(sendInput.mock.calls.every(([request]) => request.sessionId === null)).toBe(true);
 });
 
+it('shows the frozen Auto-selected Skill receipt for an accepted ordinary send', async () => {
+  const rows: any[] = [], summaries: any[] = [];
+  const ok = (data: any) => ({ ok: true, data });
+  const sendInput = vi.fn(async (request: any) => {
+    const row = {
+      ...request,
+      sessionId: request.id,
+      opening: true,
+      autoSkills: [{ id: 'code-review', revision: 'a'.repeat(64) }],
+      state: 'queued',
+      owner: null,
+      createdAt: Date.now(),
+      conversationId: null
+    };
+    rows.push(row);
+    summaries.push({
+      id: row.sessionId,
+      title: row.text,
+      conversationId: null,
+      origin: { kind: 'desktop' },
+      createdAt: row.createdAt,
+      updatedAt: row.createdAt,
+      eventCount: 0,
+      projectId: null,
+      selectedModel: null,
+      usage: {}
+    });
+    return ok(row);
+  });
+  const mounted = await mountChat({}, [], {
+    sendInput,
+    getChatModels: async () => ok({ state: 'ready', requestedAt: 1, observedAt: Date.now(), models: [{ id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', efforts: ['high'] }] }),
+    listInputs: async () => ok([...rows]),
+    runningTools: async () => ok([]),
+    livePreview: async () => ok(null),
+    listPausedHelpers: async () => ok([]),
+    listSessions: async () => ok({ sessions: [...summaries], activeId: null, pressure: [] }),
+    getSession: async (id: string) => ok({ summary: summaries.find(row => row.id === id), events: [], nextCursor: null })
+  });
+  const w = mounted.window, doc = w.document, field = doc.getElementById('chatInput') as HTMLTextAreaElement;
+  (doc.getElementById('newChat') as HTMLButtonElement).click();
+  await settle();
+  field.value = 'Review this source code change for correctness.';
+  doc.getElementById('composer')!.dispatchEvent(new w.Event('submit', { bubbles: true, cancelable: true }));
+  await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(1));
+  await vi.waitFor(() => expect(doc.querySelector('.toast')?.textContent).toContain('Auto-selected Skill: /code-review'));
+});
+
 it('does not steal a newer New Chat draft when an older admission response arrives', async () => {
   let release!: (value: any) => void;
   const rows: any[] = [], summaries: any[] = [];
@@ -1855,4 +2112,87 @@ it('does not steal a newer New Chat draft when an older admission response arriv
   expect(field.value).toBe('Keep this newer draft');
   expect(doc.querySelector('.sess.is-sel')).toBeNull();
   expect(doc.getElementById('chatTitle')!.textContent).toBe('New chat');
+});
+
+it('shows each startup log line once and in order when lines arrive while the log is loading', async () => {
+  // Seen on Windows: the Activity page listed "session catalog ready" and "renderer state ready"
+  // both before "app started" and again after it. Those lines arrived live while the page was
+  // still loading the log, and the loaded log contained them too.
+  let live: (entry: any) => void = () => undefined;
+  let release!: (reply: any) => void;
+  const line = (time: number, message: string) => ({ time, level: 'info', message });
+  const mounted = await mountChat({}, [], {
+    getLog: () => new Promise(resolve => { release = resolve; }),
+    onLogEntry: (fn: any) => { live = fn; return () => undefined; }
+  });
+  await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+  live(line(2, 'session catalog ready'));
+  live(line(3, 'renderer state ready'));
+  release({ ok: true, data: [line(1, 'app started'), line(2, 'session catalog ready'), line(3, 'renderer state ready')] });
+  await settle(); await settle();
+  live(line(4, 'window loaded'));
+  // A row shows the line's source and text in separate cells; compare without the spacing.
+  const rows = () => [...mounted.window.document.querySelectorAll('#fullFeed > *')].map(row => (row.textContent ?? '').replace(/\s/g, ''));
+  await vi.waitFor(() => expect(rows()).toHaveLength(4));
+  expect(rows().map(text => ['app started', 'session catalog ready', 'renderer state ready', 'window loaded'].find(m => text.includes(m.replace(/\s/g, '')))))
+    .toEqual(['app started', 'session catalog ready', 'renderer state ready', 'window loaded']);
+});
+
+it.each(['.project-color', '.project-new'])('keeps keyboard focus on a project row button (%s) across an activity repaint', async selector => {
+  // Seen live on Windows: after picking a project color, focus went back to the color button and
+  // the next sidebar repaint dropped it to the page. Only the project heading kept its focus.
+  const { project, session } = projectSidebarFixture();
+  const mounted = await mountChat({}, [], {
+    listProjects: async () => ({ ok: true, data: [project] }),
+    listSessions: async () => ({ ok: true, data: { sessions: [session], activeId: null, pressure: [], blocked: [] } })
+  });
+  const doc = mounted.window.document;
+  const control = () => doc.querySelector<HTMLElement>(`[data-project-id="${project.id}"] ${selector}`)!;
+  await vi.waitFor(() => expect(control()).not.toBeNull());
+  await settle();
+  const before = control();
+  before.focus();
+  expect(doc.activeElement).toBe(before);
+  mounted.push(structuredClone(mounted.state));
+  await settle();
+  expect(control()).not.toBe(before); // the repaint really replaced the row
+  expect(doc.activeElement).toBe(control());
+});
+
+it('saves this computer\'s connector name, and keeps the saved one while the typed one is invalid', async () => {
+  const mounted = await mountChat();
+  const w = mounted.window, doc = w.document;
+  const field = doc.getElementById('connectorSuffix') as HTMLInputElement;
+  const error = doc.getElementById('connectorSuffixError')!;
+  const details = doc.getElementById('connectorSuffixField') as HTMLDetailsElement;
+  expect(field.value).toBe('');
+  expect(details.open).toBe(false);
+  expect(error.hidden).toBe(true);
+
+  field.value = '  Windows   VM ';
+  field.dispatchEvent(new w.Event('change', { bubbles: true }));
+  await vi.waitFor(() => expect(mounted.calls.at(-1)?.connectorSuffix).toBe('Windows VM'));
+
+  // An invalid name says why at once, and a save it rides in keeps the saved name.
+  field.value = 'Win/VM';
+  field.dispatchEvent(new w.Event('input', { bubbles: true }));
+  expect(error.hidden).toBe(false);
+  expect(field.getAttribute('aria-invalid')).toBe('true');
+  const saves = mounted.calls.length;
+  field.dispatchEvent(new w.Event('change', { bubbles: true }));
+  await vi.waitFor(() => expect(mounted.calls.length).toBe(saves + 1));
+  expect(mounted.calls.at(-1)?.connectorSuffix).toBe('Windows VM');
+  field.value = 'Mac';
+  field.dispatchEvent(new w.Event('input', { bubbles: true }));
+  expect(error.hidden).toBe(true);
+  expect(field.getAttribute('aria-invalid')).toBe('false');
+});
+
+it('shows a computer name set elsewhere and opens its section, so the suffixed card names are explained', async () => {
+  const mounted = await mountChat();
+  const doc = mounted.window.document;
+  mounted.push({ ...mounted.state, config: { ...mounted.state.config, connectorSuffix: 'Windows' } });
+  await settle();
+  expect((doc.getElementById('connectorSuffix') as HTMLInputElement).value).toBe('Windows');
+  expect((doc.getElementById('connectorSuffixField') as HTMLDetailsElement).open).toBe(true);
 });

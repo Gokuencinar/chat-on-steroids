@@ -503,6 +503,8 @@ export type SessionEvent =
       messageId: string;
       from: string;
       to: string;
+      /** Prime-family reply address for a cross-family message. */
+      fromRunId?: string;
       message: StoredText;
       delivery: 'sent' | 'delivered';
     })
@@ -658,6 +660,13 @@ export interface SessionSummary {
   toolCalls: number;
   /** Start time of the newest exact attributed tool call, independent of later page noise. */
   lastToolCallAt: number | null;
+  /**
+   * Compact projection of the newest recorded tool action.
+   *
+   * The full tool row remains in session history. This exists so overview surfaces can show
+   * useful worker activity without loading each worker transcript.
+   */
+  lastToolActivity?: Pick<ActivitySummary, 'kind' | 'title'> | null;
   /** Observation time of the newest stable final assistant message. */
   lastAssistantFinalAt?: number | null;
   /**
@@ -737,6 +746,21 @@ export interface SessionSummary {
 }
 
 /**
+ * Committed Compact & Resume predecessors for the conversation currently attached to this
+ * session, nearest first. This is pure projection of durable metadata: callers that need an
+ * authorization decision must first obtain the unique authoritative session summary.
+ */
+export function committedResumeAncestorsFromSummary(
+  summary: Pick<SessionSummary, 'conversationId' | 'chatIds' | 'lastCommittedResumeHandoffId'>,
+  conversationId: string
+): string[] {
+  if (!conversationId || summary.conversationId !== conversationId || !summary.lastCommittedResumeHandoffId) return [];
+  const current = summary.chatIds.lastIndexOf(conversationId);
+  if (current !== summary.chatIds.length - 1 || current < 1) return [];
+  return summary.chatIds.slice(0, current).reverse();
+}
+
+/**
  * What one `session:changed` push says about transcripts. A push without it refreshes only
  * the session catalog and controls; the selected transcript is reread only for its owner.
  */
@@ -747,7 +771,25 @@ export interface SessionChange {
   allTranscripts?: true;
 }
 
+export interface HandoffProvenance {
+  /** ChatGPT frontend that authored the brief. */
+  sourceConversationId: string | null;
+  /** One-based position of that frontend in the durable session lineage, when known. */
+  sourceGeneration: number | null;
+  /** Exact source turn pinned by the continuation transaction, when one existed. */
+  sourceTurnId: string | null;
+  /**
+   * Non-authority fingerprint of the continuation transaction.
+   *
+   * This is derived from the one-time continuation token. Provenance stores the fingerprint
+   * instead of the raw token because handoffs are readable through ordinary session IPC.
+   */
+  continuationId: string | null;
+}
+
 export interface Handoff {
+  /** New writes are v1. Absent means a legacy handoff written before provenance existed. */
+  version?: 1;
   id: string;
   sessionId: string;
   createdAt: number;
@@ -758,6 +800,8 @@ export interface Handoff {
   sourceTokens: number;
   /** Set when the model stopped early or the pack dropped material. */
   notes: string[];
+  /** Immutable source identity for new versioned handoffs. */
+  provenance?: HandoffProvenance;
 }
 
 // ---------------------------------------------------------------- agents
@@ -970,6 +1014,14 @@ export interface AgentMessage {
   id: string;
   from: string;
   to: string;
+  /**
+   * Prime-family address of the sender when a message crosses between existing prime families.
+   *
+   * Agent ids are only unique inside one family, so a bare `from: "prime"` cannot be replied
+   * to across that boundary. This is routing metadata only; it grants no status or worker access
+   * to the receiving prime.
+   */
+  fromRunId?: string;
   time: number;
   text: string;
   /** When it was last written into a tool result. Re-offered until acknowledged. */

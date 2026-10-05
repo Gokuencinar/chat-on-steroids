@@ -288,11 +288,6 @@ const LOOP_RESPONSE_FORMAT = {
   }
 } as const;
 
-/** The persisted instruction used for the next draft. Exported for focused contract tests. */
-export function goalSystemPrompt(): string {
-  return getConfig().goal.prompt;
-}
-
 /** The persisted driver instruction, used instead of the gate once a chat carries a goal. */
 export function goalObjectivePrompt(): string {
   return getConfig().goal.objectivePrompt;
@@ -1135,11 +1130,6 @@ export function moveGoalSwitch(fromConversationId: string, toConversationId: str
   return true;
 }
 
-export function goalSettings(): { enabled: boolean; mode: GoalMode; model: string; reasoning: string } {
-  const goal = getConfig().goal;
-  return { enabled: goal.enabled, mode: goal.mode, model: goal.model, reasoning: goal.reasoning };
-}
-
 export function goalBackendFor(mode: GoalMode): GoalBackend {
   const settings = getConfig().goal;
   return mode === 'loop' ? settings.loopBackend ?? 'chatgpt' : settings.backend ?? 'chatgpt';
@@ -1224,6 +1214,16 @@ export function goalViewFor(conversationId: string, clientId?: string): GoalDraf
   // that finished minutes ago.
   if (draft.acknowledged && !settledFailure(draft)) return null;
   return view(draft);
+}
+
+/**
+ * The run's outcome for the app window: an acknowledged "goal met" decision, until a newer turn
+ * replaces it. goalViewFor() hides it from the page once acted on, but the window must not fall
+ * back to "Pursuing goal" for a run that ended (found on Windows, 2026-10-04).
+ */
+export function goalOutcomeFor(conversationId: string): GoalDraftView | null {
+  const draft = drafts.get(conversationId);
+  return draft?.acknowledged && draft.stage === 'no-reply' ? view(draft) : null;
 }
 
 export async function retryGoalBrowserHelper(sourceSessionId: string, inputId: string): Promise<boolean> {

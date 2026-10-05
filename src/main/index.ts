@@ -14,6 +14,8 @@ import { getChatModels, restoreChatModels, startChatModelDiscovery } from './cha
 import { flushLogBeforeExit, initLogFile, logError, logInfo, logWarn, snapshotLogOnCrash } from './logger.js';
 import { unifiedExecManager } from './codex/manager.js';
 import { initSecretsPath } from './secrets.js';
+import { mainText, mainTextTranslations, onMainTextsChange, restoreMainTextTranslations } from './main-texts.js';
+import { isMainText } from '../shared/main-texts.js';
 import { pluginManager } from './plugins/manager.js';
 import { setBrowserOpener, setBrowserWorkArea, shutdownBridge, startBridge } from './bridge.js';
 import { setStuckNotifier } from './stuck-notice.js';
@@ -50,6 +52,7 @@ import { flushDurable, initDurableStore, readDurable, writeDurableNow, writeDura
 import { initControlApiPath, shutdownControlApi, startControlApi } from './control-api.js';
 import { restoreRequestCorrelations } from './session/correlation.js';
 import { restoreBlockedChats } from './session/blocked-chats.js';
+import { restoreTrustedChats } from './session/trusted-chats.js';
 import { stopComputerHelper } from './computer/index.js';
 import {
   GOAL_OBJECTIVES_STATE,
@@ -92,6 +95,8 @@ import { beginRuntimeMarker, clearRuntimeMarkerSync } from './runtime-marker.js'
 const SWARM_STATE = 'swarm';
 const RETIRED_WORKERS_STATE = 'retired-workers';
 const WINDOW_BOUNDS_STATE = 'window-bounds';
+/** The tray and notice texts in the last interface language; a launch to the tray opens no window to send them. */
+const MAIN_TEXTS_STATE = 'main-texts';
 
 let window: BrowserWindow | null = null;
 let savedWindowBounds: unknown = null;
@@ -260,8 +265,9 @@ setFinishNotifier((title, body, sessionId, turnId) => {
     const open = (): void => { if (!target.isDestroyed()) target.send('session:write', sessionId); };
     if (target.isLoadingMainFrame()) target.once('did-finish-load', open); else open();
   };
-  const notice = new Notification({ title, body, actions: [
-    { type: 'button', text: 'Send Automatic Goal' }, { type: 'button', text: 'Write Directly' }
+  const shown = (text: string): string => isMainText(text) ? mainText(text) : text;
+  const notice = new Notification({ title: shown(title), body: shown(body), actions: [
+    { type: 'button', text: mainText('Send Automatic Goal') }, { type: 'button', text: mainText('Write Directly') }
   ] });
   notice.on('click', write);
   notice.on('action', (details) => {
@@ -316,21 +322,22 @@ function refreshTray(): void {
   const offline = state === 'offline';
   // Offline keeps the running icon: the bridge is up, the internet is not.
   const running = connected || offline;
-  const label = connected ? 'Connected' : offline ? 'No internet' : 'Not connected';
+  const label = mainText(connected ? 'Connected' : offline ? 'No internet' : 'Not connected');
   tray.setImage(trayIcon(running));
-  tray.setToolTip(`Chat On Steroids — ${label.toLowerCase()}`);
+  // Not lowercased: that would break translated nouns ("Keine Internetverbindung").
+  tray.setToolTip(`Chat On Steroids — ${label}`);
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label, enabled: false },
       { type: 'separator' },
-      { label: 'Open', click: windowActivation.request },
+      { label: mainText('Open'), click: windowActivation.request },
       {
-        label: running ? 'Disconnect' : 'Connect',
+        label: mainText(running ? 'Disconnect' : 'Connect'),
         click: () => void (running ? disconnect() : connect())
       },
       { type: 'separator' },
       {
-        label: 'Quit',
+        label: mainText('Quit'),
         click: () => {
           quitting = true;
           app.quit();
@@ -383,6 +390,7 @@ void app.whenReady().then(async () => {
   catch (error) { logWarn(`Skills library unavailable: ${error instanceof Error ? error.message : String(error)}`); }
   initDurableStore(userData);
   savedWindowBounds = await readDurable<unknown>(WINDOW_BOUNDS_STATE);
+  restoreMainTextTranslations(await readDurable<unknown>(MAIN_TEXTS_STATE));
   if (windowActivation.isDisabled()) return;
   initControlApiPath(userData);
   initUvRuntime(userData);
@@ -416,6 +424,10 @@ void app.whenReady().then(async () => {
   // And the user's blocks, for the same reason: a chat blocked yesterday is still the rogue
   // turn today, and a block that loads after the first call is a tool the turn already got.
   await restoreBlockedChats();
+  if (windowActivation.isDisabled()) return;
+  // Strict allowlisting is fail-closed: restore the exact trust set before model-facing
+  // endpoints can accept work, just as blocked-chat policy is restored above.
+  await restoreTrustedChats();
   if (windowActivation.isDisabled()) return;
   setAgentConversationLookup(agentConversation);
   // The prime's chat is the user's own, so no extension report can name it. It is bound
@@ -523,6 +535,8 @@ void app.whenReady().then(async () => {
   tray.on('click', windowActivation.request);
   refreshTray();
   onStatusChange(refreshTray);
+  onMainTextsChange(refreshTray);
+  onMainTextsChange(() => writeDurableSoon(MAIN_TEXTS_STATE, mainTextTranslations()));
 
   logInfo('app started');
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.35] - 2026-10-05
+
+- Integrate published official 2.1.27: worker wake and long-thinking reliability, Compact & Resume recovery, safer Setup queueing and restart ownership, stable reading position, Automatic model selection, background command controls, diagnostics, inline recorded diffs and sub-agent round inspection.
+- Add the official model picker, General settings, project colors, translated tray notices and optional exact-name Skill selection and installed Codex plugin Skills. Existing user choices remain authoritative.
+- Preserve Cyberpunk, current native file-tile recognition, safe unchanged-draft Core fallback, Temporary Chat custody, host/port protection, Goal/Loop durability and fork-only Windows x64 updates. App and extension share 2.1.35; bridge protocol remains 14.
+- Keep experimental post-release work outside this integration. Official notes are archived under docs/upstream/v2.1.27.md; the Git merge retains upstream authorship.
+
 ## [2.1.34] - 2026-10-03
 
 - Recognize current ChatGPT file tiles with translated removal labels so uploaded attachments can reach authorized native Send instead of remaining in the draft until timeout.

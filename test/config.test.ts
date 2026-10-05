@@ -185,6 +185,14 @@ describe('settings migration', () => {
     await saveConfig({ ...defaultConfig(), ui: { ...defaultConfig().ui, autoRefreshPlugins: true } });
     expect((await loadConfig()).ui.autoRefreshPlugins).toBe(true);
   });
+  it('defaults automatic Skill selection off for fresh and legacy settings while preserving explicit opt-in', async () => {
+    expect(defaultConfig().ui.autoSelectSkills).toBe(false);
+    const legacy = defaultConfig(); delete legacy.ui.autoSelectSkills;
+    await saveConfig(legacy);
+    expect((await loadConfig()).ui.autoSelectSkills).toBe(false);
+    await saveConfig({ ...defaultConfig(), ui: { ...defaultConfig().ui, autoSelectSkills: true } });
+    expect((await loadConfig()).ui.autoSelectSkills).toBe(true);
+  });
   it('defaults Goal and Loop to ChatGPT while preserving explicit backend choices', async () => {
     expect(defaultConfig().goal).toMatchObject({ backend: 'chatgpt', loopBackend: 'chatgpt' });
     for (const backend of ['api', 'templates', 'chatgpt'] as const) {
@@ -362,6 +370,20 @@ describe('settings migration', () => {
     expect((await loadConfig()).compaction.handoffPrompt).toBe(custom);
   });
 
+  it('keeps the thorough handoff length for older and broken configs, and saves a choice', async () => {
+    const config = defaultConfig();
+    expect(config.compaction.handoffLength).toBe('thorough');
+    const older = structuredClone(config) as Record<string, any>;
+    delete older.compaction.handoffLength;
+    await fs.writeFile(path.join(dir, 'config.json'), JSON.stringify(older), 'utf8');
+    expect((await loadConfig()).compaction.handoffLength).toBe('thorough');
+    await fs.writeFile(path.join(dir, 'config.json'),
+      JSON.stringify({ ...config, compaction: { ...config.compaction, handoffLength: 'tiny' } }), 'utf8');
+    expect((await loadConfig()).compaction.handoffLength).toBe('thorough');
+    await saveConfig({ ...config, compaction: { ...config.compaction, handoffLength: 'short' } });
+    expect((await loadConfig()).compaction.handoffLength).toBe('short');
+  });
+
   /**
    * The Chat panel offers one number and derives the red line from it, `limit = threshold ×
    * 4/3`. A shipped default that does not already satisfy that relation is a state the UI
@@ -511,6 +533,7 @@ describe('shipped defaults', () => {
       expect(enabled, capability).toBe(expectedFreshCapability(capability, process.platform));
     }
     expect(loaded.multiAgent.enabled).toBe(true);
+    expect(loaded.multiAgent.globalMaxWorkers).toBe(0);
     expect(loaded.multiAgent.allowUnattributedCalls).toBe(true);
     expect(loaded.multiAgent.recoverAgentTabs).toBe(false);
     // Waiting for a run's own workers is a workflow preference, not a first-launch exposure
@@ -529,7 +552,9 @@ describe('shipped defaults', () => {
       }
       expect(config.multiAgent.enabled).toBe(true);
       expect(config.multiAgent.maxWorkers).toBe(2);
+      expect(config.multiAgent.globalMaxWorkers).toBe(0);
       expect(config.multiAgent.allowUnattributedCalls).toBe(true);
+      expect(config.multiAgent.strictChatAllowlist).toBe(false);
       expect(config.multiAgent.recoverAgentTabs).toBe(false);
       expect(config.multiAgent.waitForSubAgents).toBe(false);
       expect(config.multiAgent.endSleepingWorkerProcesses).toBe(false);
@@ -549,7 +574,9 @@ describe('shipped defaults', () => {
     expect(loaded.capabilities.command).toBe(false);
     expect(loaded.capabilities.control).toBe(false);
     expect(loaded.multiAgent.enabled).toBe(false);
+    expect(loaded.multiAgent.globalMaxWorkers).toBe(0);
     expect(loaded.multiAgent.allowUnattributedCalls).toBe(false);
+    expect(loaded.multiAgent.strictChatAllowlist).toBe(false);
     expect(loaded.multiAgent.recoverAgentTabs).toBe(false);
     expect(loaded.multiAgent.waitForSubAgents).toBe(false);
     expect(loaded.multiAgent.endSleepingWorkerProcesses).toBe(false);
@@ -563,6 +590,16 @@ describe('shipped defaults', () => {
     expect(loaded.capabilities.command).toBe(false);
     expect(loaded.capabilities.control).toBe(false);
     expect(loaded.multiAgent.enabled).toBe(false);
+  });
+
+  it('keeps the global worker admission cap off for legacy configs and preserves an explicit opt-in', async () => {
+    const config = defaultConfig();
+    expect(config.multiAgent.globalMaxWorkers).toBe(0);
+    await saveConfig({
+      ...config,
+      multiAgent: { ...config.multiAgent, globalMaxWorkers: 5 }
+    });
+    expect((await loadConfig()).multiAgent.globalMaxWorkers).toBe(5);
   });
 
   it('does not persist obsolete recording-off or age-retention choices', async () => {
@@ -600,6 +637,16 @@ describe('shipped defaults', () => {
       multiAgent: { ...config.multiAgent, allowUnattributedCalls: true }
     });
     expect((await loadConfig()).multiAgent.allowUnattributedCalls).toBe(true);
+  });
+
+  it('keeps strict chat allowlisting opt-in across save and reload', async () => {
+    const config = defaultConfig();
+    expect(config.multiAgent.strictChatAllowlist).toBe(false);
+    await saveConfig({
+      ...config,
+      multiAgent: { ...config.multiAgent, strictChatAllowlist: true }
+    });
+    expect((await loadConfig()).multiAgent.strictChatAllowlist).toBe(true);
   });
 });
 

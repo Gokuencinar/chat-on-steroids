@@ -2,6 +2,7 @@ import { UI_LANGUAGES } from '../shared/ui-language.js';
 import { REASONING_EFFORTS } from '../shared/session.js';
 import { appearanceSchema } from './appearance-schema.js';
 import { BROWSER_BRIDGE_PORTS } from '../shared/browser-bridge.js';
+import { CONNECTOR_SUFFIX_MAX, CONNECTOR_SUFFIX_PATTERN } from '../shared/connector-names.js';
 /**
  * Non-secret settings, stored as one small JSON file in the app's userData folder.
  * No database: there are at most a handful of roots and a dozen booleans.
@@ -40,7 +41,7 @@ import {
   SUPERSEDED_GOAL_OBJECTIVE_SYSTEM_PROMPTS,
   SUPERSEDED_GOAL_SYSTEM_PROMPTS
 } from '../shared/goal.js';
-import { DEFAULT_HANDOFF_PROMPT, MAX_HANDOFF_PROMPT_CHARS } from '../shared/handoff.js';
+import { DEFAULT_HANDOFF_LENGTH, DEFAULT_HANDOFF_PROMPT, HANDOFF_LENGTHS, MAX_HANDOFF_PROMPT_CHARS } from '../shared/handoff.js';
 import { logError } from './logger.js';
 import { RESERVED_ROOT_NAMES } from './sandbox.js';
 import { capabilitiesForPlatform } from './platform.js';
@@ -123,7 +124,8 @@ const DEFAULT_COMPACTION: CompactionSettings = {
   // waiting for a chat that is already over the line and compacting it on sight.
   auto: true,
   autoTokens: DEFAULT_SESSIONS.advisoryTokens,
-  handoffPrompt: DEFAULT_HANDOFF_PROMPT
+  handoffPrompt: DEFAULT_HANDOFF_PROMPT,
+  handoffLength: DEFAULT_HANDOFF_LENGTH
 };
 /**
  * The goal loop's defaults.
@@ -163,7 +165,11 @@ const DEFAULT_GOAL: GoalSettings = {
 const DEFAULT_MULTI_AGENT: MultiAgentSettings = {
   enabled: false,
   maxWorkers: 2,
+  // Preserve the historical behavior unless the user explicitly opts into a cap shared by
+  // independent prime families. Existing per-family maxWorkers remains authoritative too.
+  globalMaxWorkers: 0,
   allowUnattributedCalls: false,
+  strictChatAllowlist: false,
   // Off: Goal/Loop chats are always recovered, and reopening anything else — a worker, a prime,
   // a plain chat that once called a tool — is the user's choice to make.
   recoverAgentTabs: false,
@@ -302,6 +308,8 @@ const configSchema = z.object({
     pluginsTunnelId: z.string().max(128).optional().default(''),
     binaryPath: z.string().max(4096)
   }),
+  // A damaged value falls back to the plain names instead of failing the whole file.
+  connectorSuffix: z.string().trim().max(CONNECTOR_SUFFIX_MAX).regex(CONNECTOR_SUFFIX_PATTERN).optional().catch(undefined),
   setupProfiles: z.array(z.object({
     id: z.string().min(1).max(64), name: z.string().trim().min(1).max(80),
     tunnelId: z.string().max(128), desktopTunnelId: z.string().max(128), pluginsTunnelId: z.string().max(128)
@@ -327,6 +335,7 @@ const configSchema = z.object({
     browserBridgePort: browserBridgePortSchema.optional().default('auto'),
     browserOnly: z.boolean().optional().default(false),
     autoRefreshPlugins: z.boolean().optional().default(false),
+    autoSelectSkills: z.boolean().optional().default(false),
     tabsToKeepOpen: z.number().int().min(1).max(50).optional(),
     minimizeToTray: z.boolean(),
     autoConnect: z.boolean(),
@@ -379,24 +388,33 @@ const configSchema = z.object({
         .optional()
         .default(DEFAULT_COMPACTION.handoffPrompt)
         .transform((prompt) => prompt.trim() === '' ? DEFAULT_COMPACTION.handoffPrompt : prompt.trim())
-        .catch(DEFAULT_COMPACTION.handoffPrompt)
+        .catch(DEFAULT_COMPACTION.handoffPrompt),
+      // Absent in every config before 2.1.27: those keep the shipped 10k–30k brief.
+      handoffLength: z.enum(HANDOFF_LENGTHS).optional().default(DEFAULT_HANDOFF_LENGTH).catch(DEFAULT_HANDOFF_LENGTH)
     })
     .optional()
-    .default({ ...DEFAULT_COMPACTION }),
+    .default({ ...DEFAULT_COMPACTION, handoffLength: DEFAULT_HANDOFF_LENGTH }),
   multiAgent: z
     .object({
       enabled: z.boolean().optional().default(DEFAULT_MULTI_AGENT.enabled),
     defaultModel: z.string().max(80).optional(),
     defaultReasoning: z.enum(['', ...REASONING_EFFORTS]).optional(),
       maxWorkers: z.number().int().min(1).max(8).optional().default(DEFAULT_MULTI_AGENT.maxWorkers),
+      globalMaxWorkers: z.number().int().min(0).max(64).optional().default(DEFAULT_MULTI_AGENT.globalMaxWorkers ?? 0),
       allowUnattributedCalls: z.boolean().optional().default(DEFAULT_MULTI_AGENT.allowUnattributedCalls),
+      strictChatAllowlist: z.boolean().optional().default(DEFAULT_MULTI_AGENT.strictChatAllowlist ?? false),
       recoverAgentTabs: z.boolean().optional().default(DEFAULT_MULTI_AGENT.recoverAgentTabs),
       waitForSubAgents: z.boolean().optional().default(DEFAULT_MULTI_AGENT.waitForSubAgents ?? false),
       endSleepingWorkerProcesses: z.boolean().optional().default(DEFAULT_MULTI_AGENT.endSleepingWorkerProcesses ?? false)
     })
     .optional()
     .default({
-      ...DEFAULT_MULTI_AGENT,
+      enabled: DEFAULT_MULTI_AGENT.enabled,
+      maxWorkers: DEFAULT_MULTI_AGENT.maxWorkers,
+      globalMaxWorkers: DEFAULT_MULTI_AGENT.globalMaxWorkers ?? 0,
+      allowUnattributedCalls: DEFAULT_MULTI_AGENT.allowUnattributedCalls,
+      strictChatAllowlist: DEFAULT_MULTI_AGENT.strictChatAllowlist ?? false,
+      recoverAgentTabs: DEFAULT_MULTI_AGENT.recoverAgentTabs,
       waitForSubAgents: DEFAULT_MULTI_AGENT.waitForSubAgents ?? false,
       endSleepingWorkerProcesses: DEFAULT_MULTI_AGENT.endSleepingWorkerProcesses ?? false
     }),
@@ -528,7 +546,7 @@ export function defaultConfig(platform: NodeJS.Platform = process.platform, rele
     readOnly: false,
     commandAllowlist: { ...DEFAULT_COMMAND_ALLOWLIST, rules: [] },
     tunnel: { kind: 'openai', tunnelId: '', desktopTunnelId: '', binaryPath: '' },
-    ui: { minimizeToTray: true, autoConnect: false, startAtLogin: false, privacyScreenshots: false, theme: 'dark', autoRefreshPlugins: false, backgroundChats: true, browserBridgePort: 'auto', autoContinue: true, followOutput: true, mentionCore: true },
+    ui: { minimizeToTray: true, autoConnect: false, startAtLogin: false, privacyScreenshots: false, theme: 'dark', autoRefreshPlugins: false, autoSelectSkills: false, backgroundChats: true, browserBridgePort: 'auto', autoContinue: true, followOutput: true, mentionCore: true },
     sessions: { ...DEFAULT_SESSIONS },
     compaction: { ...DEFAULT_COMPACTION },
     multiAgent: { ...FIRST_LAUNCH_MULTI_AGENT },

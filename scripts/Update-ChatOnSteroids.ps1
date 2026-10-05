@@ -1,5 +1,5 @@
-# Chat On Steroids fork updater — 2.1.32
-param([ValidatePattern('^\d+\.\d+\.\d+$')][string]$TargetVersion = '2.1.32')
+# Chat On Steroids fork updater — 2.1.35
+param([ValidatePattern('^\d+\.\d+\.\d+$')][string]$TargetVersion = '2.1.35')
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'

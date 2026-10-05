@@ -63,7 +63,7 @@ Release CI builds and smoke-tests every platform/architecture on a native runner
 
 ## Canary builds
 
-The `canary` prerelease is a test build of `main`, replaced on every run of `canary.yml`. It has no release notes and no support. Issues and pull requests are accepted only for problems that also happen on the latest stable release.
+The `canary` prerelease is a test build of `main`, rebuilt automatically after every change to `main` that can affect the app (documentation and test-only changes are skipped). A newer build replaces the previous one. It has no release notes and no support. Issues and pull requests are accepted only for problems that also happen on the latest stable release.
 
 ## Issues
 
@@ -92,7 +92,7 @@ What reviews look for, beyond the checks:
 - **Every change serves the linked issue.** No extra behavior changes "while at it", even small ones; open a separate issue for them.
 - **Nothing depends on ChatGPT's wording.** Decide behavior from structure, ids and machine fields, never from visible English text. ChatGPT is used in many languages; if text is unavoidable, include a non-English case in the test.
 - **Interface changes are checked in the real app.** Besides `npm run verify:ui`, run the change in a real build and show it in the screenshots or a short clip.
-- **Answer review comments or fix red checks when you can.** After 10 quiet days a bot leaves one friendly reminder, and 7 days later it closes the PR. Any push or reply, even "I need more time", resets the clock, and a closed PR can be reopened at any time.
+- **Answer review comments or fix red checks when you can.** After 3 quiet days a bot leaves one friendly reminder, and 3 days later it closes the PR. If only a small fix is missing, a maintainer may finish it instead. Any push or reply, even "I need more time", resets the clock, and a closed PR can be reopened at any time.
 
 ## Credit and attribution
 

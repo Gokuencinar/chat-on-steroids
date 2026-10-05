@@ -1,4 +1,5 @@
 import { currentLanguage, ui, uiText, t, initLanguage, onLanguageChange } from './i18n.js';
+import { CONNECTOR_SUFFIX_MAX, CONNECTOR_SUFFIX_PATTERN } from '../shared/connector-names.js';
 import { displayLocalServer } from './local-url.js';
 import { paintPluginRefreshReminder } from './plugin-refresh-reminder.js';
 import { initUsage, refreshUsage } from './usage.js';
@@ -43,6 +44,7 @@ import type { SwarmState } from '../shared/session.js';
 import { $, ago, disclosureChevron, el, icon, run, shortAgo, toast } from './dom.js';
 import { chatApply, chatSettingsPatch, chatVisible, initChat, openChatView } from './chat.js';
 import { publishStopNoticeTexts } from './stop-notices.js';
+import { publishMainTexts } from './main-texts.js';
 
 declare global {
   interface Window {
@@ -51,8 +53,11 @@ declare global {
 }
 
 const api = window.api;
+// First: main announces a Keychain read before it starts and may not get through again until it ends.
 initLanguage();
 publishStopNoticeTexts(texts => api.setStopNoticeTexts(texts));
+// The tray menu and desktop notices come from the main process, which has no catalogs.
+publishMainTexts(texts => api.setMainTexts?.(texts));
 // The browser extension shows its texts in the app's language, not Chrome's; the app hands it on.
 const publishUiLanguage = (): void => { void Promise.resolve(api.setUiLanguage?.(currentLanguage())).catch(() => undefined); };
 publishUiLanguage();
@@ -575,6 +580,7 @@ function save(over: { readOnly?: boolean; theme?: 'light' | 'dark'; appearance?:
   const chatPatch = chatSettingsPatch(previous);
   const selectedBridgePort = $<HTMLSelectElement>('browserBridgePort').value;
   const patch: SettingsPatch = {
+    connectorSuffix: connectorSuffixDraft(previous),
     capabilities,
     readOnly,
     commandAllowlist,
@@ -600,6 +606,7 @@ function save(over: { readOnly?: boolean; theme?: 'light' | 'dark'; appearance?:
       autoContinue: $<HTMLInputElement>('autoContinue').checked,
       browserOnly: $<HTMLInputElement>('browserOnly').checked,
       autoRefreshPlugins: $<HTMLInputElement>('autoRefreshPlugins').checked,
+      autoSelectSkills: $<HTMLInputElement>('autoSelectSkills').checked,
       autoConnect: $<HTMLInputElement>('autoConnect').checked,
       startAtLogin: $<HTMLInputElement>('startAtLogin').checked,
       minimizeToTray: $<HTMLInputElement>('minimizeToTray').checked,
@@ -636,6 +643,7 @@ async function saveSnapshot(patch: SettingsPatch, previous: AppState['config']):
       return before !== after;
     });
   const base: SettingsPatch = {
+    connectorSuffix: previous.connectorSuffix ?? '',
     capabilities: previous.capabilities,
     readOnly: previous.readOnly,
     commandAllowlist: previous.commandAllowlist,
@@ -763,6 +771,22 @@ function currentSetupMissingStep(next: AppState): { step: string; text: string }
     tunnelId: $<HTMLInputElement>('tunnelId').value.trim(),
     hasApiKey: next.hasApiKey || (next.secureStorage?.available !== false && key.value !== '')
   });
+}
+
+/**
+ * This computer's connector name suffix as typed, checked here so one invalid character cannot
+ * reject the whole settings save it rides in. Invalid keeps the saved value and says why.
+ */
+function connectorSuffixValid(): string | null {
+  const input = $<HTMLInputElement>('connectorSuffix');
+  const value = input.value.trim().replace(/\s+/g, ' ');
+  const valid = value.length <= CONNECTOR_SUFFIX_MAX && CONNECTOR_SUFFIX_PATTERN.test(value);
+  input.setAttribute('aria-invalid', String(!valid));
+  $('connectorSuffixError').hidden = valid;
+  return valid ? value : null;
+}
+function connectorSuffixDraft(previous: Config): string {
+  return connectorSuffixValid() ?? previous.connectorSuffix ?? '';
 }
 
 interface RootRenameState {
@@ -1236,6 +1260,9 @@ function apply(next: AppState): void {
   );
   ui($('methodHint'), 'textContent', () => t(METHOD_HINT[config.tunnel.kind] ?? ''));
   applyValue($<HTMLInputElement>('tunnelId'), config.tunnel.tunnelId, previousState?.config.tunnel.tunnelId);
+  applyValue($<HTMLInputElement>('connectorSuffix'), config.connectorSuffix ?? '', previousState?.config.connectorSuffix ?? '');
+  // A computer that has a name shows it, so the cards' suffixed names never come unexplained.
+  if (config.connectorSuffix && !previousState?.config.connectorSuffix) $<HTMLDetailsElement>('connectorSuffixField').open = true;
   applyValue(
     $<HTMLInputElement>('desktopTunnelId'),
     config.tunnel.desktopTunnelId,
@@ -1257,6 +1284,7 @@ function apply(next: AppState): void {
   applyChecked($<HTMLInputElement>('autoContinue'), config.ui.autoContinue !== false, previousState?.config.ui.autoContinue);
   applyChecked($<HTMLInputElement>('browserOnly'), config.ui.browserOnly === true, previousState?.config.ui.browserOnly);
   applyChecked($<HTMLInputElement>('autoRefreshPlugins'), config.ui.autoRefreshPlugins === true, previousState?.config.ui.autoRefreshPlugins);
+  applyChecked($<HTMLInputElement>('autoSelectSkills'), config.ui.autoSelectSkills === true, previousState?.config.ui.autoSelectSkills);
   $('startAtLoginRow').hidden = next.loginStartupAvailable !== true;
   $<HTMLInputElement>('startAtLogin').disabled = next.loginStartupAvailable !== true;
   applyChecked($<HTMLInputElement>('startAtLogin'), config.ui.startAtLogin === true, previousState?.config.ui.startAtLogin);
@@ -1978,6 +2006,18 @@ for (const id of ['copyLog', 'copyLogText']) {
   });
 }
 
+// One file for a bug report; the main process removes personal details and shows the saved file.
+$('saveDiagnosticsReport').addEventListener('click', async () => {
+  const button = $<HTMLButtonElement>('saveDiagnosticsReport');
+  button.disabled = true;
+  try {
+    const result = await run(api.saveDiagnosticsReport());
+    if (result?.saved) toast(t('Diagnostics report saved as {0}. Read it before you share it.', [result.name]));
+  } finally {
+    button.disabled = false;
+  }
+});
+
 $('copyLogJson').addEventListener('click', async () => {
   const text = await run(api.getLogJson());
   if (text === null) return;
@@ -2048,10 +2088,12 @@ for (const id of [
   'privacyScreenshots',
   'tunnelKind',
   'tunnelId',
-  'desktopTunnelId'
+  'desktopTunnelId',
+  'connectorSuffix'
 ]) {
   $(id).addEventListener('change', () => void save());
 }
+$('connectorSuffix').addEventListener('input', () => { connectorSuffixValid(); });
 
 document.addEventListener('click', (event) => {
   const target = event.target as HTMLElement;
@@ -2075,7 +2117,10 @@ $('updateExtension').addEventListener('click', () => {
 });
 
 api.onStateChanged(apply);
-api.onLogEntry(addLogLine);
+// Lines logged while the startup snapshot loads arrive live and are in the snapshot too. Hold
+// them until it lands, so each shows once and after the lines that came before it.
+let heldLogLines: LogEntry[] | null = [];
+api.onLogEntry(entry => { if (heldLogLines) heldLogLines.push(entry); else addLogLine(entry); });
 api.onSwarmChanged(paintAgentFilter);
 
 async function refresh(): Promise<void> {
@@ -2097,7 +2142,15 @@ void (async () => {
   // A first run has nothing set up, so open on the wizard rather than an empty Home.
   showTab(state && missingStep(state)?.step === 'folder' ? 'setup' : 'chat');
   const entries = await run(api.getLog());
-  for (const entry of entries ?? []) addLogLine(entry);
+  const key = (entry: LogEntry): string => `${entry.time}\0${entry.level}\0${entry.agent ?? ''}\0${entry.message}`;
+  const shown = new Map<string, number>();
+  for (const entry of entries ?? []) { addLogLine(entry); shown.set(key(entry), (shown.get(key(entry)) ?? 0) + 1); }
+  const held = heldLogLines ?? [];
+  heldLogLines = null;
+  for (const entry of held) {
+    const left = shown.get(key(entry)) ?? 0;
+    if (left > 0) shown.set(key(entry), left - 1); else addLogLine(entry);
+  }
   const swarm = await run(api.getSwarm());
   if (swarm) paintAgentFilter(swarm);
 })();

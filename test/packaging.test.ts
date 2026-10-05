@@ -172,6 +172,9 @@ describe('cross-platform packaging targets', () => {
     ]);
     expect(parsed.jobs.package['runs-on']).toBe('${{ matrix.runner }}');
     expect(workflow).toContain('name: chat-on-steroids-candidate-${{ github.run_id }}');
+    expect(workflow).not.toContain('Package Firefox extension groundwork');
+    expect(workflow).not.toContain('npm run extension:firefox:stage');
+    expect(workflow).not.toContain('Chat-On-Steroids-Firefox.zip');
     expect(workflow).toContain('Install generated DEB on target distro');
     expect(workflow).toContain('Launch installed DEB normally under Xvfb');
     expect(workflow).toContain('CLF_DEBUG=1 timeout --signal=TERM --kill-after=5s 12s xvfb-run -a /usr/bin/chat-on-steroids');

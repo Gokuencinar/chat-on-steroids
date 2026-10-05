@@ -250,6 +250,35 @@ let recoveryMonitoring = false;
 /** Discard custody; command openings retain their identity until app policy takes over. */
 let discardProtectedTabs = {};
 const COMMAND_TAB_PROTECTION_MS = 30 * 60_000;
+/**
+ * This install's connector names in ChatGPT, as the paired app reports them. A computer that
+ * shares its ChatGPT account with another one names its connectors with a suffix, e.g.
+ * "Chat On Steroids Core (Windows)"; pages recognize exactly these names as this app's traffic.
+ * Kept in local storage so a restarted service worker does not fall back to the plain names
+ * and claim the other computer's calls until the app answers again. Null until the app says.
+ */
+let connectorNames = null;
+
+/** The app's names, or null for anything that is not three plain "Chat On Steroids …" strings. */
+function cleanConnectorNames(value) {
+  if (!value || typeof value !== 'object') return null;
+  const names = {};
+  for (const [surface, word] of [['core', 'Core'], ['desktop', 'Desktop'], ['plugins', 'Plugins']]) {
+    const name = value[surface];
+    if (typeof name !== 'string' || name.length > 80 || (name !== `Chat On Steroids ${word}` &&
+        !/^Chat On Steroids (Core|Desktop|Plugins) \([\p{L}\p{N} ._-]{1,32}\)$/u.test(name)) ||
+        !name.startsWith(`Chat On Steroids ${word}`)) return null;
+    names[surface] = name;
+  }
+  return names;
+}
+
+async function rememberConnectorNames(value) {
+  const names = cleanConnectorNames(value);
+  if (!names || JSON.stringify(names) === JSON.stringify(connectorNames)) return;
+  connectorNames = names;
+  try { await chrome.storage.local.set({ connectorNames: names }); } catch { /* Kept in memory for this worker. */ }
+}
 
 function load() {
   if (loaded) return Promise.resolve();
@@ -265,8 +294,9 @@ function load() {
 }
 
 async function loadOnce() {
-  const stored = await chrome.storage.local.get(['port', 'token', 'disconnected', 'deferredRevivals', 'commandAckOutbox', 'inputOpenings', 'desktopInputTabs', 'stopOpenings', 'browserId']);
+  const stored = await chrome.storage.local.get(['port', 'token', 'disconnected', 'deferredRevivals', 'commandAckOutbox', 'inputOpenings', 'desktopInputTabs', 'stopOpenings', 'browserId', 'connectorNames']);
   port = typeof stored.port === 'number' ? stored.port : null;
+  connectorNames = cleanConnectorNames(stored.connectorNames);
   // Tells this browser apart from another one paired with the same app, so a new chat is opened
   // and sent in one browser only. Random, local, and never tied to the profile or the user.
   browserId = typeof stored.browserId === 'string' && /^[a-z0-9]{16,64}$/.test(stored.browserId) ? stored.browserId : '';
@@ -2591,6 +2621,28 @@ async function followApp(data) {
   if (Object.keys(patch).length) await chrome.storage.local.set(patch);
 }
 
+/**
+ * "Open in ChatGPT" from the app, shown in this browser: the chat's tab if it has one, else a new
+ * one. The app asks here rather than the OS, which can pick another browser or account (#882).
+ */
+async function revealChats(ids) {
+  if (!Array.isArray(ids)) return;
+  for (const raw of ids.slice(0, 5)) {
+    const conversationId = cleanConversationId(raw);
+    if (!conversationId) continue;
+    const tabs = await chrome.tabs.query({ url: CHATGPT_TAB_URLS });
+    const [tab] = tabs.filter(candidate => conversationForTab(candidate) === conversationId).sort((a, b) => a.id - b.id);
+    const shown = tab
+      ? await chrome.tabs.update(tab.id, { active: true })
+      : await chrome.tabs.create({ url: `https://chatgpt.com/c/${conversationId}`, active: true });
+    const windowId = shown?.windowId ?? tab?.windowId;
+    if (!Number.isInteger(windowId)) continue;
+    // A worker tab can sit in the app's minimized background window; the user asked to see it.
+    const window = await chrome.windows.get(windowId).catch(() => null);
+    await chrome.windows.update(windowId, window?.state === 'minimized' ? { state: 'normal', focused: true } : { focused: true });
+  }
+}
+
 let extensionReloadPending = false;
 /**
  * Why an offered extension update has not happened yet, reported with the next `/status` so the
@@ -2648,7 +2700,7 @@ async function maintainOnce() {
     .filter((tab) => tab && (tab.discarded === true || tab.frozen === true))
     .map(conversationForTab)
     .filter(Boolean))];
-  const reply = await call('/status', { method: 'POST', body: JSON.stringify({ openConversations, stalledConversations,
+  const reply = await call('/status', { method: 'POST', body: JSON.stringify({ openConversations, stalledConversations, canReveal: true,
     ...(extensionUpdateHold ? { updateHold: extensionUpdateHold } : {}) }) });
   if (intent !== connectionEpoch || !token || disconnected) return;
   if (!reply.ok || !reply.data) { await activeTabs?.revoke(); return; }
@@ -2657,6 +2709,7 @@ async function maintainOnce() {
   const liveCommands = new Set(Array.isArray(reply.data.commandIds) ? reply.data.commandIds : []);
   void reloadForExtensionUpdate(reply.data.extensionUpdate, liveOpenings, liveCommands).catch(() => undefined);
   void followApp(reply.data).catch(() => undefined);
+  void revealChats(reply.data.reveals).catch(() => undefined);
   const renderingWanted = tab => {
     if (intent !== connectionEpoch || !token || disconnected) return false;
     if (liveChats.has(conversationForTab(tab))) return true;
@@ -2736,6 +2789,7 @@ async function maintainOnce() {
     await refreshRendering();
   }
   inspectRequestedModels(reply.data.modelCatalogRequest);
+  await rememberConnectorNames(reply.data.connectorNames);
   inspectRequestedPluginRefresh(reply.data.pluginRefreshRequests, reply.data.background === true, reply.data.browserOnly === true);
   const repairConversations = new Set(repairs.map(entry => entry.conversationId));
   // Reloading the same document races its final input offer. Repair it now; the
@@ -2750,7 +2804,7 @@ async function maintainOnce() {
     recoveryMonitoring = monitoring;
     await persistLive().catch(() => undefined);
   }
-  if (await acceptBrowserRevival(reply.data.revival)) await recoverDeferredRevivals();
+  if (await acceptBrowserRevivals(reply.data)) await recoverDeferredRevivals();
   const nonDiscardable = new Set(
     (Array.isArray(reply.data.nonDiscardableConversations) ? reply.data.nonDiscardableConversations : [])
       .map(cleanConversationId)
@@ -2826,6 +2880,14 @@ async function maintainOnce() {
   if (repairs.length === 0) return clearRetryIfIdle();
 }
 
+/** "changed-progress:app-progress" from a second repair check that saw the page move. */
+function repairChangeDetail(latest) {
+  const part = ['turn', 'question', 'progress'].includes(latest.changed) ? latest.changed : 'unknown';
+  const by = part === 'progress' && typeof latest.progressBy === 'string' && /^[a-z_-]{1,32}$/.test(latest.progressBy)
+    ? `:${latest.progressBy}` : '';
+  return `changed-${part}${by}`;
+}
+
 async function performBrowserRepairs(repairs, policy) {
   for (const { conversationId, token, reason, focus, requiresClaim, suspended } of repairs) {
     // Re-scanned per repair rather than reused from above. Earlier entries in this same batch
@@ -2888,11 +2950,18 @@ async function performBrowserRepairs(repairs, policy) {
             ...(check?.safe === true ? { expected: { revision: check.revision, turnId: check.turnId, questionId: check.questionId } } : {}) },
             documentId ? { documentId } : undefined) : null;
           const tab = await chrome.tabs.get(target.id);
-          if ((inspectTurn && (latest?.safe === false || (!check?.safe && latest?.safe === true))) ||
-              tab.pendingUrl || conversationForTab(tab) !== conversationId || tabDocuments[String(target.id)] !== documentId) {
+          // What exactly stopped the action, so the app's log can say it (#1086): the second
+          // check's own reason, a first check the page never answered, or the tab itself.
+          const changed = tab.pendingUrl ? 'navigating'
+            : conversationForTab(tab) !== conversationId ? 'other-chat'
+            : tabDocuments[String(target.id)] !== documentId ? 'new-document'
+            : !inspectTurn ? null
+            : latest?.safe === false ? (latest.why === 'changed' ? repairChangeDetail(latest) : latest.why || 'unknown')
+            : !check?.safe && latest?.safe === true ? 'first-unanswered' : null;
+          if (changed) {
             // No browser action occurred. Release only this exact claim; a
             // concurrently retired episode cannot be reconstructed by this ACK.
-            await call(`/status?repairFailed=${encodeURIComponent(token)}&repairAction=${repairAction}&why=changed`);
+            await call(`/status?repairFailed=${encodeURIComponent(token)}&repairAction=${repairAction}&why=changed&detail=${encodeURIComponent(changed)}`);
             continue;
           }
           responsiveRepair = check?.safe === true && latest?.safe === true;
@@ -2900,9 +2969,11 @@ async function performBrowserRepairs(repairs, policy) {
       }
       if (target && suspended && requiresClaim) {
         const tab = await chrome.tabs.get(target.id);
-        if (tab.pendingUrl || conversationForTab(tab) !== conversationId ||
-            (tab.discarded !== true && tab.frozen !== true) || tabDocuments[String(target.id)] !== documentId) {
-          await call(`/status?repairFailed=${encodeURIComponent(token)}&repairAction=${repairAction}&why=changed`);
+        const changed = tab.pendingUrl ? 'navigating' : conversationForTab(tab) !== conversationId ? 'other-chat'
+          : tab.discarded !== true && tab.frozen !== true ? 'woke-up'
+          : tabDocuments[String(target.id)] !== documentId ? 'new-document' : null;
+        if (changed) {
+          await call(`/status?repairFailed=${encodeURIComponent(token)}&repairAction=${repairAction}&why=changed&detail=${encodeURIComponent(changed)}`);
           continue;
         }
       }
@@ -2944,6 +3015,20 @@ async function performBrowserRepairs(repairs, policy) {
         }
         if (reason === 'assistant-error' && status?.ok === true && status.assistantError === false) {
           await call(`/status?repaired=${encodeURIComponent(token)}&repairAction=preserved`);
+          continue;
+        }
+      }
+      if (target && reason === 'no-tab') {
+        // A no-tab repair exists to give the chat a tab. When it has one again by now, it is
+        // usually the tab a worker wake or another command just opened for it, and reloading that
+        // tab cut its page off in the middle of the send (#864, #882). A tab that is still loading
+        // or answers is the repair; only a silent one is reloaded.
+        const tab = await chrome.tabs.get(target.id);
+        const loading = tab.status === 'loading' || Boolean(tab.pendingUrl);
+        const status = loading ? null : await tabReply(target.id, { type: 'clf-page-status' },
+          documentId ? { documentId } : undefined);
+        if (loading || status?.ok === true) {
+          await call(`/status?repaired=${encodeURIComponent(token)}&repairAction=present`);
           continue;
         }
       }
@@ -3337,6 +3422,7 @@ const HANDLERS = {
       port: found ? found.port : null,
       paired: token !== null,
       disconnected,
+      connectorNames,
       pending: journal.length,
       pendingCommandAcks: commandAckOutbox.length,
       compatible: found ? found.compatible !== false : null,
@@ -3611,9 +3697,10 @@ const HANDLERS = {
       `&since=${Number(message.since) || 0}` +
       `&goalClient=${encodeURIComponent(String(source.tab))}` +
       // Forward only the helper states this document may report; these are diagnostics.
-      (['absent', 'empty', 'ok'].includes(message.fiber) ? `&fiber=${message.fiber}` : '');
+      (['absent', 'empty', 'ok'].includes(message.fiber) ? `&fiber=${message.fiber}` : '') +
+      (typeof message.generating === 'boolean' ? `&generating=${message.generating ? 1 : 0}` : '');
     const result = await call(`/activity${query}`);
-    if (ownsDocument(source) && result.ok && result.data && await acceptBrowserRevival(result.data.revival)) {
+    if (ownsDocument(source) && result.ok && result.data && await acceptBrowserRevivals(result.data)) {
       await recoverDeferredRevivals();
     }
     // A fresh chat the app wants opened beside this one. Offered only to the home chat's own
@@ -3912,6 +3999,18 @@ const HANDLERS = {
     return ackCommand(String(message.id || ''), message.status === 'sent' ? 'sent' : 'failed', message.error,
       message.conversationId, null, message.client, source, message.turnId);
   },
+  /**
+   * How far a redeemed command's page got: a step name only, never its text. The app keeps the
+   * last one so a command that runs out of time can say where it stopped. Best effort.
+   */
+  async command_step(message) {
+    const id = typeof message.id === 'string' ? message.id.slice(0, 128) : '';
+    const step = typeof message.step === 'string' ? message.step.slice(0, 32) : '';
+    if (!id || !step) return { ok: false };
+    const result = await call('/commands/step', { method: 'POST',
+      body: JSON.stringify({ id, client: String(message.client || '').slice(0, 64), step }) });
+    return { ok: result.ok === true };
+  },
   /** The marked page asking for the one command it was opened for. */
   async redeem(message) {
     return redeemCommand(
@@ -4039,6 +4138,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     'settings_get',
     'repair_fiber',
     'redeem',
+    'command_step',
     'defer_revival',
     'forget_revival',
     'ack'
@@ -4457,6 +4557,17 @@ async function acceptBrowserRevival(raw) {
   const id = deferredRevivalId(raw?.id);
   const conversationId = cleanConversationId(raw?.conversationId);
   return id && conversationId ? rememberDeferredRevival(id, conversationId) : false;
+}
+
+/**
+ * Takes every wake an app reply hands out (#882). An app older than 2.1.27 sends only the oldest
+ * one as `revival`; taking just that one held the others behind it until their deadline.
+ */
+async function acceptBrowserRevivals(data) {
+  const list = Array.isArray(data?.revivals) ? data.revivals.slice(0, 16) : data?.revival ? [data.revival] : [];
+  let accepted = false;
+  for (const raw of list) if (await acceptBrowserRevival(raw)) accepted = true;
+  return accepted;
 }
 
 /**

@@ -24,6 +24,9 @@ import { attachmentSchema, validateInputAttachments, normalizeInputAttachments }
 import { MAX_CHATGPT_MESSAGE_CHARS } from '../../shared/user-prompt.js';
 import type { PromptLimits } from './prompt.js';
 import { recoveryMessage, recoveryBusyMs } from '../../shared/recovery.js';
+import { invokedSkills } from '../../shared/skill-invocation.js';
+import { SKILL_ID_PATTERN } from '../../shared/skills.js';
+import { autoSelectManagedSkills } from '../skill-routing.js';
 
 export const inputArgs = z.object({
   projectId: z.string().uuid().nullable().optional(),
@@ -53,6 +56,8 @@ const entrySchema = inputArgs.extend({
   opening: z.literal(true).optional(),
   /** An explicit retry can keep its unbound local chat instead of reserving another. */
   requestedSessionId: inputArgs.shape.sessionId.optional(),
+  /** Frozen automatic routing decision. Empty means routing ran and deliberately chose none. */
+  autoSkills: z.array(z.object({ id: z.string().regex(SKILL_ID_PATTERN), revision: z.string().regex(/^[0-9a-f]{64}$/i) }).strict()).max(1).optional(),
   /** Frozen image projection; authored attachment IDs remain the replay identity. */
   toolImages: inputArgs.shape.images,
   /** One after-turn pickup earned by confirmed silence or settled Thinking failed. */
@@ -131,6 +136,8 @@ type InputDeliveryHooks = {
   activity?: (session: SessionSummary) => InputActivity;
   wakeDecision?: (entry: Readonly<InputEntry>, signal: AbortSignal) => Promise<void>;
   bindHelper?: (conversationId: string, sourceSessionId: string | null) => Promise<void>;
+  /** Trust an exact CoS composer opening under the same session-policy fence as Trust IPC. */
+  trustOpening?: (sessionId: string, conversationId: string) => Promise<boolean>;
   recordDelivered?: (entry: Readonly<InputEntry>, anchorCommitted: (seq: number) => void) => Promise<boolean>;
   prepareText?: (entry: Readonly<InputEntry>, limits: PromptLimits, authored: string) => string | Promise<string>;
   applyAutomation: (conversationId: string, automation: NonNullable<InputArgs['automation']>, phase: 'before-send' | 'after-send', objective?: string, loopAfterTurn?: boolean) => Promise<void>;
@@ -469,8 +476,12 @@ async function expireQueued(current: InputEntry[]): Promise<InputEntry[]> {
     // Only an ordinary browser attempt has an unclaimed startup deadline. Tool
     // intent survives a later terminal observation/restart; legacy bound-chat
     // rows are ambiguous and cannot safely be reclassified from today's activity.
+    // A message the app itself holds ("Message queued. Finish Setup to send: …", or after a failed
+    // browser start) was never offered to a browser. It stays queued with its reason and Retry;
+    // failing it here lost it and blamed the browser instead.
     if (row.state === 'queued' && row.mode === 'auto' && !row.opening && !row.finishOwner && !row.silenceBoundary &&
         (row.transportIntent === 'browser' || (!row.transportIntent && !row.sessionId)) &&
+        !row.error?.startsWith('Message queued. ') &&
         Date.now() - Math.max(row.createdAt, row.dueAt) >= 60_000)
       return { ...row, state: 'failed', error: 'Not sent: the browser did not pick up this message within 60 seconds.' };
     // Preparation can expire before Send. Once authorized, this exact claim owns
@@ -701,6 +712,13 @@ export function enqueueInput(raw: InputArgs, finishOwner?: InputEntry['finishOwn
         await getSessionProject(input.sessionId);
       }
     }
+    const authoredOrdinary = (input.authoredSource ?? 'text') === 'text' && input.mode !== 'finish' &&
+      !finishOwner && !input.stages?.length;
+    if (getConfig().ui.autoSelectSkills === true && authoredOrdinary && invokedSkills(input.text).length === 0) {
+      const folder = input.sessionId ? await getSessionProject(input.sessionId)
+        : input.projectId ? await projectWorkspace(input.projectId) : null;
+      entry.autoSkills = await autoSelectManagedSkills(input.text, { projectPath: folder?.real ?? null });
+    }
     if (retryOpening) { entry.opening = true; entry.requestedSessionId = input.sessionId; }
     entry.conversationId = await target(entry);
     if (!input.sessionId) {
@@ -878,7 +896,8 @@ export function editQueuedInput(id: string, text: string, afterTurn?: boolean): 
     const row = current.find(entry => entry.id === id && entry.state === 'queued' && queuedFollowup(entry) && !entry.recovery);
     if (!row) return false;
     if (current.filter(entry => !terminal(entry)).reduce((sum, entry) => sum + Buffer.byteLength(entry === row ? value : entry.text), 0) > 1024000) throw new Error('Queued messages exceed the text limit');
-    await commit(current.map(entry => entry === row ? { ...row, text: value, authoredSource: 'text', ...(afterTurn === undefined ? {} : { afterTurn }), deliveryText: undefined } : entry));
+    await commit(current.map(entry => entry === row ? { ...row, text: value, authoredSource: 'text',
+      ...(afterTurn === undefined ? {} : { afterTurn }), deliveryText: undefined, autoSkills: undefined } : entry));
     return true;
   });
 }
@@ -941,7 +960,10 @@ export function noteInputStartupError(id: string, error: string | null): Promise
     // browser delivery. A failed project write must not be hidden by a wake result.
     try { await materializeOpening(row); }
     catch (failure) { error = 'Local chat setup failed: ' + (failure as Error).message; }
-    const next = { ...row, error: error ? error.slice(0, 200) : undefined };
+    // Releasing the app's own hold makes the message due now: the browser's 60-second pickup
+    // window starts here, not when the message was first sent and held.
+    const released = !error && !!row.error?.startsWith('Message queued. ');
+    const next = { ...row, error: error ? error.slice(0, 200) : undefined, ...(released ? { dueAt: Math.max(row.dueAt, Date.now()) } : {}) };
     await commit(current.map(entry => entry === row ? next : entry));
     return { ...next };
   });
@@ -1406,7 +1428,21 @@ async function bindOpening(entry: InputEntry, conversationId: string): Promise<b
   await materializeOpening(entry);
   const session = await getSession(entry.sessionId);
   if (!session || (session.conversationId && session.conversationId !== conversationId)) return false;
-  if (!session.conversationId && !await rebindSession(session.id, null, conversationId)) return false;
+  const strictAtAuthoritativeBind = !session.conversationId && getConfig().multiAgent.strictChatAllowlist === true;
+  let boundSessionNow = false;
+  if (!session.conversationId) {
+    if (!await rebindSession(session.id, null, conversationId)) return false;
+    boundSessionNow = true;
+  }
+  // This is the first exact provider attachment that can prove the chat was opened by the CoS
+  // composer: the durable outbox row is an opening, the browser proved its exact owner/id pair,
+  // and this operation committed the reserved session's null -> conversation bind while strict
+  // mode was already on. Recovered outbox rows whose session attached earlier may reconcile their
+  // row here, but that stale first outbox binding cannot mint Trust. Direct/browser-created chats
+  // never traverse this boundary. Keep strict-off openings out of the explicit Trust registry.
+  if (boundSessionNow && strictAtAuthoritativeBind && getConfig().multiAgent.strictChatAllowlist === true) {
+    if (!deliveryHooks?.trustOpening || !await deliveryHooks.trustOpening(session.id, conversationId)) return false;
+  }
   return true;
 }
 /** Bind exact opening/project ownership before the document publishes request evidence. */

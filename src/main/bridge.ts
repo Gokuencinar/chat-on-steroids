@@ -1,4 +1,5 @@
 import { conversationProgress } from './session/progress.js';
+import { connectorNames } from '../shared/connector-names.js';
 import { messageReaction } from '../shared/message-reaction.js';
 import { browserControl } from './browser-control.js';
 import type { BrowserResult } from '../shared/browser-control.js';
@@ -81,7 +82,7 @@ import {
   goalReplySourceTurn,
   consumeGoalReplyForInputNow,
   goalSwitchFor,
-  goalViewFor,
+  goalViewFor, goalOutcomeFor,
   pendingGoalReplies,
   retireGoalDrafts,
   goalDraftNeedsIntervention,
@@ -135,7 +136,7 @@ import { setLivePreview } from './live-preview.js';
 import { nativeHandoffPrompt } from './session/handoff-prompt.js';
 import { DEFAULT_HANDOFF_PROMPT } from '../shared/handoff.js';
 import { briefShortfall, resumeBootstrapText } from './session/handoff.js';
-import {
+import { ownCoreHint,
   PRIME_ID,
   agentConversation,
   agentForConversation,
@@ -170,6 +171,7 @@ import {
   retiredWorkerForConversation,
   waitingForSubAgents,
   sleepSilentWorkers,
+  notePageGenerating,
   occupiesSlot,
   sleepWorker,
   stageQueuedWorkerRevivals,
@@ -449,7 +451,37 @@ interface Command {
    * Memory only: a command restored from a previous run has no page waiting for it.
    */
   owner: string | null;
+  /**
+   * How far opening this chat got, for the message when it runs out of time. Memory only, and
+   * only step names and times: never text, titles or addresses. `opened` says who was asked to
+   * open the tab; `step` is the last stage the page reported after it picked up the command.
+   */
+  progress?: { opened?: 'browser' | 'os'; step?: CommandStep; stepAt?: number };
 }
+
+/** Bootstrap stages a page reports after redeeming, in order. See `commandProgress`. */
+const COMMAND_STEPS = ['revival-waiting', 'revival-busy', 'revival-draft', 'revival-editor', 'composer', 'model', 'composer-after-model', 'inserting', 'sending'] as const;
+/** Steps a wake reports while it waits, before redeeming. `revival-waiting` is what older pages send. */
+const REVIVAL_WAIT_STEPS = new Set<string>(['revival-waiting', 'revival-busy', 'revival-draft', 'revival-editor']);
+type CommandStep = typeof COMMAND_STEPS[number];
+/**
+ * How long an automatic handoff's page may stay at one step before it types anything. Choosing
+ * the model takes seconds; this leaves room for a throttled background tab.
+ */
+const RESUME_STEP_STALL_MS = 3 * 60_000;
+const RESUME_STALL_STEPS: ReadonlySet<CommandStep> = new Set(['composer', 'model', 'composer-after-model']);
+
+const COMMAND_STEP_TEXT: Record<CommandStep, string> = {
+  'revival-waiting': 'its chat was still answering or its message box was not empty',
+  'revival-busy': 'its chat was still answering',
+  'revival-draft': 'its message box was not empty',
+  'revival-editor': 'its page never showed a usable message box',
+  composer: 'waiting for ChatGPT\'s message box',
+  model: 'choosing the model and reasoning',
+  'composer-after-model': 'waiting for the message box after choosing the model',
+  inserting: 'putting the task into the message box',
+  sending: 'sending the task'
+};
 
 type CommandPhase = 'queued' | 'leased';
 type CommandReceiptOutcome = 'committed' | 'terminal-failure';
@@ -483,6 +515,8 @@ interface DurableCommandSnapshot {
 /** The wire form the extension receives. */
 export interface BridgeCommand {
   id: string;
+  /** Absolute browser-delivery deadline for this leased command. */
+  expiresAt: number;
   /** Project entry is navigation authority only; the source composer must never receive the brief. */
   projectEntry?: { id: string; sourceConversationId: string };
   kind: 'open-chat' | 'stop-turn';
@@ -652,6 +686,50 @@ function chatHeldElsewhere(conversationId: string, browser: string | null): bool
   if (!browser) return false;
   const holders = chatHolders(conversationId);
   return holders.length > 0 && !holders.includes(browser);
+}
+
+/**
+ * "Open in ChatGPT" for a chat this app knows, shown by the extension instead of the OS.
+ *
+ * The OS hands a URL to whichever browser window last had focus. On #882 (2026-10-04) that was a
+ * second Chrome signed in to another ChatGPT account and without this extension, so the user got
+ * "you don't have access to this conversation". A browser running the extension focuses the
+ * chat's tab or opens it there. It goes to the browser already holding the chat, else to the
+ * first one that asks. Extensions that predate this say nothing about it in their /status body
+ * and are never handed one; the caller then opens the URL through the OS as before.
+ */
+const REVEAL_COLLECT_MS = 4_000;
+const revealBrowsers = new Map<string, number>();
+const pendingReveals: Array<{ conversationId: string; settle: (shown: boolean) => void }> = [];
+
+function revealCapable(): boolean {
+  const now = Date.now();
+  return [...revealBrowsers.values()].some(at => now - at < OPENING_CUSTODY_MS);
+}
+
+/** Resolves true once a browser took the chat, false when the caller should open it itself. */
+export function revealChatInBrowser(conversationId: string): Promise<boolean> {
+  if (!browserWakeConnected() || !revealCapable()) return Promise.resolve(false);
+  return new Promise(resolve => {
+    const entry = { conversationId, settle: (shown: boolean) => { clearTimeout(timer); resolve(shown); } };
+    const timer = setTimeout(() => {
+      const index = pendingReveals.indexOf(entry);
+      if (index >= 0) pendingReveals.splice(index, 1);
+      resolve(false);
+    }, REVEAL_COLLECT_MS);
+    timer.unref?.();
+    pendingReveals.push(entry);
+    wakeBrowserWork();
+  });
+}
+
+function takeReveals(browser: string | null): string[] {
+  const taken = pendingReveals.filter(entry => !chatHeldElsewhere(entry.conversationId, browser));
+  for (const entry of taken) {
+    pendingReveals.splice(pendingReveals.indexOf(entry), 1);
+    entry.settle(true);
+  }
+  return [...new Set(taken.map(entry => entry.conversationId))];
 }
 
 /** An input goes to the browser holding its chat or, when none does, to the first one handed it. */
@@ -1673,7 +1751,7 @@ export async function sessionControlsFor(sessionId: string): Promise<SessionCont
     (stopping || runningToolCalls(id) > 0 || (activityExpiry !== undefined ? activityExpiry !== null && activityExpiry > Date.now() :
       live?.activeTurnId === session.activeTurnId)) ? session.activeTurnId : null;
   const finishHeld = !blocked && await sessionFinishHeld(sessionId, activeTurnId, id);
-  const draft = goalViewFor(id);
+  const draft = goalViewFor(id) ?? goalOutcomeFor(id);
   const inputPolicy = await sessionInputPolicy(sessionId, sessionInputActivity(session));
   const plan = await readSessionPlan(sessionId);
   const finishWaiting = await sessionFinishWaiting(sessionId, activeTurnId, id);
@@ -2157,8 +2235,9 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     const live = liveConversations();
     let openConversations: string[] = [];
     let stalledConversations: string[] = [];
+    let revealRequested = false;
     if (req.method === 'POST') {
-      const body = await readBody(req) as { openConversations?: unknown; stalledConversations?: unknown; updateHold?: unknown };
+      const body = await readBody(req) as { openConversations?: unknown; stalledConversations?: unknown; updateHold?: unknown; canReveal?: unknown };
       if (!Array.isArray(body?.openConversations) || body.openConversations.length > 10_000 || body.openConversations.some(id => !conversationId(id))) {
         return json(res, 400, { error: 'invalid_open_conversations' }, origin);
       }
@@ -2169,6 +2248,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       }
       stalledConversations = (body.stalledConversations ?? []) as string[];
       noteExtensionUpdateHold(body.updateHold);
+      revealRequested = body.canReveal === true;
     }
     const openSet = new Set(openConversations);
     const tabPolicy = await browserTabPolicy(openSet);
@@ -2188,19 +2268,22 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     const repairFailed = url.searchParams.get('repairFailed');
     const repairAction = url.searchParams.get('repairAction');
     const action = repairAction === 'reloaded' || repairAction === 'reopened' || repairAction === 'resumed' ||
-      repairAction === 'preserved' ? repairAction : null;
+      repairAction === 'preserved' || repairAction === 'present' ? repairAction : null;
     if (repaired) {
       await confirmRepair(repaired.slice(0, 64), action);
     } else if (repairFailed) {
-      await failRepairAttempt(repairFailed.slice(0, 64), action, url.searchParams.get('why'));
+      await failRepairAttempt(repairFailed.slice(0, 64), action, url.searchParams.get('why'), url.searchParams.get('detail')?.slice(0, 80) ?? null);
     }
     const repairHeld = url.searchParams.get('repairHeld');
     if (repairHeld) noteRepairHeld(repairHeld.slice(0, 64), url.searchParams.get('why'));
-    const revival = pendingBrowserRevival();
+    const revivals = pendingBrowserRevivals();
+    const revival = revivals[0] ?? null;
     const inputRows = await listInputs();
     const browser = browserOf(req);
     if (browser) browserSeenAt.set(browser, Date.now());
     if (browser && req.method === 'POST') browserChats.set(browser, openSet);
+    const canReveal = req.method === 'POST' && revealRequested;
+    if (canReveal) revealBrowsers.set(browser ?? '', Date.now());
     const pendingInputs = await pendingBrowserInputs();
     const pendingIds = new Set(pendingInputs.map(input => input.id));
     for (const id of openingCustody.keys()) if (!pendingIds.has(id)) openingCustody.delete(id);
@@ -2212,6 +2295,8 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
         conversations: live,
         stopTurns: await pendingStopCommands(),
         modelCatalogRequest: pendingChatModelRequest(),
+        // This install's connector names, so the extension recognizes exactly its own traffic.
+        connectorNames: connectorNames(getConfig().connectorSuffix),
         pluginRefreshRequests: getConfig().ui.autoRefreshPlugins === true ? pluginRefreshPublications().map(({ surface, schemaId, connectorName }) => ({ surface, schemaId, connectorName })) : [],
         browserPreferenceRequest: pendingBrowserPreferenceRequest(),
         inputOpeningIds: inputRows.filter(row => !['sent', 'failed', 'cancelled'].includes(row.state)).map(row => row.id),
@@ -2228,7 +2313,9 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
         // Rendering custody follows the actual command ledger, including its retirement.
         commandIds: commands.map(command => command.id),
         revival,
+        revivals,
         placement: pendingBrowserPlacement(null, browser),
+        ...(canReveal ? { reveals: takeReveals(browser) } : {}),
         // A failure report closes this request. Reissuing the repair in the same response would
         // replace the visible failure with "Trying" before a renderer could ever observe it.
         repairs: repairFailed || repairHeld ? [] : await takePendingRepairs(Date.now(), browser),
@@ -2697,6 +2784,9 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     // is the only thing that lifts it.
     pagelessChats.delete(id);
     noteFiberHealth(id, url.searchParams.get('fiber'));
+    // Older extensions omit it; they keep the plain three-minute silence rule.
+    const pageGenerating = url.searchParams.get('generating');
+    if (pageGenerating === '1' || pageGenerating === '0') notePageGenerating(id, pageGenerating === '1');
     const retiredWorker = retiredWorkerForConversation(id);
     const superseded = await conversationWasSuperseded(id);
     /**
@@ -3101,6 +3191,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
         // Returning the same inert id here makes a live page the fast path; /status remains the
         // service-worker/restart path. Redeem is still the exclusive ownership boundary.
         revival: pendingBrowserRevival(),
+        revivals: pendingBrowserRevivals(),
         // Recovery only. A placement is normally collected by the `/compact` reply that
         // produced it; this is where it is still found if that reply never reached the page —
         // a navigation, a dropped socket — so a lost response becomes a correctly placed tab
@@ -3440,7 +3531,8 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
           ? nativeHandoffPrompt(
               already.token,
               getConfig().goal.includeToolCalls === true,
-              getConfig().compaction.handoffPrompt ?? DEFAULT_HANDOFF_PROMPT
+              getConfig().compaction.handoffPrompt ?? DEFAULT_HANDOFF_PROMPT,
+              getConfig().compaction.handoffLength
             )
           : null;
       return json(
@@ -3483,7 +3575,8 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
         prompt: nativeHandoffPrompt(
           opened.token,
           getConfig().goal.includeToolCalls === true,
-          getConfig().compaction.handoffPrompt ?? DEFAULT_HANDOFF_PROMPT
+          getConfig().compaction.handoffPrompt ?? DEFAULT_HANDOFF_PROMPT,
+          getConfig().compaction.handoffLength
         ),
         job: resumeJobFor(sessionId)
       },
@@ -4141,6 +4234,26 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     return json(res, 200, { command: described }, origin);
   }
 
+  // A page that redeemed a command saying how far it got. Step names only; see `commandProgress`.
+  // Advisory: it changes no lease or outcome, and a stale or foreign report is ignored. The one
+  // deadline it moves is an automatic handoff's, which ends sooner at a step that stalls before typing.
+  if (route === '/commands/step' && req.method === 'POST') {
+    let body: Record<string, unknown>;
+    try {
+      body = (await readBody(req)) as Record<string, unknown>;
+    } catch (err) {
+      if ((err as Error).message === 'body_too_large') return tooLarge(res, origin);
+      return json(res, 400, { error: 'bad_request' }, origin);
+    }
+    const step = COMMAND_STEPS.find(candidate => candidate === body['step']);
+    const command = commands.find(entry => entry.id === body['id']);
+    // A wake reports its wait before it redeems, so it has no owner yet; every later step needs one.
+    const allowed = step && REVIVAL_WAIT_STEPS.has(step) ? command?.owner === null : command?.owner != null && command.owner === body['client'];
+    if (!step || !command || !allowed) return json(res, 200, { ok: false }, origin);
+    command.progress = { ...command.progress, step, stepAt: Date.now() };
+    if (command.spec.type === 'resume' && command.timer && continuationByToken(command.spec.token)?.automatic) armDeadline(command);
+    return json(res, 200, { ok: true }, origin);
+  }
   if (route === '/commands/ack' && req.method === 'POST') {
     let body: Record<string, unknown>;
     try {
@@ -4444,8 +4557,9 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
         };
       }
     } else if (command.spec.type === 'revive') {
+      // An error comes from the worker's own page, so the chat did open: what failed is the message.
       const why = error
-        ? `the browser could not reopen the worker's chat — ${error}`
+        ? `the worker's chat did not take the message — ${error}`
         : "the browser could not reopen the worker's chat";
       failWorkerRevival(command.spec.agent, why, command.spec.runId);
       receipt = {
@@ -5888,18 +6002,31 @@ async function abortRejectedResume(token: string, reason: string): Promise<boole
   }
 }
 
-/** The one existing-chat command the extension may route after a fresh tab scan. */
-function pendingBrowserRevival(): {
-  id: string;
-  conversationId: string;
-} | null {
+/** Most wakes handed to the browser in one reply; more than any one run can wake at once. */
+const MAX_REVIVALS_PER_REPLY = 16;
+
+/**
+ * Every existing-chat wake the extension may route after a fresh tab scan, oldest first.
+ *
+ * Handing out only the oldest one held every later wake behind it: a wake whose chat had no tab
+ * and was slow to get one kept the head of the queue, the next status pass handed out the same
+ * one again, and the rest timed out at the revival deadline without reaching the browser at all
+ * (#882: "the browser did not claim this command before its deadline", eight workers in #864).
+ */
+function pendingBrowserRevivals(): Array<{ id: string; conversationId: string }> {
   tidyCommands();
-  const command = commands.find(
-    (entry) => entry.spec.type === 'revive' && entry.owner === null && !revivalDeliveryProven(entry)
-  );
-  return command && command.spec.type === 'revive'
-    ? { id: command.id, conversationId: command.spec.conversationId }
-    : null;
+  const waiting: Array<{ id: string; conversationId: string }> = [];
+  for (const entry of commands) {
+    if (waiting.length >= MAX_REVIVALS_PER_REPLY) break;
+    if (entry.spec.type === 'revive' && entry.owner === null && !revivalDeliveryProven(entry))
+      waiting.push({ id: entry.id, conversationId: entry.spec.conversationId });
+  }
+  return waiting;
+}
+
+/** The oldest of them, for an extension older than 2.1.27 that reads one `revival`. */
+function pendingBrowserRevival(): { id: string; conversationId: string } | null {
+  return pendingBrowserRevivals()[0] ?? null;
 }
 
 // ------------------------------------------------- where a fresh chat is opened
@@ -6111,6 +6238,7 @@ function pendingBrowserPlacement(conversationId: string | null, browser: string 
   if (!command?.placement) return null;
   const placement = command.placement;
   delete command.placement;
+  command.progress = { ...command.progress, opened: 'browser' };
   const spec = command.spec;
   const worker = spec.type === 'worker';
   const selection = spec.type === 'resume' ? continuationByToken(spec.token)?.requestedModel : null;
@@ -6944,6 +7072,34 @@ const lastBrowserRecoveryAt = new Map<string, number>();
  * refund it when another recovery takes over. Only a positive no-action failure can release it.
  */
 const turnRepairSpent = new Map<string, { sessionId: string; turnKey: string; token: string; at: number }>();
+
+/**
+ * Answers whose interrupted-response reload the user cancelled (#1032). Keyed like the spent
+ * budget, by the question that owns the answer: the page keeps re-reporting the same lost stream,
+ * and each notice must not bring the countdown back. The next question is a new answer.
+ */
+const assistantRecoveryCancelled = new Map<string, { sessionId: string; turnKey: string }>();
+
+function assistantRecoveryCancelledFor(conversationId: string, sessionId: string, turnKey: string): boolean {
+  const cancelled = assistantRecoveryCancelled.get(conversationId);
+  return cancelled?.sessionId === sessionId && cancelled.turnKey === turnKey;
+}
+
+/**
+ * The user's "don't reload this answer". Only a reload the browser has not claimed can be
+ * withdrawn; a claimed one is already happening. Returns whether a countdown was cancelled.
+ */
+export async function cancelAssistantRecovery(sessionId: string): Promise<boolean> {
+  const conversationId = (await getSession(sessionId))?.conversationId;
+  if (!conversationId) return false;
+  const repair = repairsInFlight.get(conversationId);
+  if (!repair || repair.reason !== 'assistant-error' || repair.sessionId !== sessionId || repair.state === 'done' ||
+      repair.claimed || !repair.assistantSource) return false;
+  assistantRecoveryCancelled.set(conversationId, { sessionId, turnKey: repair.assistantSource.key });
+  repairsInFlight.delete(conversationId);
+  logInfo(`bridge: the user cancelled the interrupted-response reload for ${conversationId}`);
+  return true;
+}
 /**
  * Chats whose last turn ended `failed` or `stalled` and which have produced nothing since.
  *
@@ -7074,6 +7230,7 @@ function queueBrowserRecovery(
   if (reason === 'assistant-error') {
     const spent = turnRepairSpent.get(conversationId);
     if (!assistantSource) return false;
+    if (assistantRecoveryCancelledFor(conversationId, sessionId, assistantSource.key)) return false;
     // A reload that brought the answer back to work was not a failed remedy. The question does
     // not move while one long answer runs, so without this a stream that dropped twice in an
     // hour was treated as the same broken turn: measured 2026-09-26, a reload at 17:44 resumed
@@ -7538,7 +7695,11 @@ function noticeRefusal(key: string, message: string): void {
 async function browserTabPolicy(openConversations: Set<string>) {
   // Existing cached metadata is the ownership index; never scan transcripts per browser poll.
   const summaries = await listUsageSessions();
-  const managed = new Set(summaries.filter(row => row.origin && row.conversationId && openConversations.has(row.conversationId)).map(row => row.conversationId!));
+  // A Compact & Resume destination is stamped `resume`, but it is the user's own chat moved to a
+  // new conversation, not a page this app owns: idle cleanup must never close it (#1012). The
+  // superseded source chat stays closable through supersededSourceConversations() below.
+  const managed = new Set(summaries.filter(row => row.origin && row.origin.kind !== 'resume' && row.conversationId &&
+    openConversations.has(row.conversationId)).map(row => row.conversationId!));
   for (const id of [...supersededSourceConversations(), ...closableWorkerConversations(0)]) if (openConversations.has(id)) managed.add(id);
   for (const agent of swarmState().agents) if (agent.conversationId && openConversations.has(agent.conversationId)) managed.add(agent.conversationId);
   const protectedChats = new Set(nonDiscardableAgentConversations());
@@ -8751,10 +8912,18 @@ function attributionRepairCurrent(repair: Repair, session: SessionSummary | null
  * this app is no longer waiting on - an older turn's, or one already re-queued - matches
  * nothing and closes nothing, which is the only safe reading of it.
  */
-async function confirmRepair(token: string, action: 'reloaded' | 'reopened' | 'resumed' | 'preserved' | null): Promise<void> {
+async function confirmRepair(token: string, action: 'reloaded' | 'reopened' | 'resumed' | 'preserved' | 'present' | null): Promise<void> {
   for (const [conversationId, repair] of repairsInFlight) {
     if (repair.state === 'handed' && repair.token === token) {
       if (!compactionRepairCurrent(conversationId, repair)) { repairsInFlight.delete(conversationId); return; }
+      if (action === 'present') {
+        // The chat had a tab again by the time the browser acted, usually the one a worker wake
+        // just opened. Nothing was reloaded, so nothing is waiting to come back (#864).
+        logInfo(`bridge: ${conversationId} was already open again; the browser left its tab as it was`);
+        repair.state = 'done';
+        repairsInFlight.delete(conversationId);
+        return;
+      }
       if (action === 'preserved' && repair.reason === 'assistant-error') {
         logInfo(`bridge: the browser preserved the recovered page for ${conversationId} without spending its assistant-error reload`);
         await updateRepairProgress(
@@ -8851,10 +9020,51 @@ const REPAIR_FAIL_REASONS: Record<string, string> = {
   error: 'Chrome refused the action'
 };
 
+/**
+ * What exactly changed, as the browser reports it (#1086). A long run logged "the page changed
+ * before the action" ten times in a row while nothing else happened, and nothing said which
+ * check moved. Unknown values are dropped, never echoed.
+ */
+const REPAIR_CHANGE_DETAILS: Record<string, string> = {
+  navigating: 'the tab was navigating',
+  'other-chat': 'the tab showed another chat',
+  'new-document': 'the page was reloaded or replaced',
+  'woke-up': 'the suspended tab woke up',
+  'first-unanswered': 'the page did not answer the first check',
+  'changed-turn': 'a new answer started',
+  'changed-question': 'a new message was sent',
+  'changed-unknown': 'the answer changed',
+  unknown: 'the page gave no reason'
+};
+/** Where the page saw the answer move, for `changed-progress:<source>`. */
+const REPAIR_PROGRESS_SOURCES: Record<string, string> = {
+  adopted: 'the page took over a running answer',
+  sent: 'a message was sent',
+  'page-call': 'the page showed a new tool call',
+  'page-step': 'the page showed a new step',
+  'page-text': 'the answer text grew',
+  'tool-resumed': 'a tool call resumed the answer',
+  'app-tool_call': 'the app recorded a tool call',
+  'app-page_tool': 'the app recorded a ChatGPT step',
+  'app-progress': 'the app recorded a status note',
+  'app-assistant_message': 'the app recorded answer text'
+};
+
+function repairChangeDetail(detail: string | null): string | null {
+  if (!detail) return null;
+  if (Object.hasOwn(REPAIR_CHANGE_DETAILS, detail)) return REPAIR_CHANGE_DETAILS[detail]!;
+  if (Object.hasOwn(REPAIR_HOLD_REASONS, detail)) return REPAIR_HOLD_REASONS[detail]!;
+  const progress = /^changed-progress(?::(.+))?$/.exec(detail);
+  if (!progress) return null;
+  const source = progress[1] && Object.hasOwn(REPAIR_PROGRESS_SOURCES, progress[1]) ? REPAIR_PROGRESS_SOURCES[progress[1]] : null;
+  return `the answer made progress${source ? ` (${source})` : ''}`;
+}
+
 async function failRepairAttempt(
   token: string,
-  action: 'reloaded' | 'reopened' | 'resumed' | 'preserved' | null,
-  why: string | null = null
+  action: 'reloaded' | 'reopened' | 'resumed' | 'preserved' | 'present' | null,
+  why: string | null = null,
+  changeDetail: string | null = null
 ): Promise<void> {
   for (const [conversationId, repair] of repairsInFlight) {
     if (repair.state !== 'handed' || repair.token !== token) continue;
@@ -8865,7 +9075,8 @@ async function failRepairAttempt(
       if (!repair.awaitingStream)
         logInfo(`bridge: ChatGPT is answering again in ${conversationId}; the ${repair.reason} repair waits until it finishes`);
     } else {
-      const detail = why && Object.hasOwn(REPAIR_FAIL_REASONS, why) ? `: ${REPAIR_FAIL_REASONS[why]}` : '';
+      const exact = why === 'changed' ? repairChangeDetail(changeDetail) : null;
+      const detail = why && Object.hasOwn(REPAIR_FAIL_REASONS, why) ? `: ${REPAIR_FAIL_REASONS[why]}${exact ? ` — ${exact}` : ''}` : '';
       logWarn(`bridge: the browser reported failed ${repair.reason} recovery for ${conversationId} (${action ?? 'action unspecified'}${detail})`);
     }
     repair.awaitingStream = streaming;
@@ -8955,6 +9166,7 @@ function clearUnattributedIncident(): void {
   repairsInFlight.clear();
   lastBrowserRecoveryAt.clear();
   turnRepairSpent.clear();
+  assistantRecoveryCancelled.clear();
   pagelessChats.clear();
   // The told-once set belongs to the incident state this tears down. Left behind, a give-up
   // already reported keeps a later one silent — across a bridge restart in production, and
@@ -9101,6 +9313,7 @@ async function openFreshChatInBrowser(command: Command): Promise<void> {
     // Stamped whether or not a browser was already running: this process cannot tell the
     // difference, and the window it opens is only ever spent by a browser failing to appear.
     if (!browserPresent()) lastBrowserLaunchAt = Date.now();
+    command.progress = { ...command.progress, opened: 'os' };
     await openInBrowser(
       command.spec.type === 'worker'
         ? commandUrl(command.id, command.spec.model, command.spec.reasoningEffort)
@@ -9153,7 +9366,14 @@ function commandDeadlineDelay(command: Command, now = Date.now()): number {
   if (command.spec.type === 'resume' && continuationByToken(command.spec.token)?.automatic) {
     // One checkpoint, not a failure trigger. Expiry releases only this browser transport;
     // the auto-compaction ticket remains and the next 15-minute pickup may open it again.
-    return (command.claimedAt ?? command.createdAt) + COMPACTION_PICKUPS.opening.every - now;
+    const checkpoint = (command.claimedAt ?? command.createdAt) + COMPACTION_PICKUPS.opening.every;
+    // A page that stops at a step before typing anything is not about to finish. #882: one sat at
+    // "choosing the model" for the whole window while the prime, mid-transfer, refused its
+    // workers' calls; the next pickup's chat then finished in ten seconds. Its send was never
+    // attempted, so releasing it early is the same release, just sooner.
+    const { step, stepAt } = command.progress ?? {};
+    const stalled = step && stepAt !== undefined && RESUME_STALL_STEPS.has(step) ? stepAt + RESUME_STEP_STALL_MS : Infinity;
+    return Math.min(checkpoint, stalled) - now;
   }
   if (command.spec.type === 'resume' && command.owner !== null) {
     const continuation = continuationByToken(command.spec.token);
@@ -9271,9 +9491,29 @@ function expire(command: Command): void {
 
 /** Timer and sweep describe the same delivery evidence, preserving a recorded failure. */
 function commandExpiryReason(command: Command): string {
-  return command.lastError ?? (command.claimedAt === null
-    ? 'the browser did not claim this command before its deadline'
-    : 'the chat this app opened did not report back in time');
+  if (command.lastError) return command.lastError;
+  if (command.claimedAt !== null) return `the chat this app opened did not report back in time (${commandProgress(command)})`;
+  const step = command.progress?.step;
+  return step && REVIVAL_WAIT_STEPS.has(step)
+    ? `the browser did not claim this command before its deadline (${COMMAND_STEP_TEXT[step]})`
+    : 'the browser did not claim this command before its deadline';
+}
+
+/**
+ * Where a claimed command stopped, in words a bug report can carry. Before this, a worker that
+ * hung while choosing its model and one whose tab never loaded both read "did not report back
+ * in time", and #882's worker-11 (2026-10-04) could not be told apart from either.
+ */
+function commandProgress(command: Command, now = Date.now()): string {
+  const progress = command.progress ?? {};
+  if (command.owner === null) {
+    if (progress.opened === 'browser') return 'the browser opened it, but the page never picked up its task';
+    if (progress.opened === 'os') return 'it was opened through the operating system, and no page with the extension picked up its task';
+    return 'no browser opened it';
+  }
+  if (!progress.step || REVIVAL_WAIT_STEPS.has(progress.step) || progress.stepAt === undefined) return 'the page picked up its task, then reported nothing more';
+  const seconds = Math.max(0, Math.round((now - progress.stepAt) / 1000));
+  return `last step: ${COMMAND_STEP_TEXT[progress.step]}, reported ${seconds} s before the app gave up`;
 }
 
 /** Finishes a command that has nothing left to do, timer and all. */
@@ -9342,7 +9582,7 @@ function bootstrapText(spec: CommandSpec, summary: string): string {
     // think before it starts.
     return (
       `${spec.task}\n\n` +
-      `(Chat On Steroids: you are ${spec.agent}, a worker. Report to prime through the agents tool — ` +
+      `(Chat On Steroids: you are ${spec.agent}, a worker. Report to prime through the agents tool${ownCoreHint()} — ` +
       'action=message to="prime" as you go, action=finish once at the end. Workers cannot reach each other. ' +
       'The prime assigns your task; its later messages may update the task and assigned files, including a read-only audit becoming an edit task. ' +
       'Follow that latest assignment within the user’s permissions and standing constraints. ' +
@@ -9369,7 +9609,8 @@ function revivalFor(agent: string, runId: string): WorkerRevival | null {
 function describe(command: Command, client: string | null, claimedSummary?: string): BridgeCommand {
   const spec = command.spec;
   const selection = spec.type === 'resume' ? continuationByToken(spec.token)?.requestedModel : null;
-  if (spec.type === 'stop') return { id: command.id, kind: 'stop-turn', type: 'stop', text: '', agent: null, model: null, reasoningEffort: null, conversationId: spec.conversationId, turnId: spec.turnId, ...(spec.userMessageId ? { userMessageId: spec.userMessageId } : {}) };
+  const expiresAt = Date.now() + Math.max(1, commandDeadlineDelay(command));
+  if (spec.type === 'stop') return { id: command.id, expiresAt, kind: 'stop-turn', type: 'stop', text: '', agent: null, model: null, reasoningEffort: null, conversationId: spec.conversationId, turnId: spec.turnId, ...(spec.userMessageId ? { userMessageId: spec.userMessageId } : {}) };
   // A resume's claim is persisted by /commands/redeem before this renderer is called. A
   // command shown to app/UI code without a browser document still carries no brief at all.
   const text = spec.type === 'resume'
@@ -9379,6 +9620,7 @@ function describe(command: Command, client: string | null, claimedSummary?: stri
     : bootstrapText(spec, '');
   return {
     id: command.id,
+    expiresAt,
     kind: 'open-chat',
     ...(spec.type === 'resume' && commandProject(command) ? {
       projectEntry: { id: commandProject(command)!, sourceConversationId: continuationByToken(spec.token)!.from }
@@ -9988,6 +10230,11 @@ export async function unattributedIncidentsSettledForTests(): Promise<void> {
   await Promise.all([...unattributedIncidents.values()].map(incident => incident.ready));
 }
 
+/** The first message a fresh worker chat receives, for tests of its protocol wording. */
+export function workerBriefForTests(agent: string, task: string): string {
+  return bootstrapText({ type: 'worker', agent, task, model: null, reasoningEffort: null, runId: 'run-test' } as CommandSpec, '');
+}
+
 export function resetBridgeForTests(): void {
   clearCompanionDiagnostics();
   for (const command of commands) if (command.timer) clearTimeout(command.timer);
@@ -10024,6 +10271,8 @@ export function resetBridgeForTests(): void {
   lastSeenAt = null;
   browserSeenAt.clear();
   browserChats.clear();
+  revealBrowsers.clear();
+  for (const entry of pendingReveals.splice(0)) entry.settle(false);
   openingCustody.clear();
   extensionVersion = null;
   announcedExtensions.clear();
