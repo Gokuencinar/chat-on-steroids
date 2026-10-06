@@ -96,6 +96,10 @@ jobs:
         if: steps.scope.outputs.run == 'true'
         run: npm run build
 
+      - name: Diagnose native shell browser startup
+        if: steps.scope.outputs.run == 'true'
+        run: node scripts/verify-shell-runtime.cjs
+
       - name: Initialize the lazy Electron binary
         if: steps.scope.outputs.run == 'true'
         # Electron 44 installs its runtime on first require, not during npm ci.

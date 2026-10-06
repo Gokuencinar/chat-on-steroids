@@ -63,7 +63,10 @@ const executable = [
 assert(executable, 'No Chromium found; set COS_CHROME to a Chrome or Chromium executable.');
 const profile = path.join(output, 'profile');
 fs.rmSync(path.join(profile, 'DevToolsActivePort'), { force: true });
-const browser = spawn(executable, [`--user-data-dir=${profile}`, '--headless=new', '--remote-debugging-port=0', '--no-first-run', '--no-default-browser-check', '--disable-background-networking', 'about:blank'], { windowsHide: true, stdio: 'ignore' });
+const browser = spawn(executable, [`--user-data-dir=${profile}`, '--headless=new', '--remote-debugging-port=0', '--no-first-run', '--no-default-browser-check', '--disable-background-networking', 'about:blank'], { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
+let browserStderr = '', browserError = '';
+browser.stderr.on('data', chunk => { browserStderr = (browserStderr + chunk.toString()).slice(-8192); });
+browser.on('error', error => { browserError = error.message; });
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 let socket, seq = 0, session;
 const pending = new Map();
@@ -84,7 +87,7 @@ async function evaluate(expression) {
   try {
     let port;
     for (let at = 0; at < 100; at++) { try { port = fs.readFileSync(path.join(profile, 'DevToolsActivePort'), 'utf8').split('\n'); break; } catch { await delay(100); } }
-    assert(port);
+    assert(port, `Chromium did not publish its CDP port: ${path.basename(executable)}, exit=${browser.exitCode}, signal=${browser.signalCode}, error=${browserError || 'none'}\n${browserStderr}`);
     socket = new WebSocket(`ws://127.0.0.1:${port[0]}${port[1]}`);
     await new Promise(resolve => socket.once('open', resolve));
     socket.on('message', raw => {
