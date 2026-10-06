@@ -1681,7 +1681,8 @@ With Follow new output enabled, only a reader gesture changes that following int
 pending scroll belongs to the selected-chat generation, not a wall-clock grace period:
 scroll delivery may wait for a slow rendering opportunity. Input with no movement expires
 at the next animation frame unless its scrollbar/middle pointer is still held; pointer release,
-cancellation and blur retire an unused press. A moving gesture lasts through its native `scrollend`, including
+cancellation and blur retire an unused press. Releases without a held reader pointer are ignored
+before comparing IDs, including synthetic events with no pointer ID. A moving gesture lasts through its native `scrollend`, including
 smooth/inertial updates. A finished gesture or an A -> B -> A selection cannot lend intent
 to a later programmatic clamp or repaint. The ordinary geometry check remains when the
 setting is off; this adds no preference, history authority or delivery state.

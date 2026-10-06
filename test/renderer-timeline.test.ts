@@ -1774,6 +1774,17 @@ it('groups project chats and restores each project composer with its selected id
   expect(w.document.querySelector<HTMLDetailsElement>(`[data-project-id="${projects[1]!.id}"]`)!.open).toBe(false);
 });
 
+it('ignores pointer releases when the chat reader holds no pointer', async () => {
+  const { w } = await boot([], false);
+  const errors: unknown[] = [];
+  w.addEventListener('error', event => { errors.push(event.error); event.preventDefault(); });
+  for (const type of ['pointerup', 'pointercancel']) {
+    w.dispatchEvent(new w.MouseEvent(type, { bubbles: true, button: 0 }));
+    w.dispatchEvent(new w.PointerEvent(type, { pointerId: 7, button: 0 }));
+  }
+  expect(errors).toEqual([]);
+});
+
 it('reorders whole project groups without changing chat selection, ownership or disclosure across refresh', async () => {
   const projects: LocalProject[] = [
     { id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', name: 'Alpha', path: '/alpha', createdAt: 1 },

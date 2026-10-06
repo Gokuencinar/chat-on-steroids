@@ -132,7 +132,7 @@ it('caps cached request identities across buckets rather than allowing 50,000 pe
   }));
   await flushSessions(); resetSessionStoreForTests();
   await repairDeterministicAttribution();
-  const read = vi.spyOn(fs, 'readFile');
+  const read = vi.spyOn(fs, 'open');
   await repairDeterministicAttribution(new Set(['unrelated-new-request']));
   const reread = read.mock.calls.filter(([file]) => buckets.some(bucket => String(file) === path.join(dir, 'sessions', bucket.id, 'events.jsonl')));
   // At least one bucket was evicted to maintain the aggregate bound and is reconstructed.

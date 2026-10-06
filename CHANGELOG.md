@@ -5,6 +5,7 @@
 - Scan session journals in bounded blocks instead of loading the whole file, preserving canonical revisions and chronology while reducing allocation and main-thread stalls.
 - Rank chat title matches before text results, bound retained matches and reject superseded text indexes during rebuilds.
 - Recover lost Files watches through their existing sandbox owner; ignore retired handles and late failed validations after project switches.
+- Ignore pointer releases without a held chat-reader pointer, including synthetic events without a pointer ID.
 
 ## [2.1.36] — Official 2.1.28 integration with fork safeguards (2026-10-06)
 
