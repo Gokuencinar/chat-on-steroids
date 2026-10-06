@@ -1,11 +1,13 @@
 # Changelog
 
-## Unreleased — performance and stability
+## [2.1.37] — Performance, stability and updater reliability (2026-10-06)
 
 - Scan session journals in bounded blocks instead of loading the whole file, preserving canonical revisions and chronology while reducing allocation and main-thread stalls.
 - Rank chat title matches before text results, bound retained matches and reject superseded text indexes during rebuilds.
 - Recover lost Files watches through their existing sandbox owner; ignore retired handles and late failed validations after project switches.
 - Ignore pointer releases without a held chat-reader pointer, including synthetic events without a pointer ID.
+- Recover the double-click updater from GitHub API 403/429 through the public stable release redirect, validating the exact fork/tag before mandatory installer SHA-256 verification. Other API failures remain explicit.
+- Windows x64 only; app and extension 2.1.37, protocol 14. Preserve Cyberpunk, attachment/Core fallback, execution protections, Temporary Chat and durable Goal/Loop recovery.
 
 ## [2.1.36] — Official 2.1.28 integration with fork safeguards (2026-10-06)
 

@@ -21,7 +21,7 @@ changed lines before applying an older patch. Document the work and its actual v
 the code currently does it. Known implementation gaps are collected in §21 instead of being
 mixed into the happy path as features.
 
-Source alignment: **2026-10-06**, integrating official 2.1.28 as fork 2.1.36. App/extension **2.1.36**,
+Source alignment: **2026-10-06**, official 2.1.28 integration plus fork performance/updater repairs as 2.1.37. App/extension **2.1.37**,
 bridge protocol **14** in the checked declarations (`package.json`, `src/main/version.ts`,
 `extension/manifest.json`). This does not prove release, installation or live Chrome behavior.
 
@@ -4206,6 +4206,12 @@ partial file, verify SHA-256 before staging/adoption, and rehash at ordinary qui
 off. Windows NSIS/Linux AppImage can apply automatically; macOS/DEB present the supported manual
 path, development does not stage. Explicit install may relaunch; ordinary quit does not force
 relaunch. Failed checks never replace a verified staged candidate with unverified bytes.
+
+The double-click updater resolves latest through the API, using the exact fork's public stable
+release redirect only for API 403/429. Reject other hosts, repositories and non-stable tags;
+pin both installer and mandatory SHA-256 downloads to the resolved tag. Other API failures
+remain visible. The standalone PowerShell updater defaults to the release version and retains
+its exact-tag throttling recovery; neither updater forces a running app to quit.
 
 CI for this fork builds/smokes the Windows x64 release target, then assembles the installer,
 extension ZIP, native-sources archive and `SHA256SUMS.txt`. `publish.yml`

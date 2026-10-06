@@ -126,6 +126,24 @@ function Download-VerifiedInstaller([string]$tag, [string]$version) {
   return $installer
 }
 
+function Get-LatestRelease {
+  try {
+    return Invoke-RestMethod -Headers $headers -Uri $api -Method Get
+  } catch {
+    $apiStatus = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { $null }
+    if ($apiStatus -ne 403 -and $apiStatus -ne 429) { throw }
+    Write-Host 'GitHub ha limitado la API; consultando la release estable por su pagina publica.' -ForegroundColor Yellow
+    $page = Invoke-WebRequest -Headers $headers -Uri "https://github.com/$repo/releases/latest" -UseBasicParsing
+    $resolved = if ($page.BaseResponse.ResponseUri) { [uri]$page.BaseResponse.ResponseUri } else { [uri]$page.BaseResponse.RequestMessage.RequestUri }
+    $tagPath = '^/' + [Regex]::Escape($repo) + '/releases/tag/(v\d+\.\d+\.\d+)$'
+    if (-not $resolved -or $resolved.Scheme -ne 'https' -or $resolved.Host -ne 'github.com' -or $resolved.AbsolutePath -notmatch $tagPath) {
+      throw 'No se pudo confirmar una release estable del fork desde la pagina publica.'
+    }
+    # Resolve latest once. Installer and mandatory checksum downloads remain pinned to this tag.
+    return [pscustomobject]@{ tag_name = $Matches[1] }
+  }
+}
+
 function Start-AppIfNeeded([string]$exe) {
   if ((Get-AppProcesses).Count -gt 0) { return }
   if (Test-Path -LiteralPath $exe) {
@@ -138,7 +156,7 @@ try {
   Write-Host 'Repositorio: Gokuencinar/chat-on-steroids'
 
   Write-Step 'Consultando la ultima release'
-  $release = Invoke-RestMethod -Headers $headers -Uri $api -Method Get
+  $release = Get-LatestRelease
   if ($release.tag_name -notmatch '^v(\d+\.\d+\.\d+)$') {
     throw "La release mas reciente tiene un tag inesperado: $($release.tag_name)"
   }

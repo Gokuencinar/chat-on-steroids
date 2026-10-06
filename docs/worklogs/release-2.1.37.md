@@ -1,0 +1,7 @@
+# Fork 2.1.37 publication
+
+The user explicitly requested publication of the reviewed optimization candidate after the latest-version CMD failed with HTTP 403. Base candidate is 0a93785d2cd24ab376eb14ade2bbf277ed2ce6a4, built from released 2.1.36. Its complete Windows verification passed in workflow 37507760078; initial browser fixture failures and existing retries remain recorded in the audit/report rather than erased.
+
+The previously supplied general CMD had a direct latest-release API call without the throttling recovery already present in the pinned PowerShell script. The CMD now resolves the public stable-release redirect only on API 403/429. It validates HTTPS, github.com, the exact fork path and a stable numeric version before pinning both checksum and installer URLs. Other API errors remain explicit. A PowerShell 5.1 fixture imports only the selection functions, mocks HTTP boundaries, and checks ordinary success, 403/429, PowerShell 7 response shape, 404/500, wrong host/repository/scheme and prerelease rejection. The standalone pinned script keeps its existing exact-tag fallback and now defaults to 2.1.37. Mandatory checksum verification, no downgrade and graceful app closure remain unchanged.
+
+App/package/lock/extension declarations, changelog and release notes agree on 2.1.37; protocol remains 14. No dependencies, runtime secrets, installed userData or signed-in browser were accessed. No installation is performed by this publication task. Final CI, packaging and public artifact evidence are recorded separately when those stages complete.
