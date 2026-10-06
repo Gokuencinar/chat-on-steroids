@@ -1527,6 +1527,10 @@ Reads join only the relevant session's committed queue. `readActivityEvents()` d
 every dirty metadata row. A reopened session hydrates a bounded journal tail; append tail and
 canonical map serve revisions/cursors. `tailFrom` states proven coverage and cannot be lowered
 by an older canonical message across a missing journal range.
+Full journal reads scan a captured file extent in 256 KiB blocks, retain only requested events,
+and discard an overlong line through its actual newline before accepting another event. UTF-8
+crossing a block remains intact. Canonical messages overlay legacy snapshots after the scan;
+cursor and chronology rules are unchanged. This bounds scan buffers, not the requested result.
 
 `shared/chronology.ts` orders by canonical origin before revision sequence. `foldProgress`
 updates one namespaced progress/message identity in its original place. A HTML refresh of an
@@ -3466,7 +3470,10 @@ words and ChatGPT's answers, overflow text included, capped at 1M characters), b
 background newest first, reused while the stamp matches, deleted with the chat. Helper chats are
 left out, as in the sidebar. Every query word must match (title or text, any order, case- and
 accent-folded with `foldCase`, which keeps UTF-16 lengths so ranges index the original; `ß` stays). Title matches rank
-first, then text matches, each newest first. `titleMatches` and `snippet.matches` are UTF-16
+first, then text matches, each newest first. The whole title catalog is ranked before text
+reads, and only limit+1 matches are retained to prove `limited`. Text indexes must match the
+query's summary stamp; a superseded index cannot return old words while rebuilding, or replace
+a newer cache entry after an asynchronous read. `titleMatches` and `snippet.matches` are UTF-16
 `[start, end)` ranges into `title` and `snippet.text`. While `indexed < total`, text results
 cover only indexed chats and the renderer asks again. `limited: true` means more chats matched than
 `results` holds; the sidebar then asks for another word. ⌘K (macOS) / Ctrl+K focuses the field,
@@ -3652,6 +3659,10 @@ Worker history remains owned by the existing dock; there is no aggregate timelin
 
 Directories load one level at a time (500 entries); at most 128 expanded directory watches are
 retained. Collapse, panel hiding, renderer reload/destruction and root removal retire watchers.
+Native errors retire the exact handle and its debounce, then send `watchLost` to Files so it
+re-admits the visible paths through the sandbox. Ordinary changes keep signature coalescing.
+Retired handles cannot notify a replacement, and failed asynchronous validation checks its
+generation before removing a watch; an A-B-A round trip cannot retire the new A handle.
 Files uses one action toolbar with Refresh; its tab close hides the panel. Its shared
 work slot can grow to host width minus 360 px for chat, without a fixed maximum pixel width.
 `src/main/project-git.ts` is the sole owner of the read-only Review projection. The renderer
