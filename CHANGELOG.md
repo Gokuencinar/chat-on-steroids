@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.36] — Official 2.1.28 integration with fork safeguards (2026-10-06)
+
+- Integrates the published official 2.1.28 stable tag: bounded full-history chat search and local renaming; guided Setup and optional built-in browser; personal/Claude Code/Codex Skills, image requests and original generated-image export; Goal settlement and reload recovery fixes.
+- Keeps the fork Cyberpunk appearance, native attachments and exact Core fallback, execution guards, Temporary Chat, durable session/Goal/Loop recovery and protocol 14.
+- Windows x64 only; paired app and extension 2.1.36. Updater and public assets continue to use Gokuencinar/chat-on-steroids.
+- External Chrome remains the default. Built-in browser sign-in cookie transfer requires its explicit user action and optional extension permission.
+- Validation and limitations are recorded in docs/worklogs/upstream-2.1.28-integration.md.
+
 ## [2.1.35] - 2026-10-05
 
 - Integrate published official 2.1.27: worker wake and long-thinking reliability, Compact & Resume recovery, safer Setup queueing and restart ownership, stable reading position, Automatic model selection, background command controls, diagnostics, inline recorded diffs and sub-agent round inspection.

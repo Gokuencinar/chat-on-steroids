@@ -1,4 +1,5 @@
 import { hasProviderDirective, resolvedCapture, withoutProviderDirectives } from '../shared/content-reference.js';
+import { initChatSearch, type ChatSearch } from './chat-search.js';
 import { createWorkspaceTerminal } from './workspace-terminal.js';
 import { createWorkspaceDocks } from './workspace-docks.js';
 import { currentLanguage, ui, t } from './i18n.js';
@@ -79,6 +80,7 @@ import { browserExtensionRequired, type AppState, type Config } from '../shared/
 import { $, ago, clockTime, compactNumber, disclosureChevron, el, filterSettingsSections, icon, run, setIcon, toast } from './dom.js';
 
 const api = window.api;
+let chatSearch: ChatSearch | null = null;
 
 /** Sprite id per tool-call family. Deliberately reuses the existing icon set. */
 const KIND_ICON: Record<ActivitySummary['kind'], string> = {
@@ -429,8 +431,13 @@ function sessionRow(summary: SessionSummary): HTMLElement {
   top.tabIndex = 0;
   top.dataset.sessionSelect = '';
   top.dataset.sortHandle = '';
-  const title = el('b', '', () => summary.title || t("Untitled session")); title.dir = 'auto';
-  top.append(title);
+  if (renaming?.id === summary.id) top.append(renameField(summary));
+  else {
+    const title = el('b', '', () => summary.title || t("Untitled session")); title.dir = 'auto';
+    // Double-click names the chat, like the pencil does (#1107).
+    if (summary.conversationId) title.addEventListener('dblclick', (event) => { event.stopPropagation(); startRename(summary); });
+    top.append(title);
+  }
   const badges = sessionBadges(summary);
   ui(row, 'title', () => [summary.title || t("Untitled session"), ...badges.map((badge) => t(badge.text)), ago(summary.updatedAt)].join(' · '));
   const showTip = () => {
@@ -557,6 +564,17 @@ function sessionRow(summary: SessionSummary): HTMLElement {
       actions.push(trust);
     }
 
+    const rename = document.createElement('button');
+    rename.className = 'btn sess-action sess-name';
+    rename.type = 'button';
+    ui(rename, 'title', () => t("Rename this chat in the app. Its title in ChatGPT stays the same."));
+    rename.append(icon('i-pencil'));
+    rename.addEventListener('click', (event) => {
+      event.stopPropagation();
+      startRename(summary);
+    });
+    actions.push(rename);
+
     const open = document.createElement('button');
     open.className = 'btn sess-action sess-open';
     open.type = 'button';
@@ -572,6 +590,69 @@ function sessionRow(summary: SessionSummary): HTMLElement {
   actionBar.append(...actions, remove);
   row.append(top, actionBar);
   return row;
+}
+
+/**
+ * The chat being named in the sidebar (#1107). Kept outside the row because activity repaints the
+ * sidebar many times a second: the field, its text and its caret survive every repaint.
+ */
+let renaming: { id: string; original: string; value: string; start: number; end: number } | null = null;
+
+function startRename(summary: SessionSummary): void {
+  const current = summary.title || '';
+  renaming = { id: summary.id, original: current, value: current, start: 0, end: current.length };
+  document.getElementById('sessionTooltip')?.remove();
+  paintSessions();
+}
+
+function renameField(summary: SessionSummary): HTMLInputElement {
+  const field = document.createElement('input');
+  field.className = 'sess-rename';
+  field.type = 'text';
+  field.maxLength = 120;
+  field.dir = 'auto';
+  field.value = renaming!.value;
+  ui(field, 'aria-label', () => t("Name for this chat"));
+  ui(field, 'placeholder', () => t("Leave empty to use ChatGPT's title"));
+  const own = (): boolean => renaming?.id === summary.id;
+  // The row selects on click and starts a drag on pointer down; typing in its name does neither.
+  for (const type of ['click', 'dblclick', 'pointerdown', 'mousedown']) field.addEventListener(type, (event) => event.stopPropagation());
+  field.addEventListener('input', () => {
+    if (own()) Object.assign(renaming!, { value: field.value, start: field.selectionStart ?? field.value.length, end: field.selectionEnd ?? field.value.length });
+  });
+  field.addEventListener('select', () => {
+    if (own()) Object.assign(renaming!, { start: field.selectionStart ?? 0, end: field.selectionEnd ?? 0 });
+  });
+  field.addEventListener('keydown', (event) => {
+    event.stopPropagation();
+    if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); void finishRename(true); }
+    else if (event.key === 'Escape') { event.preventDefault(); void finishRename(false); }
+  });
+  field.addEventListener('blur', () => {
+    // A repaint replaces the field; only leaving it for something else ends the edit.
+    setTimeout(() => {
+      if (!own() || (document.activeElement as HTMLElement | null)?.classList.contains('sess-rename')) return;
+      void finishRename(true);
+    }, 0);
+  });
+  queueMicrotask(() => {
+    if (!own() || !field.isConnected) return;
+    field.focus({ preventScroll: true });
+    field.setSelectionRange(renaming!.start, renaming!.end);
+  });
+  return field;
+}
+
+async function finishRename(save: boolean): Promise<void> {
+  const edit = renaming;
+  if (!edit) return;
+  renaming = null;
+  const value = edit.value.trim();
+  paintSessions();
+  if (!save || value === edit.original.trim()) return;
+  // Empty asks for the title the app would show without a name: ChatGPT's own.
+  await run(api.renameSession(edit.id, value || null));
+  await loadSessions('changed');
 }
 
 /**
@@ -683,6 +764,7 @@ async function loadSessions(detail: 'reread' | 'changed' = 'reread'): Promise<vo
     detailCursor = null;
   }
   paintSessions();
+  chatSearch?.refresh();
   const row = selectedId === null ? undefined : sessions.find(entry => entry.id === selectedId);
   if (detail === 'reread' || selectedId === null || detailFor !== selectedId || changed.all || changed.ids.has(selectedId) ||
       row?.updatedAt !== detailStamp?.updatedAt || row?.events !== detailStamp?.events) await loadDetail();
@@ -734,6 +816,9 @@ function projectSortEntries(): Array<{ id: string; scope: string }> {
 function paintSessions(): void {
   // Keep the pointer's elected rows alive while asynchronous activity snapshots arrive.
   if (sidebarOrder?.interacting) return;
+  // Nor replace the name field mid-word: an input method's composition (Chinese, Japanese,
+  // Korean) lives in that exact node. The edit's end repaints with everything that changed.
+  if (renaming && (document.activeElement as HTMLElement | null)?.classList.contains('sess-rename')) return;
   document.getElementById('sessionTooltip')?.remove();
   const projectList = $('projectList'), chatList = $('chatList');
   // Activity replaces sidebar nodes. Keep an actively focused project control (its disclosure
@@ -1094,7 +1179,7 @@ function paintGoalProgress(): void {
   labels.retrying = t("Provider busy · retry {0}{1}", [progress?.attempt ?? '', progress?.retryAt ? t(' at {0}', [new Date(progress.retryAt).toLocaleTimeString(currentLanguage())]) : '']);
   const mode = $<HTMLSelectElement>('chatAutomation').value === 'loop' ? t('Loop') : t('Goal');
   labels.settling = `${mode} · ${wait?.reason === 'native-busy' ? t('ChatGPT resumed work · waiting before retry') : wait?.reason === 'silence' ? t('Waiting before recovery reload') : wait?.reason === 'quiet' ? t('Waiting for tool inactivity') :
-    wait?.reason === 'workers' ? t('Waiting for this chat’s sub-agents') : wait?.reason === 'tools' ? t('Waiting for running tools') : wait?.reason === 'listening' ? t('Waiting for activity after recovery') : t('Answer settling')}`;
+    wait?.reason === 'workers' ? t('Waiting for this chat’s sub-agents') : wait?.reason === 'tools' ? t('Waiting for running tools') : wait?.reason === 'listening' ? t('Waiting for activity after recovery') : wait?.reason === 'closed' ? t('Paused until this chat is open in the browser') : t('Answer settling')}`;
   // The dock already describes this same silence/listening deadline. Keep the
   // Loop/Goal task controls, but do not present its shared wait as another action.
   const sharedRecoveryWait = phase === 'settling' && wait?.until !== undefined &&
@@ -1104,12 +1189,18 @@ function paintGoalProgress(): void {
   // "Goal reached" is said by the Goal row itself; a second row would only repeat it.
   row.hidden = !phase || sharedRecoveryWait || (phase === 'no-reply' && !error && goalReachedShown());
   if (row.hidden) { row.replaceChildren(); row.setAttribute('aria-busy', 'false'); return; }
-  const busy = ['settling', 'saving', 'preparing', 'generating', 'retrying', 'sending', 'answering', 'browser', 'queued', 'ready'].includes(phase) && !error;
+  const busy = ['settling', 'saving', 'preparing', 'generating', 'retrying', 'sending', 'answering', 'browser', 'queued', 'ready'].includes(phase) && !error &&
+    !(phase === 'settling' && wait?.reason === 'closed');
   row.setAttribute('aria-busy', String(busy));
   const marker = el('span', busy ? 'session-status is-working' : 'session-status');
   const body = el('div', 'queue-label'); body.append(el('span', '', error ? `${labels.failed}: ${localizedGoalError(error)}` : labels[phase] ?? phase));
   if (text && ['generating', 'answering', 'preparing'].includes(phase)) { const preview = el('pre', 'goal-live-preview', text.slice(-8000)); body.append(preview); }
   row.replaceChildren(marker, body);
+  // Nothing settles while the chat is closed; opening it is the way on, as from its sidebar row.
+  if (phase === 'settling' && wait?.reason === 'closed' && selectedId) {
+    const id = selectedId;
+    row.append(dockAction(() => t("Open this chat in your browser"), 'i-out', () => void run(api.openSessionChat(id))));
+  }
   if (phase === 'settling' && wait?.until) {
     const seconds = Math.max(0, Math.ceil((wait.until - Date.now()) / 1000));
     const timer = el('span', 'recovery-countdown', seconds ? t('Check in {0}', [`${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`]) : t('Checking for activity…'));
@@ -5907,6 +5998,10 @@ export function initChat(next: Deps): void {
     } else void sendComposer(undefined, undefined, undefined, controlAction);
   });
 
+  chatSearch = initChatSearch({
+    select: (id) => { if (id === selectedId) return; pendingNewInput = null; selectSession(id); },
+    selectedId: () => selectedId
+  });
   $('sessionList').addEventListener('click', (event) => {
     const row = (event.target as HTMLElement).closest<HTMLElement>('[data-id]');
     if (!row?.dataset.id || row.dataset.id === selectedId) return;

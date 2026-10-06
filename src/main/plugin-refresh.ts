@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { readDurable, writeDurableNow } from './durable.js';
 import { wakeBrowserWork } from './browser-wake.js';
 import { logInfo, logWarn } from './logger.js';
+import { notePluginInstalled } from './connector-proof.js';
 import { surfaceDefinition } from './mcp/surfaces.js';
 import { APP_VERSION } from './version.js';
 import { PLUGIN_MAX_TOOLS } from './plugins/exposure.js';
@@ -143,6 +144,11 @@ export function unpublishPluginSurface(surface: PluginSurface): void {
   publications.delete(surface);
   if (surface === 'core') corePresenceCache = undefined;
 }
+/** The connectors whose plugin ChatGPT's own plugin page showed this app: they exist in ChatGPT. */
+export async function enrolledPluginSurfaces(): Promise<PluginSurface[]> {
+  try { return (await rows()).filter(row => row.appId !== null).map(row => row.surface); }
+  catch { return []; }
+}
 export function pluginRefreshPublications(): PluginPublication[] { return structuredClone([...publications.values()]); }
 
 /** Exact installed Core identity already proven by ChatGPT's plugin settings page. */
@@ -254,6 +260,7 @@ export function claimPluginRefresh(input: Identity & Enrollment & { alreadyCurre
     row.appId = input.appId; row.attempted = true;
     if (row.surface === 'core') corePresenceCache = undefined;
     delete row.error;
+    notePluginInstalled(row.surface);
     // Enrollment/migration may find the installed declaration already current. Record
     // that observation without clicking Refresh or manufacturing a new plugin version.
     if (input.alreadyCurrent) row.completedSchemaId = row.schemaId;
@@ -278,6 +285,7 @@ export function requireManualPluginRefresh(input: Identity & Enrollment & { erro
     row.appId = input.appId;
     if (row.surface === 'core') corePresenceCache = undefined;
     row.manual = true;
+    notePluginInstalled(row.surface);
     row.error = input.error.slice(0, 200);
     await writeDurableNow('plugin-refresh', current);
     logWarn(`plugin refresh requires manual action surface=${row.surface}: ${row.error}`);
