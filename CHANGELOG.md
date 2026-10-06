@@ -6,6 +6,7 @@
 - Keeps the fork Cyberpunk appearance, native attachments and exact Core fallback, execution guards, Temporary Chat, durable session/Goal/Loop recovery and protocol 14.
 - Windows x64 only; paired app and extension 2.1.36. Updater and public assets continue to use Gokuencinar/chat-on-steroids.
 - External Chrome remains the default. Built-in browser sign-in cookie transfer requires its explicit user action and optional extension permission.
+- The pinned PowerShell updater tolerates GitHub API 403/429 by using the exact public release tag and mandatory installer SHA-256 verification.
 - Validation and limitations are recorded in docs/worklogs/upstream-2.1.28-integration.md.
 
 ## [2.1.35] - 2026-10-05

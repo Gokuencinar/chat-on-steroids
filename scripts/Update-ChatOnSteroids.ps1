@@ -115,6 +115,19 @@ function Download-VerifiedInstaller([string]$tag, [string]$version) {
   return $installer
 }
 
+function Get-TargetRelease {
+  try {
+    return Invoke-RestMethod -Headers $headers -Uri $api -Method Get
+  } catch {
+    $apiStatus = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { $null }
+    if ($apiStatus -ne 403 -and $apiStatus -ne 429) { throw }
+    # The public download URL and checksum are tied to the requested version. API throttling
+    # must not prevent installing those verified bytes, or select a moving latest release.
+    Write-Host 'GitHub ha limitado la API; se usara la descarga publica de la version solicitada.' -ForegroundColor Yellow
+    return [pscustomobject]@{ tag_name = "v$TargetVersion" }
+  }
+}
+
 function Start-AppIfNeeded([string]$exe) {
   if ((Get-AppProcesses).Count -gt 0) { return }
   if (Test-Path -LiteralPath $exe) {
@@ -126,8 +139,8 @@ try {
   Write-Host 'Chat On Steroids - actualizador App + Extension' -ForegroundColor White
   Write-Host 'Repositorio: Gokuencinar/chat-on-steroids'
 
-  Write-Step 'Consultando la ultima release'
-  $release = Invoke-RestMethod -Headers $headers -Uri $api -Method Get
+  Write-Step 'Consultando la release solicitada'
+  $release = Get-TargetRelease
   if ($release.tag_name -notmatch '^v(\d+\.\d+\.\d+)$') {
     throw "La release mas reciente tiene un tag inesperado: $($release.tag_name)"
   }
