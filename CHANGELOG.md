@@ -6,6 +6,7 @@
 - Adds the official post-release What's New panel, View menu, bounded browser recovery, safer config backup handling, clearer project-entry diagnostics, and recovery/worker handoff fixes from upstream `main` through 2026-10-07.
 - Preserves the fork's Cyberpunk appearance, Windows x64 release policy, 403/429-safe updater, native attachment/Core-send safeguards, and bridge protocol 14.
 - Pins the PowerShell updater to 2.1.38; it verifies the published installer SHA-256 and keeps its exact-tag 403/429 fallback.
+- Updates the bundled OpenAI tunnel-client to v0.0.16 with release-verified SHA-256 pins for all six platform/architecture targets.
 - Windows x64 release; app and extension are paired at 2.1.38, with bridge protocol 14.
 
 ## [2.1.37] — Performance, stability and updater reliability (2026-10-06)
