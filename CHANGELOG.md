@@ -5,6 +5,7 @@
 - Integrates official 2.1.29 chat pins and row menus, message and settings search, approval-wait notices, connection status, and long-run / Compact & Resume recovery fixes.
 - Adds the official post-release What's New panel, View menu, bounded browser recovery, safer config backup handling, clearer project-entry diagnostics, and recovery/worker handoff fixes from upstream `main` through 2026-10-07.
 - Preserves the fork's Cyberpunk appearance, Windows x64 release policy, 403/429-safe updater, native attachment/Core-send safeguards, and bridge protocol 14.
+- Pins the PowerShell updater to 2.1.38; it verifies the published installer SHA-256 and keeps its exact-tag 403/429 fallback.
 - App and extension are paired at 2.1.38. This is an integration candidate; no release or installation has been performed.
 
 ## [2.1.37] — Performance, stability and updater reliability (2026-10-06)
