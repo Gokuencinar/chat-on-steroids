@@ -182,6 +182,11 @@ let delivery = { at: 0, ok: null, events: 0, total: 0, conversationId: null, sta
 let closeOutbox = [];
 /** Successful managed removals awaiting onRemoved; exact document receipts survive MV3 sleep. */
 let tabRemovals = {};
+/**
+ * Idle chats whose tab this worker borrowed for a new chat, by tab: the exact document and the
+ * chat it held. That chat leaving the document is this extension's doing, not the user's (#1086).
+ */
+let tabReuses = {};
 let closing = false;
 /**
  * Command acknowledgements accepted from a content script but not yet accepted by the app.
@@ -327,6 +332,7 @@ async function loadOnce() {
     'terminalDocuments',
     'closeOutbox',
     'tabRemovals',
+    'tabReuses',
     'commandAckOutbox',
     'recoveryMonitoring',
     'discardProtectedTabs',
@@ -351,6 +357,10 @@ async function loadOnce() {
     typeof row.documentId === 'string' && row.documentId === tabDocuments[key] &&
     Number.isSafeInteger(row.navigationEpoch) && row.navigationEpoch === tabEpochs[key] &&
     cleanConversationId(row.conversationId) === tabConversations[key]).slice(-1000));
+  tabReuses = Object.fromEntries(Object.entries(
+    live.tabReuses && typeof live.tabReuses === 'object' && !Array.isArray(live.tabReuses) ? live.tabReuses : {}
+  ).filter(([key, row]) => row && /^\d+$/.test(key) && typeof row.documentId === 'string' &&
+    cleanConversationId(row.conversationId) && Number.isFinite(row.at)).slice(-200));
   // Browser-close durability: a send already accepted by ChatGPT is irreversible. Its final ACK
   // therefore has to survive storage.session being cleared on browser restart. Prefer the local
   // copy, while still accepting the old session copy as an upgrade migration path.
@@ -393,6 +403,7 @@ function persistLive() {
         terminalDocuments,
         closeOutbox: closeOutbox.slice(-200),
         tabRemovals,
+        tabReuses,
         commandAckOutbox: commandAckOutbox.slice(-200),
         recoveryMonitoring,
         discardProtectedTabs,
@@ -1307,11 +1318,12 @@ async function redeemCommand(id, client, conversationId = null, projectEntry = f
   return { ok: true, command };
 }
 
-function commandAckPayload(id, status, error, conversationId, agent, client, turnId) {
+function commandAckPayload(id, status, error, conversationId, agent, client, turnId, detail) {
   return {
     id,
     status,
     error: error || undefined,
+    ...(typeof detail === 'string' && detail.length <= 160 ? { detail } : {}),
     conversationId: conversationId || undefined,
     agent: agent || undefined,
     client: client || undefined,
@@ -1350,7 +1362,8 @@ async function drainCommandAcks(targetId = null) {
         entry.conversationId,
         entry.agent,
         entry.client,
-        entry.turnId
+        entry.turnId,
+        entry.detail
       );
       const result = await call(inputReceipt ? '/input/ack' : '/commands/ack', { method: 'POST', body: JSON.stringify(payload) });
       if (entry.id === targetId) targetResult = result;
@@ -1390,10 +1403,10 @@ async function drainCommandAcks(targetId = null) {
   }
 }
 
-async function ackCommand(id, status, error, conversationId, agent, client, source = null, turnId) {
+async function ackCommand(id, status, error, conversationId, agent, client, source = null, turnId, detail) {
   await load();
   if (!id) return { ok: false, status: 400, error: 'bad_command_id' };
-  const payload = commandAckPayload(id, status, error, conversationId, agent, client, turnId);
+  const payload = commandAckPayload(id, status, error, conversationId, agent, client, turnId, detail);
   const queued = {
     ...payload,
     provisional: payload.conversationId ? null : tabKey(source),
@@ -2063,6 +2076,8 @@ async function deliverDesktopInputs(inputs, background, reusableConversations = 
           const current = await chrome.tabs.get(candidate.id).catch(() => null);
           if (proof?.safe !== true || proof.navigationEpoch !== source.navigationEpoch || !ownsDocument(source) ||
               !current || current.pinned || current.pendingUrl || current.url !== candidate.url) continue;
+          const borrowed = conversationForTab(candidate);
+          if (borrowed) tabReuses[String(candidate.id)] = { documentId: source.documentId, conversationId: borrowed, at: Date.now() };
           await elect(input.id, { ...source, url: current.url, stage: 'preparing' });
           const leased = await chrome.tabs.get(candidate.id).catch(() => null);
           if (!ownsDocument(source) || !leased || leased.pinned || leased.pendingUrl || leased.url !== current.url || !token || disconnected) break;
@@ -3168,6 +3183,21 @@ async function drainCloses() {
  * `expected` protects an old page's delayed close from deleting a mapping that the same
  * tab has already replaced with a new conversation.
  */
+/** A borrowed page leaves its chat within seconds; an older record belongs to a borrow that was abandoned. */
+const TAB_REUSE_MS = 2 * 60_000;
+/**
+ * Whether this chat leaving this exact document was the borrow recorded in `tabReuses`. Spent on
+ * first use: once the chat has left, any later departure of it is the user's again.
+ */
+function spendTabReuse(tab, conversationId, documentId) {
+  const key = String(tab), row = tabReuses[key];
+  if (!row || !documentId || row.documentId !== documentId || row.conversationId !== cleanConversationId(conversationId)) return false;
+  delete tabReuses[key];
+  void persistLive().catch(() => undefined);
+  if (!(Date.now() - row.at < TAB_REUSE_MS)) return false;
+  return true;
+}
+
 async function releaseTab(tab, expected = null, expectedDocument = null, expectedEpoch = null, byExtension = false) {
   await load();
   if (typeof tab !== 'number') return { ok: true, closed: false };
@@ -3812,7 +3842,8 @@ const HANDLERS = {
       `&goalClient=${encodeURIComponent(String(source.tab))}` +
       // Forward only the helper states this document may report; these are diagnostics.
       (['absent', 'empty', 'ok'].includes(message.fiber) ? `&fiber=${message.fiber}` : '') +
-      (typeof message.generating === 'boolean' ? `&generating=${message.generating ? 1 : 0}` : '');
+      (typeof message.generating === 'boolean' ? `&generating=${message.generating ? 1 : 0}` : '') +
+      (typeof message.approval === 'boolean' ? `&approval=${message.approval ? 1 : 0}` : '');
     const result = await call(`/activity${query}`);
     if (ownsDocument(source) && result.ok && result.data && await acceptBrowserRevivals(result.data)) {
       await recoverDeferredRevivals();
@@ -3877,7 +3908,8 @@ const HANDLERS = {
   async closed(message, _sender, source) {
     // releaseTab drains the queue and posts /closed itself, and only when this was the
     // last live tab on the conversation.
-    return releaseTab(source.tab, message.conversationId, source.documentId, source.navigationEpoch);
+    return releaseTab(source.tab, message.conversationId, source.documentId, source.navigationEpoch,
+      spendTabReuse(source.tab, message.conversationId, source.documentId));
   },
   async compact(message, _sender, source) {
     await load();
@@ -4167,7 +4199,9 @@ const HANDLERS = {
       message.conversationId,
       message.agent,
       message.client,
-      source
+      source,
+      undefined,
+      message.detail
     );
     // ackCommand first made this irreversible page result durable in the browser-owned outbox.
     // From that point recovery must never reopen the pre-send marker, even if the bridge HTTP
@@ -4442,7 +4476,7 @@ chrome.tabs.onUpdated.addListener((id, changeInfo, tab) => {
     // dying document immediately, but preserve the conversation until the replacement page
     // binds and proves whether it is the same chat or a different one.
     if (fullNavigation && !leftChatGpt && !departed) return { ok: true, closed: false };
-    return releaseTab(id, departed, departedDocument);
+    return releaseTab(id, departed, departedDocument, null, spendTabReuse(id, departed, departedDocument));
   }).catch(() => undefined);
 });
 

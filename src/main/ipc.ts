@@ -89,7 +89,7 @@ import {
   publishBridgePortChange,
   companionDiagnostics,
   sessionInputActivity,
-  recoveryInputAllowed,
+  recoveryHeldByCalls, recoveryInputAllowed,
   sessionControlsFor, cancelAssistantRecovery, stopSessionTurn, setSessionAutomation, setSessionObjective, compactSession, cancelSessionCompaction,
   cancelWorkerCommands,
   chatUrl,
@@ -102,7 +102,7 @@ import {
   unpair
 } from './bridge.js';
 import { extensionDir } from './extension-path.js';
-import { extensionDownloadUrl } from './version.js';
+import { APP_VERSION, extensionDownloadUrl } from './version.js';
 import {
   deleteSession,
   clearImageStorage,
@@ -115,7 +115,7 @@ import {
   withSessionMutationFence
 } from './session/store.js';
 import { forgetSession, notifyChanged, onSessionChange } from './session/recorder.js';
-import { searchSessions } from './session/search.js';
+import { locateSearchMatch, searchSessions } from './session/search.js';
 import { readSessionEvents, readSessionList, sessionListCursorSchema } from './session/read-model.js';
 import { exportSessionMarkdown } from './session/markdown-export.js';
 import { blockedChatIds, setChatsBlocked } from './session/blocked-chats.js';
@@ -141,7 +141,7 @@ import { loadCosBrowser, syncCosBrowser } from './cos-browser/selection.js';
 import { onConnectorProofChange } from './connector-proof.js';
 import { opensInCosBrowser } from '../shared/cos-browser-sites.js';
 import { openInPreferredBrowser } from './browser.js';
-import { manualDownloadUrl, markInstallOnQuit, onUpdateChange, updateStatus } from './update.js';
+import { checkForUpdatesIfStale, manualDownloadUrl, markInstallOnQuit, onUpdateChange, updateStatus } from './update.js';
 import {
   getMacOSDesktopAccess,
   onMacOSDesktopAccessChange,
@@ -544,6 +544,18 @@ function handle<T>(channel: string, fn: (payload: unknown) => Promise<T>): void 
   });
 }
 
+/** Shows a recorded chat's ChatGPT page: its open tab when there is one, else a new one. */
+export async function openSessionChat(id: string): Promise<void> {
+  const summary = await getSession(id);
+  const conversationId = summary?.conversationId;
+  if (!conversationId || !/^[0-9a-z-]{8,64}$/i.test(conversationId)) {
+    throw new Error('This session has no valid ChatGPT conversation');
+  }
+  // The extension's own browser first: the OS may pick another browser or account (#882).
+  // An explicit user action: only the CoS browser uses `reveal`, to bring its window forward.
+  if (!(await revealChatInBrowser(conversationId))) await openInPreferredBrowser(chatUrl(conversationId), { reveal: true });
+}
+
 export function registerIpc(getWindow: () => BrowserWindow | null, quitToInstall: () => void): void {
   registerWorkspaceTerminalIpc(getWindow);
   // A session row remains visible until its delete IPC resolves. Fence Trust while deletion is
@@ -738,6 +750,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null, quitToInstall
     // The renderer owns the choice; the main process keeps it for the browser extension.
     const language = z.enum(UI_LANGUAGES).parse(payload);
     if (getConfig().ui.language !== language) await updateConfig(config => ({ ...config, ui: { ...config.ui, language } }));
+  });
+  handle('ui:whatsNewSeen', async () => {
+    // Only this version can be recorded; the renderer cannot write another one (#1172).
+    if (getConfig().ui.lastSeenVersion !== APP_VERSION) await updateConfig(config => ({ ...config, ui: { ...config.ui, lastSeenVersion: APP_VERSION } }));
   });
   handle('ui:stopNoticeTexts', async payload => {
     // The renderer's catalogs translate the stopped-chat notices (#855); bounded and allowlisted.
@@ -1129,6 +1145,13 @@ export function registerIpc(getWindow: () => BrowserWindow | null, quitToInstall
   // "Get update" for an installation that cannot update itself: the exact published file for
   // this machine and the announced version, opened in the user's browser. The renderer names
   // nothing; the URL is built here from the checked release and this process's platform.
+  // Opening Settings: ask GitHub again if the last answer is older than ten minutes. The status
+  // reaches the window through the ordinary state push; this returns before the check does.
+  handle('update:refresh', async () => {
+    void checkForUpdatesIfStale();
+    return true;
+  });
+
   handle('update:download', async () => {
     await shell.openExternal(manualDownloadUrl(updateStatus().latest));
     return true;
@@ -1327,14 +1350,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, quitToInstall
 
   handle('sessions:openChat', async (payload) => {
     const { id } = sessionIdArg.parse(payload);
-    const summary = await getSession(id);
-    const conversationId = summary?.conversationId;
-    if (!conversationId || !/^[0-9a-z-]{8,64}$/i.test(conversationId)) {
-      throw new Error('This session has no valid ChatGPT conversation');
-    }
-    // The extension's own browser first: the OS may pick another browser or account (#882).
-    // An explicit user action: only the CoS browser uses `reveal`, to bring its window forward.
-    if (!(await revealChatInBrowser(conversationId))) await openInPreferredBrowser(chatUrl(conversationId), { reveal: true });
+    await openSessionChat(id);
     return true;
   });
 
@@ -1430,6 +1446,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null, quitToInstall
   handle('sessions:search', async (payload) => {
     const { query } = z.object({ query: z.string().max(200) }).parse(payload);
     return searchSessions(query);
+  });
+  // Where a text match is in its chat, so opening the result shows that message.
+  handle('sessions:locate-match', async (payload) => {
+    const { id, query } = sessionIdArg.extend({ query: z.string().max(200) }).parse(payload);
+    return locateSearchMatch(id, query);
   });
   handle('sessions:rename', async (payload) => {
     const { id, title } = sessionNameArg.parse(payload);
@@ -1586,6 +1607,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, quitToInstall
   };
   configureInputDelivery({
     recoveryAllowed: recoveryInputAllowed,
+    callsHoldRecovery: recoveryHeldByCalls,
     activity: sessionInputActivity,
     wakeDecision: async (entry, signal) => {
       signal.throwIfAborted();

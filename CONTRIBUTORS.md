@@ -241,3 +241,7 @@ Official 2.1.27 is merged with its original authorship, including [@Maximapple](
 ## Fork upstream 2.1.36 integration
 
 Official 2.1.28 is merged with original authorship, including [@Haz4rdovisk](https://github.com/Haz4rdovisk) for the built-in browser and guided Setup (#1049–#1052), [@Maximapple](https://github.com/Maximapple) for stable feature and recovery changes, and [@xuan2261](https://github.com/xuan2261) for workflow maintenance. The official Canary publication automation is excluded by this fork’s Windows stable-release policy; the welcome workflow change remains. See the [integration inventory](docs/worklogs/upstream-2.1.28-integration.md).
+
+## Fork upstream 2.1.38 integration
+
+Official 2.1.29 and follow-up commits through 2026-10-07 are merged with their original commit authorship. The work includes chat pins, row menus and search, approval/connection notices, recovery fixes, What's New, bounded browser recovery and the View menu. See the [integration inventory](docs/worklogs/upstream-2.1.29-integration.md) for preserved fork safeguards and scope.
