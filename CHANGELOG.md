@@ -1,3 +1,13 @@
+# Changelog
+
+## [2.1.40] — New appearance styles (2026-10-09)
+
+- Added nine appearances: Classic, Cyberpunk, Gamer, Futuristic, Windows 95, Retro Terminal, Synthwave, Midnight OLED and Solar.
+- Gave Cyberpunk a stronger pink-and-cyan neon look.
+- Added theme previews and editable colors, fonts and light/dark palettes.
+- Translated the new styles into all 12 languages.
+- Kept the improvements from 2.1.39, including GPT-6 support and timeline rounds.
+
 ## [2.1.39] — GPT-6, timeline rounds and official 2.1.30–2.1.31
 
 This Windows fork integrates both official stable releases through 2.1.31.
@@ -22,8 +32,6 @@ This Windows fork integrates both official stable releases through 2.1.31.
 An already-open chat's first tool call after an app restart/update can take about two minutes while ChatGPT reconnects. New chats are unaffected; see official issue [#1220](https://github.com/totec448-spec/chat-on-steroids/issues/1220).
 
 Original upstream commit history and authorship are retained. Full official notes: [2.1.30](https://github.com/totec448-spec/chat-on-steroids/releases/tag/v2.1.30) and [2.1.31](https://github.com/totec448-spec/chat-on-steroids/releases/tag/v2.1.31).
-
-# Changelog
 
 ## [2.1.38] — Official 2.1.29 plus follow-up stability and usability improvements
 

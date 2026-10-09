@@ -14,6 +14,16 @@ interface Highlight { icon: string; title: () => string; text: () => string }
 interface Release { lead: () => string; highlights: Highlight[] }
 
 const RELEASES: Readonly<Record<string, Release>> = {
+  '2.1.40': {
+    lead: () => t('Pick a look, then customize its colors below.'),
+    highlights: [
+      { icon: 'i-sparkle', title: () => t('Cyberpunk'), text: () => t('Neon nightlife') },
+      { icon: 'i-gear', title: () => t('Gamer'), text: () => t('Arcade energy') },
+      { icon: 'i-panel-right', title: () => t('Windows 95'), text: () => t('Pixel nostalgia') },
+      { icon: 'i-sparkle', title: () => t('Futuristic'), text: () => t('Cool glass') },
+      { icon: 'i-steps', title: () => t('Retro Terminal'), text: () => t('Green phosphor') }
+    ]
+  },
   '2.1.39': {
     lead: () => t('GPT-6 support, a timeline that reads like ChatGPT, and a clearer view of your sub-agents.'),
     highlights: [

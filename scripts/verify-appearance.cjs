@@ -91,6 +91,25 @@ app.whenReady().then(async () => {
     await js(`document.querySelector('[data-tab="appearance"]').click()`);
     assert.equal(await js(`document.getElementById('appearancePanel').classList.contains('is-active')`),true);
     await screenshot('default-dark.png');
+    for (const preset of ['cyberpunk','gamer','futuristic','win95','terminal','synthwave','midnight','solar','classic']) {
+      await js(`document.querySelector('[data-preset="${preset}"]').click()`);
+      await js('new Promise(r=>setTimeout(r,45))');
+      assert.equal(await js(`window.fixtureState.config.ui.appearance.style`),preset);
+      assert.equal(await js(`document.documentElement.dataset.appearanceStyle`),preset);
+      assert.equal(await js(`document.querySelectorAll('.appearance-preset[aria-pressed="true"]').length`),1);
+      assert.equal(await js(`document.querySelector('.appearance-preset[aria-pressed="true"]').dataset.preset`),preset);
+      assert.equal(await js(`document.getElementById('appearanceTheme').value`),['win95','solar'].includes(preset)?'light':'dark');
+      await verifyPopoverPalette();
+      if (preset === 'cyberpunk') {
+        assert.ok((await js(`getComputedStyle(document.querySelector('.sidebar')).backgroundImage`)).includes('linear-gradient'));
+        await screenshot('preset-cyberpunk.png');
+      }
+      if (preset === 'win95') {
+        assert.equal(await js(`getComputedStyle(document.documentElement).getPropertyValue('--r-lg').trim()`),'0px');
+        await screenshot('preset-win95.png');
+      }
+      if (preset === 'gamer') await screenshot('preset-gamer.png');
+    }
     await change('appearance-accent-hex','#a855f7');
     await change('appearance-sidebar-hex','#35234c');
     await change('appearance-background-hex','#19151f');
@@ -151,25 +170,31 @@ app.whenReady().then(async () => {
     win.setSize(1100,900);win.webContents.setZoomFactor(1);
     await js(`document.getElementById('appearanceReset').click()`);
     await js('new Promise(r=>setTimeout(r,100))');
+    assert.equal(await js(`window.fixtureState.config.ui.appearance.style`),'classic');
     assert.equal(await js(`window.fixtureState.config.ui.appearance.fontSize`),14);
     assert.equal(await js(`window.fixtureState.config.ui.appearance.dark.sidebar`),'#1a2129');
     assert.equal(await js(`window.fixtureState.config.ui.appearance.light.sidebar`),'#e9edf2');
     // Reload the production renderer with the same saved settings snapshot.
     await js(`window.savedUi=structuredClone(window.fixtureState.config.ui);window.pushState()`);
+    await js(`document.querySelector('[data-preset="gamer"]').click()`);
+    await js('new Promise(r=>setTimeout(r,100))');
     await change('appearance-sidebar-hex','#331155');
     const savedUi = await js('window.fixtureState.config.ui');
     await win.reload();
     for(let i=0;i<100 && !(await js('!!window.fixtureReady'));i++) await new Promise(r=>setTimeout(r,25));
     await js(`window.fixtureState.config.ui=${JSON.stringify(savedUi)};window.pushState();document.querySelector('[data-tab="appearance"]').click()`);
     assert.equal(await js(`document.getElementById('appearance-sidebar-hex').value`),'#331155');
+    assert.equal(await js(`document.documentElement.dataset.appearanceStyle`),'gamer');
     await change('uiLanguage','zh-CN');
     assert.equal(await js(`document.getElementById('appearanceTitle').textContent`),'外观');
+    assert.notEqual(await js(`document.querySelector('[data-preset="gamer"] .appearance-preset-caption > span').textContent`),'Arcade energy');
     await screenshot('chinese.png');
     await change('uiLanguage','en');
+    assert.equal(await js(`document.querySelector('[data-preset="gamer"] .appearance-preset-caption > span').textContent`),'Arcade energy');
     await js(`document.getElementById('backToChat').click();document.getElementById('chatInput').value='A workspace in your colors.'`);
     await screenshot('chat.png');
     await change('uiLanguage','es');
-    await js(`document.querySelector('[data-tab="appearance"]').click();document.getElementById('appearanceCyberpunk').click()`);
+    await js(`document.querySelector('[data-tab="appearance"]').click();document.querySelector('[data-preset="cyberpunk"]').click()`);
     await js('new Promise(r=>setTimeout(r,100))');
     assert.equal(await js('document.documentElement.dataset.appearanceStyle'),'cyberpunk');
     assert.equal(await js('window.fixtureState.config.ui.appearance.style'),'cyberpunk');

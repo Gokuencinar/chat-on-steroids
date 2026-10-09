@@ -157,6 +157,21 @@ app.whenReady().then(async () => {
     assert.equal(await js(`document.getElementById('whatsNewDialog').open`),false,'No highlights: no dialog');
     assert.equal(await js('window.seenCalls'),1,'No highlights: the version is still recorded');
 
+    // The Appearance release uses existing translated labels in the same modal.
+    await open('seen=2.1.39&version=2.1.40');
+    await until(`document.getElementById('whatsNewDialog').open`);
+    const appearance = await js(`(() => ({
+      version: document.getElementById('whatsNewVersion').textContent,
+      lead: document.getElementById('whatsNewLead').textContent,
+      titles: [...document.querySelectorAll('#whatsNewList b')].map(node => node.textContent)
+    }))()`);
+    assert.equal(appearance.version, 'Version 2.1.40');
+    assert.equal(appearance.lead, 'Pick a look, then customize its colors below.');
+    assert.deepEqual(appearance.titles, ['Cyberpunk', 'Gamer', 'Windows 95', 'Futuristic', 'Retro Terminal']);
+    await js(`document.getElementById('whatsNewNotes').click()`);
+    assert.deepEqual(await js('window.openedLinks'), ['https://github.com/Gokuencinar/chat-on-steroids/releases/tag/v2.1.40']);
+    await shot('whats-new-appearance-2.1.40.png');
+
     console.log('PASS: What\'s New opens once after an update, centred with centred icons in both themes, opens the exact release notes, closes by button and Escape, fits a short window, and stays away on the same version or one without highlights');
   } finally {
     win?.destroy(); await server.close(); app.quit();
