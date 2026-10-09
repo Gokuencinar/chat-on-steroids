@@ -3722,6 +3722,13 @@ Full-window skin decoration lives in `src/renderer/immersive-skins.css` (loaded 
 work docks, forms and plugin cards, while Classic keeps the original UI. Gamer uses
 lime/cyan/magenta RGB HUD styling, Futuristic uses icy blue and fluorescent white
 glass, and the other six styles also have distinct geometry and surface treatments.
+The follow-up `src/renderer/skin-polish.css` is loaded after immersive-skins and
+adds theme-specific navigation surfaces, titlebar/heading accents, chat details
+and focus clarity without modifying DOM or saved palette fields. These decorations
+must remain distinct across styles (e.g. Win95 bevels, terminal command lines,
+Solar paper dividers) and must not interfere with resizing, draggable titlebars,
+dialog hit targets or keyboard focus. Preset thumbnails live in `settings.css`
+and should be understandable before applying any style.
 The theme's semantic text colors and user's editable accent/background/sidebar tokens
 remain authoritative; animated RGB never runs with reduced-motion preference.
 The sidebar and connection popover must share matching palette/background computed

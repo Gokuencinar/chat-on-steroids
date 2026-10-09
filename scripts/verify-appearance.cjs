@@ -224,6 +224,38 @@ app.whenReady().then(async () => {
       }
       await js(`(() => {const input=document.getElementById('chatInput');input.value='A workspace in the '+${JSON.stringify(preset)}+' style.';input.dispatchEvent(new Event('input',{bubbles:true}));})()`);
       await screenshot('skin-'+preset+'-chat.png');
+      // A skin must keep the real conversation column usable after responsive zoom,
+      // not only keep the Appearance preset grid inside its scroll container.
+      win.setSize(800,900);win.webContents.setZoomFactor(1.17);
+      const expectedWidth=Math.round(win.getContentSize()[0]/1.17);
+      for(let i=0;i<200 && Math.abs(await js('innerWidth')-expectedWidth)>1;i++) await new Promise(r=>setTimeout(r,10));
+      const chatGeometry = await js(`(() => {
+        const app=document.querySelector('.app'),composer=document.querySelector('.composer');
+        const composerRect=composer.getBoundingClientRect(),viewport=innerWidth;
+        return {viewport,body:document.documentElement.scrollWidth,app:app.scrollWidth,appWidth:app.clientWidth,
+          composerLeft:composerRect.left,composerRight:composerRect.right,composerWidth:composerRect.width};
+      })()`);
+      assert.ok(chatGeometry.body<=chatGeometry.viewport+2 &&
+        chatGeometry.app<=chatGeometry.appWidth+2 &&
+        chatGeometry.composerWidth>0 && chatGeometry.composerLeft>=-2 &&
+        chatGeometry.composerRight<=chatGeometry.viewport+2,
+      preset+' chat/composer overflow at zoom 1.17: '+JSON.stringify(chatGeometry));
+      if (preset==='gamer' || preset==='futuristic') await screenshot('skin-'+preset+'-narrow.png');
+      win.setSize(1100,900);win.webContents.setZoomFactor(1);
+      for(let i=0;i<200 && Math.abs(await js('innerWidth')-win.getContentSize()[0])>1;i++) await new Promise(r=>setTimeout(r,10));
+      if (preset==='gamer' || preset==='futuristic') {
+        // Distinguish intended per-skin HUD ornaments from a higher-specificity
+        // generic declaration accidentally winning the cascade.
+        const ornament = await js(`(() => {
+          const brand=getComputedStyle(document.querySelector('.sidebar-brand'),'::after');
+          const head=getComputedStyle(document.querySelector('.chat-head'));
+          return {brandWidth:brand.width,brandArt:brand.backgroundImage,chatArt:head.backgroundImage};
+        })()`);
+        assert.ok(Math.abs(parseFloat(ornament.brandWidth)-(preset==='gamer'?85:98))<1,
+          preset+' specific sidebar branding lost to generic CSS specificity: '+JSON.stringify(ornament));
+        assert.ok(ornament.chatArt.startsWith('linear-gradient('),
+          preset+' chat header lost styled background: '+JSON.stringify(ornament));
+      }
       skinResults.push({style:preset,theme:currentSkin.theme,regions:Object.keys(currentSkin.regions),decorated});
       await js(`document.querySelector('[data-tab="appearance"]').click()`);
       if (preset === 'cyberpunk') {
@@ -263,6 +295,44 @@ app.whenReady().then(async () => {
       'Style selection must not transition when reduced motion is requested');
     assert.equal(reducedMotion.buttonAnimation,'none','No animated skin selection in reduced motion');
     assert.equal(reducedMotion.topbarAnimation,'none','Gamer RGB topbar must stop moving in reduced motion');
+    const textContrast = async (preset,mode,selector) => {
+      await js(`document.querySelector('[data-preset="${preset}"]').click()`);
+      await change('appearanceTheme',mode);
+      await js(`document.getElementById('backToChat').click()`);
+      const result = await js(`(() => {
+        const element=document.querySelector(${JSON.stringify(selector)});
+        const ink=getComputedStyle(element).color;
+        // Evaluate the visible underlying surface rather than comparing
+        // transparent toolbar buttons with the sidebar behind their parent.
+        let background='transparent';
+        for (let ancestor=element;ancestor;ancestor=ancestor.parentElement) {
+          const candidate=getComputedStyle(ancestor).backgroundColor;
+          if (candidate!=='transparent' && candidate!=='rgba(0, 0, 0, 0)') {
+            background=candidate;
+            break;
+          }
+        }
+        const numbers=color=>(color.match(/[0-9.]+/g)??[]).slice(0,3).map(Number);
+        const luminance=color=>{
+          const [red,green,blue]=numbers(color).map(channel=>{
+            const value=channel/255;
+            return value<=.04045?value/12.92:((value+.055)/1.055)**2.4;
+          });
+          return red*.2126+green*.7152+blue*.0722;
+        };
+        const a=luminance(ink),b=luminance(background);
+        return {ink,background,ratio:(Math.max(a,b)+.05)/(Math.min(a,b)+.05)};
+      })()`);
+      await screenshot('skin-'+preset+'-'+mode+'-contrast.png');
+      assert.ok(result.ratio>=4.5,`${preset} ${mode} poor readable label contrast ${selector}: ${JSON.stringify(result)}`);
+      await js(`document.querySelector('[data-tab="appearance"]').click()`);
+      return result;
+    };
+    // Presets choose their starting theme, but the user can switch theme later.
+    // Hard-coded neon/paper backgrounds must not create white-on-gray or cyan-on-pale text.
+    await textContrast('win95','dark','.sidebar-primary-link');
+    await textContrast('win95','dark','.sidebar-bottom > .btn');
+    await textContrast('gamer','light','.sidebar-session-label');
     await js(`document.querySelector('[data-preset="classic"]').click()`);
     await change('appearance-accent-hex','#a855f7');
     await change('appearance-sidebar-hex','#35234c');
