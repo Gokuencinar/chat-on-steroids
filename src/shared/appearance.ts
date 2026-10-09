@@ -1,6 +1,10 @@
 /** Saved appearance is presentation only. Theme remains the existing ui.theme choice. */
 export const APPEARANCE_FONTS = ['system', 'sans', 'serif', 'mono'] as const;
-export const APPEARANCE_STYLES = ['classic', 'cyberpunk'] as const;
+export const APPEARANCE_STYLES = [
+  'classic', 'cyberpunk', 'gamer', 'futuristic', 'win95',
+  'terminal', 'synthwave', 'midnight', 'solar'
+] as const;
+export type AppearancePreset = typeof APPEARANCE_STYLES[number];
 export type AppearanceTheme = 'light' | 'dark';
 export interface AppearancePalette {
   background: string;
@@ -9,7 +13,8 @@ export interface AppearancePalette {
   contrast: number;
 }
 export interface AppearanceSettings {
-  style?: typeof APPEARANCE_STYLES[number];
+  /** Optional so appearance saved before styles existed still loads as Classic. */
+  style?: AppearancePreset;
   light: AppearancePalette;
   dark: AppearancePalette;
   font: typeof APPEARANCE_FONTS[number];
@@ -25,11 +30,59 @@ export function defaultAppearance(): AppearanceSettings {
   };
 }
 
-/** Local preset: typography stays readable while the surface language becomes a neon HUD. */
+/** Complete editable palettes; CSS owns only the decorative shape of each style. */
+const PRESETS: Record<Exclude<AppearancePreset, 'classic'>, Omit<AppearanceSettings, 'style'>> = {
+  cyberpunk: {
+    light: { background: '#fff0fa', sidebar: '#e7dcfc', accent: '#a00091', contrast: 75 },
+    dark: { background: '#100b21', sidebar: '#1c1030', accent: '#ff38c8', contrast: 90 },
+    font: 'mono', fontSize: 14, translucentSidebar: false
+  },
+  gamer: {
+    light: { background: '#edf7f0', sidebar: '#d5e9dd', accent: '#186839', contrast: 68 },
+    dark: { background: '#0b1210', sidebar: '#101e19', accent: '#56f595', contrast: 85 },
+    font: 'sans', fontSize: 14, translucentSidebar: false
+  },
+  futuristic: {
+    light: { background: '#edf7ff', sidebar: '#dceefa', accent: '#176b93', contrast: 55 },
+    dark: { background: '#0a1827', sidebar: '#10283c', accent: '#69e0ff', contrast: 76 },
+    font: 'sans', fontSize: 14, translucentSidebar: true
+  },
+  win95: {
+    light: { background: '#c0c0c0', sidebar: '#b6b6b6', accent: '#000080', contrast: 90 },
+    dark: { background: '#252b34', sidebar: '#353d49', accent: '#83b5ff', contrast: 88 },
+    font: 'sans', fontSize: 14, translucentSidebar: false
+  },
+  terminal: {
+    light: { background: '#eff7e8', sidebar: '#d9e7ce', accent: '#27672e', contrast: 85 },
+    dark: { background: '#07110a', sidebar: '#0b190e', accent: '#63ea86', contrast: 90 },
+    font: 'mono', fontSize: 14, translucentSidebar: false
+  },
+  synthwave: {
+    light: { background: '#fff1fc', sidebar: '#eddafc', accent: '#ab2788', contrast: 70 },
+    dark: { background: '#1c1030', sidebar: '#29133e', accent: '#ff79d6', contrast: 80 },
+    font: 'sans', fontSize: 14, translucentSidebar: true
+  },
+  midnight: {
+    light: { background: '#f0f0fa', sidebar: '#e5e7f6', accent: '#5652a5', contrast: 55 },
+    dark: { background: '#000000', sidebar: '#0b0c14', accent: '#b7a5ff', contrast: 70 },
+    font: 'system', fontSize: 14, translucentSidebar: false
+  },
+  solar: {
+    light: { background: '#fbf5e7', sidebar: '#efe1c8', accent: '#956025', contrast: 62 },
+    dark: { background: '#242017', sidebar: '#2e2a20', accent: '#efbb72', contrast: 72 },
+    font: 'serif', fontSize: 14, translucentSidebar: false
+  }
+};
+
+/** New mutable palettes on every selection; edits cannot modify the shared catalog. */
+export function presetAppearance(style: AppearancePreset): AppearanceSettings {
+  const source = style === 'classic' ? defaultAppearance() : PRESETS[style];
+  return { ...source, light: { ...source.light }, dark: { ...source.dark }, style };
+}
+
+/** Compatibility entry point for the existing Cyberpunk button and callers. */
 export function cyberpunkAppearance(current = defaultAppearance()): AppearanceSettings {
-  return { ...current, style: 'cyberpunk',
-    dark: { background: '#080b14', sidebar: '#0c1020', accent: '#47f1ff', contrast: 70 },
-    translucentSidebar: false };
+  return { ...current, ...presetAppearance('cyberpunk') };
 }
 
 /** Field-wise three-way merge, so an unrelated save cannot undo another window's colors. */

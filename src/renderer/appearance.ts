@@ -1,6 +1,7 @@
-import { cyberpunkAppearance, defaultAppearance, mixColor, paletteTokens, type AppearanceSettings, type AppearanceTheme } from '../shared/appearance.js';
+import { defaultAppearance, mixColor, paletteTokens, presetAppearance, type AppearancePreset, type AppearanceSettings, type AppearanceTheme } from '../shared/appearance.js';
 import type { UiPrefs } from '../shared/types.js';
 import { $ } from './dom.js';
+import { t, uiText } from './i18n.js';
 
 const FONT_FAMILIES = {
   system: '', sans: 'Arial, Helvetica, sans-serif',
@@ -41,10 +42,62 @@ export function initAppearance(save: (patch: { theme?: AppearanceTheme; appearan
   let theme: AppearanceTheme = 'dark';
   let current = defaultAppearance();
   let editing = false;
+  const presets: { id: AppearancePreset; title: () => string; detail: () => string }[] = [
+    { id: 'classic', title: () => t('Classic'), detail: () => t('Balanced default') },
+    { id: 'cyberpunk', title: () => t('Cyberpunk'), detail: () => t('Neon nightlife') },
+    { id: 'gamer', title: () => t('Gamer'), detail: () => t('Arcade energy') },
+    { id: 'futuristic', title: () => t('Futuristic'), detail: () => t('Cool glass') },
+    { id: 'win95', title: () => t('Windows 95'), detail: () => t('Pixel nostalgia') },
+    { id: 'terminal', title: () => t('Retro Terminal'), detail: () => t('Green phosphor') },
+    { id: 'synthwave', title: () => t('Synthwave'), detail: () => t('Purple sunset') },
+    { id: 'midnight', title: () => t('Midnight OLED'), detail: () => t('Pure black') },
+    { id: 'solar', title: () => t('Solar'), detail: () => t('Warm daylight') }
+  ];
+  const presetGrid = $('appearancePresets');
+  for (const { id, title, detail } of presets) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'appearance-preset';
+    button.dataset.preset = id;
+    const sample = presetAppearance(id)[id === 'win95' || id === 'solar' ? 'light' : 'dark'];
+    button.style.setProperty('--preset-page', sample.background);
+    button.style.setProperty('--preset-side', sample.sidebar);
+    button.style.setProperty('--preset-accent', sample.accent);
+    const thumbnail = document.createElement('span');
+    thumbnail.className = 'appearance-preset-thumbnail';
+    thumbnail.setAttribute('aria-hidden', 'true');
+    for (const part of ['sidebar', 'topbar', 'card', 'accent'] as const) {
+      const section = document.createElement('span');
+      section.className = `appearance-preset-${part}`;
+      thumbnail.append(section);
+    }
+    const caption = document.createElement('span');
+    caption.className = 'appearance-preset-caption';
+    const name = document.createElement('strong');
+    name.append(uiText(title));
+    const description = document.createElement('span');
+    description.append(uiText(detail));
+    caption.append(name, description);
+    button.append(thumbnail, caption);
+    presetGrid.append(button);
+  }
+  presetGrid.addEventListener('click', event => {
+    const target = event.target;
+    const button = target instanceof Element ? target.closest<HTMLButtonElement>('button[data-preset]') : null;
+    if (!button) return;
+    const id = button.dataset.preset as AppearancePreset;
+    editing = false;
+    current = presetAppearance(id);
+    theme = id === 'win95' || id === 'solar' ? 'light' : 'dark';
+    paint();
+    save({ theme, appearance: current });
+  });
   const colorKeys = ['accent', 'background', 'sidebar'] as const;
   function paint(): void {
     applyAppearance(theme, current);
-    $('appearanceCyberpunk').setAttribute('aria-pressed', String(current.style === 'cyberpunk'));
+    for (const button of presetGrid.querySelectorAll<HTMLButtonElement>('button[data-preset]')) {
+      button.setAttribute('aria-pressed', String(button.dataset.preset === (current.style ?? 'classic')));
+    }
     $<HTMLSelectElement>('appearanceTheme').value = theme;
     $<HTMLSelectElement>('appearanceFont').value = current.font;
     $<HTMLInputElement>('appearanceSize').value = String(current.fontSize);
@@ -98,10 +151,6 @@ export function initAppearance(save: (patch: { theme?: AppearanceTheme; appearan
       control.removeAttribute('aria-invalid');
       if (control.dataset.hex) control.value = current[theme][control.dataset.hex as typeof colorKeys[number]].toUpperCase();
     }
-  });
-  $('appearanceCyberpunk').addEventListener('click', () => {
-    editing = false; theme = 'dark'; current = cyberpunkAppearance(current);
-    paint(); save({ theme, appearance: current });
   });
   $('appearanceReset').addEventListener('click', () => {
     editing = false; current = defaultAppearance(); paint(); save({ appearance: current });

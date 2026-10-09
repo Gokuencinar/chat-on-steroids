@@ -3555,6 +3555,12 @@ six-digit RGB color. A shared font choice, 12–18px base text size and transluc
 apply immediately; Reset appearance restores both palettes and typography without changing the
 theme, language or setup profile. Text size scales the existing typography hierarchy, including
 code, independently of window zoom. System font retains the locale-specific fallback stack.
+Appearance also offers nine editable style presets (Classic, Cyberpunk, Gamer, Futuristic,
+Windows 95, Retro Terminal, Synthwave, Midnight OLED and Solar). Selecting one saves both
+palettes and typography, and its optional `appearance.style` id chooses decorative geometry
+in the renderer. Old saved appearance objects without a preset remain Classic. Selecting the
+Windows 95 or Solar preset also selects Light; other presets select Dark. Subsequent manual
+color edits keep the selected style's geometry. Presets never store authored CSS.
 The Appearance sample chat reflects the same semantic color and typography tokens immediately;
 it contains no session data. The composer context dialog and accessible label identify local
 estimates; its toolbar toggles percentage/token values. Compact and Cancel remain the original

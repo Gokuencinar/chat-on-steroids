@@ -1,16 +1,12 @@
 /* Optional local skin. Semantic colors still come from Appearance; no changed layout authority. */
-.appearance-preset-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-.appearance-preset-actions > .btn { min-height: 34px; padding: 7px 10px; font-size: calc(11.5px * var(--text-scale, 1)); }
-.cyberpunk-preset { border: 1px solid var(--accent-edge); color: var(--accent); }
-.cyberpunk-preset[aria-pressed='true'] { background: var(--accent-wash); box-shadow: inset 0 -2px var(--accent); }
 
 :root[data-appearance-style='cyberpunk'] {
   --r-sm: 4px; --r-md: 7px; --r-lg: 10px; --r-xl: 12px;
-  --neon-secondary: #fa65df;
+  --neon-secondary: #2fe6ed;
   --neon-line: color-mix(in srgb, var(--accent) 38%, transparent);
   --neon-glow: color-mix(in srgb, var(--accent) 22%, transparent);
 }
-:root[data-appearance-style='cyberpunk'][data-theme='light'] { --neon-secondary: #a32987; }
+:root[data-appearance-style='cyberpunk'][data-theme='light'] { --neon-secondary: #14738f; }
 :root[data-appearance-style='cyberpunk'] .app,
 :root[data-appearance-style='cyberpunk'] .app[data-screen='chat'] {
   background-color: var(--page);

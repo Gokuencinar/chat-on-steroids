@@ -217,8 +217,12 @@
           <div class="appearance-content settings-page-content">
             <header class="settings-page-head appearance-page-head">
               <div><h1 id="appearanceTitle">Appearance</h1><p>Make this workspace yours. Changes appear immediately.</p></div>
-              <div class="appearance-preset-actions"><button class="btn cyberpunk-preset" id="appearanceCyberpunk" type="button" aria-pressed="false" translate="no"><i class="ico ph ph-lightning" aria-hidden="true"></i>Cyberpunk</button><button class="btn" id="appearanceReset" type="button"><i class="ico ph ph-arrow-clockwise" aria-hidden="true"></i>Reset appearance</button></div>
+              <button class="btn" id="appearanceReset" type="button"><i class="ico ph ph-arrow-clockwise" aria-hidden="true"></i>Reset appearance</button>
             </header>
+            <section class="appearance-section">
+              <header class="settings-section-head"><div><h2>Styles</h2><p>Pick a look, then customize its colors below.</p></div></header>
+              <div class="appearance-presets" id="appearancePresets" role="group" aria-label="Styles"></div>
+            </section>
             <section class="appearance-section">
               <header class="settings-section-head"><div><h2>Preview</h2><p>See changes as you adjust the workspace.</p></div></header>
               <div class="appearance-preview" aria-label="Appearance preview">
