@@ -245,3 +245,7 @@ Official 2.1.28 is merged with original authorship, including [@Haz4rdovisk](htt
 ## Fork upstream 2.1.38 integration
 
 Official 2.1.29 and follow-up commits through 2026-10-07 are merged with their original commit authorship. The work includes chat pins, row menus and search, approval/connection notices, recovery fixes, What's New, bounded browser recovery and the View menu. See the [integration inventory](docs/worklogs/upstream-2.1.29-integration.md) for preserved fork safeguards and scope.
+
+## Fork 2.1.39: official 2.1.30 and 2.1.31
+
+The original upstream history and authorship are retained through the official 2.1.31 tag. This includes @Haz4rdovisk (GPT-6 selection, timeline rounds, sub-agent roster, Setup Access and title-bar panels), @Maximapple (provider compatibility and recovery), @m1d0e1 (formula rendering and long summaries), @Gokuencinar (journal, search, pointer and attachment fixes), @mch1902879100-cmyk (bounded pickup recovery), and @xuan2261 (project-entry diagnostics). @tude91979059-byte is credited for reports and logs rather than code authorship. See the [integration record](docs/worklogs/upstream-2.1.31-integration.md) and official release notes.

@@ -5,6 +5,7 @@
  * No runtime logic here beyond a couple of pure helpers the UI and the recorder must
  * agree on exactly.
  */
+import { workerOwnTask } from './worker-brief.js';
 
 /** Where an event came from. The extension is untrusted UI observation; mcp is ours. */
 export type EventSource = 'extension' | 'mcp' | 'app';
@@ -582,6 +583,15 @@ export interface SessionOrigin {
   task: string;
 }
 
+/** Historical presentation projected from an accepted broker snapshot; grants no worker authority. */
+export interface WorkerAssignmentSummary {
+  conversationId: string;
+  agentId: string;
+  label: string;
+  task: string;
+  recordedAt: number;
+}
+
 const RESUMED_PREFIX = 'Resumed · ';
 
 function clip(text: string, max: number): string {
@@ -604,7 +614,8 @@ export function originTitle(origin: SessionOrigin, source: string | null): strin
   if (origin.kind === 'helper') return 'Task helper';
   if (origin.kind === 'worker') {
     const who = origin.agentId ?? 'worker';
-    const task = clip(origin.task, 60);
+    // Its own task: the run's shared context opens every worker's brief alike.
+    const task = clip(workerOwnTask(origin.task), 60);
     return task ? `${who} · ${task}` : who;
   }
   // A resumed chat is itself resumable, and often is. Stacking the prefix each time
@@ -672,6 +683,7 @@ export interface SessionSummary {
    * useful worker activity without loading each worker transcript.
    */
   lastToolActivity?: Pick<ActivitySummary, 'kind' | 'title'> | null;
+  workerAssignment?: WorkerAssignmentSummary;
   /** Observation time of the newest stable final assistant message. */
   lastAssistantFinalAt?: number | null;
   /**
@@ -886,7 +898,7 @@ export interface AgentInfo {
   primeConversationId?: string;
   id: string;
   role: AgentRole;
-  /** Spawn label; reused assignments fall back to the stable worker id. */
+  /** Current job name; preserved on reuse unless the prime explicitly renames it. */
   label: string;
   /** Spawn brief, or a bounded inbox preview for the current reused assignment. */
   task: string;
@@ -1068,6 +1080,8 @@ export interface SwarmState {
    * Caller/model status remains scoped separately and never uses this to reveal another owner.
    */
   retainedHistory?: boolean;
+  /** Local UI projection of dormant workers; never grants caller/model access. */
+  retainedWorkers?: AgentInfo[];
   agents: AgentInfo[];
 }
 

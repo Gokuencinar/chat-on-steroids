@@ -2738,10 +2738,9 @@ var CLF_DOM = (() => {
 
   /** Native attachment identity from the composer's exact tile/remove control. */
   function composerFileName(button) {
-    // Current shell (observed 2026-10-03): a filename-labelled open button and a
-    // translated remove button share a span tile, without role/group/default-action.
-    // Return only that exact remove control; counting the open button as well would
-    // invent a second attachment and prevent the upload receipt from reaching Send.
+    // Current shell: a filename-labelled open button and a translated remove button share a
+    // span tile, without role/group/default-action. Count only that exact remove control;
+    // treating both buttons as attachments prevents the upload receipt from reaching Send.
     const attachmentHost = button.closest('[data-composer-attachments]');
     const tileParent = button.parentElement;
     if (attachmentHost && tileParent && tileParent !== attachmentHost) {
@@ -3078,6 +3077,16 @@ var CLF_DOM = (() => {
     return model && /^[a-zA-Z0-9._-]{1,80}$/.test(model) && ['none','minimal','low','medium','high','xhigh','max','ultra','pro'].includes(reasoningEffort)
       ? { model, reasoningEffort } : null;
   }
+  /**
+   * Whether a borrowed chat can serve account model discovery. A chat still set to a model the
+   * account no longer lists (GPT-5.6 Sol after GPT-6, VM 2026-10-08) has no selected version and no
+   * effort lanes, so the reader rightly refuses it; discovery elected that tab anyway and timed out
+   * with picker_unavailable. The Chat/Work toggle changes the picker first, so it defers to it.
+   */
+  async function modelPickerReadable() {
+    if ([...document.querySelectorAll('[role="radio"][data-tpp-toggle-value]')].some(node => !node.closest(OWN_SURFACES) && node.getClientRects().length > 0)) return true;
+    return Boolean(await readPickerState());
+  }
   /** Account model discovery belongs to Chat; Work mounts a different picker.
    * The caller owns one idle document and verifies draft/epoch before and after this transition. */
   async function prepareChatModelSurface(stillCurrent = () => true) {
@@ -3371,6 +3380,7 @@ var CLF_DOM = (() => {
     composerVisible,
     conversationLoadFailure,
     prepareChatModelSurface,
+    modelPickerReadable,
     newChatControl,
     projectHomeId,
     enterProject,

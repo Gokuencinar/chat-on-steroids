@@ -62,7 +62,10 @@ for (const name of scripts) {
     let unhandled = false;
     const keep = chunk => { unhandled ||= /UnhandledPromiseRejection/.test(String(chunk)); output = (output + chunk).slice(-4000); };
     child.stdout.on('data', keep); child.stderr.on('data', keep);
-    const timer = setTimeout(() => { child.kill('SIGKILL'); resolve({ code: 'timeout', output }); }, TIMEOUT_MS);
+    // The full setup guide captures every shipped locale at several sizes/zooms. On Windows
+    // its offscreen captures can exceed six minutes while still making steady progress.
+    const timeoutMs = name === 'verify-setup-guide.cjs' ? 10 * 60_000 : TIMEOUT_MS;
+    const timer = setTimeout(() => { child.kill('SIGKILL'); resolve({ code: 'timeout', output }); }, timeoutMs);
     child.on('close', (code, signal) => { clearTimeout(timer); resolve({ code: code === 0 && unhandled ? 'unhandled rejection' : code ?? `signal ${signal}`, output }); });
   });
   let outcome = await run();

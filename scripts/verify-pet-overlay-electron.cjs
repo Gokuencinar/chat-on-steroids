@@ -104,8 +104,10 @@ function attachOverlay(win) {
         })()`);
         assert.ok(geometry, 'The visible overlay must render an enabled pet.');
         assert.equal(win.webContents.getZoomFactor(), 1);
-        assert.equal(geometry.body.width, 160);
-        assert.equal(geometry.body.height, 160);
+        // Chromium's transformed DOMRect can carry float noise (160.000015px on Windows).
+        // Keep the 160px contract within a thousandth of a CSS pixel.
+        assert.ok(Math.abs(geometry.body.width - 160) < 0.001, `Expected 160px width; got ${geometry.body.width}`);
+        assert.ok(Math.abs(geometry.body.height - 160) < 0.001, `Expected 160px height; got ${geometry.body.height}`);
         assert.equal(geometry.backgroundSize, '1280px 1920px');
         if (reusing) {
           assert.ok(Math.abs(geometry.shell.x - 333) < 1 && Math.abs(geometry.shell.y - 444) < 1,

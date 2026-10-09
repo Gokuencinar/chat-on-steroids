@@ -1,3 +1,28 @@
+## [2.1.39] — GPT-6, timeline rounds and official 2.1.30–2.1.31
+
+This Windows fork integrates both official stable releases through 2.1.31.
+
+### Added and improved
+
+- GPT-6, GPT-5.6 and GPT-5.5 model selection, with repaired Goal, Loop and Compact & Resume behavior on the current ChatGPT page.
+- Timeline rounds with intermediate model notes, live status and formula rendering.
+- A clearer sub-agent roster showing each worker's task, state and model.
+- An Access step in Setup using Workspace's permission switches, with clear limited-access status.
+- Panel controls in the title bar, a full-height right panel and one-click new project chats.
+- More reliable worker connector selection, recovery after a failed ChatGPT page load, saved model migration and very long handoff summaries.
+
+### Preserved from the fork
+
+- Cyberpunk appearance, native attachment and Core-send protections, execution safeguards and Windows x64-only distribution.
+- Fork-pinned updates with SHA-256 validation, 403/429 fallback and no forced app closure.
+- Bridge protocol 14 and existing user data. The standalone updater now defaults to 2.1.39.
+
+### Known upstream limitation
+
+An already-open chat's first tool call after an app restart/update can take about two minutes while ChatGPT reconnects. New chats are unaffected; see official issue [#1220](https://github.com/totec448-spec/chat-on-steroids/issues/1220).
+
+Original upstream commit history and authorship are retained. Full official notes: [2.1.30](https://github.com/totec448-spec/chat-on-steroids/releases/tag/v2.1.30) and [2.1.31](https://github.com/totec448-spec/chat-on-steroids/releases/tag/v2.1.31).
+
 # Changelog
 
 ## [2.1.38] — Official 2.1.29 plus follow-up stability and usability improvements
