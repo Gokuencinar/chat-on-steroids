@@ -49,7 +49,7 @@ app.whenReady().then(async () => {
       removeSetupProfile:id=>{config.setupProfiles=config.setupProfiles.filter(p=>p.id!==id);return ok(state)}
     },{get:(target,key)=>key in target?target[key]:()=>ok(null)});
     await import('/main.ts');
-    const still=document.createElement('style'); still.textContent='*,*::before,*::after{animation:none!important;transition:none!important}'; document.head.append(still);
+    const still=document.createElement('style'); still.id='fixture-motion-freeze'; still.textContent='*,*::before,*::after{animation:none!important;transition:none!important}'; document.head.append(still);
     window.fixtureState=state; window.fixtureReady=true;
   `;
   const server = await createServer({ configFile:false, root:path.join(root,'src/renderer'),
@@ -88,9 +88,89 @@ app.whenReady().then(async () => {
       await js(`(() => {const input=document.getElementById(${JSON.stringify(id)});input.value=${JSON.stringify(value)};input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
       await js('new Promise(r=>setTimeout(r,40))');
     };
+    // These are actual, visible app regions, not preset thumbnails. In addition to the editable
+    // palette, each immersive skin must change the rendered geometry/ornament on every surface.
+    // Comparing a style against Classic in the SAME theme prevents light/dark alone from passing.
+    const skinSurfaces = {
+      background:['.app'],
+      chrome:['.app-topbar','.chat-head'],
+      sidebar:['.sidebar'],
+      chat:['.card.is-session','#chatBody','.welcome-mark'],
+      composer:['.composer','.send-button'],
+      navigation:['.sidebar .new-chat','.sidebar-primary-link','.sess','.sidebar-session-label','.sidebar-brand .mark']
+    };
+    const skinSnapshot = () => js(`(() => {
+      const regions = ${JSON.stringify(skinSurfaces)};
+      const appearance = element => {
+        const style = getComputedStyle(element);
+        const decoration = value => [
+          value.backgroundImage, value.boxShadow, value.borderRadius,
+          value.borderTopStyle, value.borderTopWidth, value.backdropFilter,
+          value.filter, value.textShadow, value.outlineStyle, value.outlineWidth,
+          value.clipPath, value.maskImage, value.borderImageSource,
+          value.fontFamily, value.letterSpacing, value.fontWeight, value.textTransform
+        ];
+        const pseudo = name => {
+          const value = getComputedStyle(element, name);
+          return [value.content, value.backgroundImage, value.backgroundColor,
+            value.boxShadow, value.borderRadius, value.opacity, value.transform];
+        };
+        return {
+          visible: element.getClientRects().length > 0 && style.visibility !== 'hidden',
+          colors:[style.backgroundColor,style.color,style.borderTopColor],
+          decoration:[...decoration(style),...pseudo('::before'),...pseudo('::after')]
+        };
+      };
+      return {
+        style:document.documentElement.dataset.appearanceStyle,
+        theme:document.documentElement.dataset.theme,
+        regions:Object.fromEntries(Object.entries(regions).map(([name, selectors]) =>
+          [name, selectors.map(selector => {
+            const element = document.querySelector(selector);
+            return element ? appearance(element) : null;
+          })]))
+      };
+    })()`);
+    const assertGlobalSkin = (style, actual, baseline) => {
+      assert.equal(actual.style,style);
+      assert.equal(actual.theme,baseline.theme);
+      const decorated = [];
+      for (const [region, elements] of Object.entries(actual.regions)) {
+        const reference = baseline.regions[region];
+        assert.equal(elements.length,reference.length,style+' / '+region+' probe count');
+        assert.ok(elements.some(element=>element?.visible),style+' / '+region+' is not visible in chat');
+        const decoratedRegion = elements.some((element,index) =>
+          element?.visible && reference[index]?.visible &&
+          JSON.stringify(element.decoration)!==JSON.stringify(reference[index].decoration)
+        );
+        const recoloredRegion = elements.some((element,index) =>
+          element?.visible && reference[index]?.visible &&
+          JSON.stringify(element.colors)!==JSON.stringify(reference[index].colors)
+        );
+        // Flat Win95 and true-black Midnight legitimately use fewer ornaments on the
+        // canvas itself. Even so, every *visible* region must differ, and most must
+        // visibly change ornament/typography rather than merely inherit a new palette.
+        if (style !== 'classic') assert.ok(decoratedRegion || recoloredRegion,
+          style+' does not change the visible '+region+' surface');
+        if (decoratedRegion) decorated.push(region);
+      }
+      if (style !== 'classic') assert.ok(decorated.length>=4,
+        style+' recolors too many regions without skin-specific chrome: '+decorated.join(', '));
+      return decorated;
+    };
     await js(`document.querySelector('[data-tab="appearance"]').click()`);
     assert.equal(await js(`document.getElementById('appearancePanel').classList.contains('is-active')`),true);
     await screenshot('default-dark.png');
+    // Both Classic baselines are necessary: Windows 95/Solar select light, other skins dark.
+    await js(`document.getElementById('backToChat').click()`);
+    const classicDark = await skinSnapshot();
+    await js(`document.querySelector('[data-tab="appearance"]').click()`);
+    await change('appearanceTheme','light');
+    await js(`document.getElementById('backToChat').click()`);
+    const classicLight = await skinSnapshot();
+    await js(`document.querySelector('[data-tab="appearance"]').click()`);
+    await change('appearanceTheme','dark');
+    const skinResults = [];
     for (const preset of ['cyberpunk','gamer','futuristic','win95','terminal','synthwave','midnight','solar','classic']) {
       await js(`document.querySelector('[data-preset="${preset}"]').click()`);
       await js('new Promise(r=>setTimeout(r,45))');
@@ -100,6 +180,52 @@ app.whenReady().then(async () => {
       assert.equal(await js(`document.querySelector('.appearance-preset[aria-pressed="true"]').dataset.preset`),preset);
       assert.equal(await js(`document.getElementById('appearanceTheme').value`),['win95','solar'].includes(preset)?'light':'dark');
       await verifyPopoverPalette();
+      const controls = await js(`[...document.querySelectorAll('#appearancePresets button[data-preset]')].map(button => ({
+        style:button.dataset.preset, name:button.textContent.trim(),
+        pressed:button.getAttribute('aria-pressed'), keyboard:button.tabIndex>=0,
+        visible:button.getClientRects().length>0
+      }))`);
+      assert.equal(controls.length,9,'All nine styles must be selectable');
+      assert.ok(controls.every(button=>button.name && button.keyboard && button.visible),'Style buttons need accessible labels and keyboard access');
+      assert.deepEqual(controls.filter(button=>button.pressed==='true').map(button=>button.style),[preset]);
+      await screenshot('skin-'+preset+'-settings.png');
+      await js(`document.getElementById('backToChat').click()`);
+      const currentSkin = await skinSnapshot();
+      const decorated = assertGlobalSkin(preset,currentSkin,['win95','solar'].includes(preset)?classicLight:classicDark);
+      if (preset === 'gamer' || preset === 'futuristic') {
+        const accent = await js(`getComputedStyle(document.documentElement).getPropertyValue('--accent-fill').trim().toLowerCase()`);
+        assert.match(accent,/^#[0-9a-f]{6}$/);
+        const [red,green,blue] = [1,3,5].map(at=>parseInt(accent.slice(at,at+2),16));
+        if (preset==='gamer') {
+          assert.ok(green>=220 && green>red && green>blue*1.5,
+            'Gamer accent needs bright neon green, actual '+accent);
+        } else {
+          assert.ok(green>=210 && blue>=220 && blue>red*1.3,
+            'Futuristic accent needs bright fluorescent cyan, actual '+accent);
+        }
+        const accentInk = await js(`getComputedStyle(document.documentElement).getPropertyValue('--ink').trim().toLowerCase()`);
+        assert.equal(accentInk,'#ffffff',preset+' dark surfaces must retain white readable text');
+        // Assert the actual skin-gradient's color stops, not just the single editable accent.
+        // RGB Gaming needs green, cyan and pink/violet; Futuristic needs blue, cyan and icy white.
+        const gradient = await js(`getComputedStyle(document.documentElement).getPropertyValue('--skin-gradient').trim()`);
+        const stops = [...gradient.matchAll(/#[0-9a-f]{6}\b/gi)].map(([hex]) =>
+          [1,3,5].map(at=>parseInt(hex.slice(at,at+2),16))
+        );
+        assert.ok(stops.length>=3,preset+' requires a multi-stop luminous color treatment: '+JSON.stringify({gradient,stops}));
+        if (preset==='gamer') {
+          assert.ok(stops.some(([r,g,b])=>g>r*1.4 && g>b*1.1),'Gamer RGB gradient needs green');
+          assert.ok(stops.some(([r,g,b])=>b>r*1.5 && g>r*1.5),'Gamer RGB gradient needs cyan');
+          assert.ok(stops.some(([r,g,b])=>r>g*1.5 && b>g*1.5),'Gamer RGB gradient needs violet/magenta');
+        } else {
+          assert.ok(stops.some(([r,g,b])=>b>r*3 && b>g*1.25),'Futuristic gradient needs electric blue');
+          assert.ok(stops.some(([r,g,b])=>g>r*2 && b>r*2),'Futuristic gradient needs cyan');
+          assert.ok(stops.some(([r,g,b])=>Math.min(r,g,b)>=190),'Futuristic gradient needs fluorescent icy white');
+        }
+      }
+      await js(`(() => {const input=document.getElementById('chatInput');input.value='A workspace in the '+${JSON.stringify(preset)}+' style.';input.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+      await screenshot('skin-'+preset+'-chat.png');
+      skinResults.push({style:preset,theme:currentSkin.theme,regions:Object.keys(currentSkin.regions),decorated});
+      await js(`document.querySelector('[data-tab="appearance"]').click()`);
       if (preset === 'cyberpunk') {
         assert.ok((await js(`getComputedStyle(document.querySelector('.sidebar')).backgroundImage`)).includes('linear-gradient'));
         await screenshot('preset-cyberpunk.png');
@@ -110,6 +236,34 @@ app.whenReady().then(async () => {
       }
       if (preset === 'gamer') await screenshot('preset-gamer.png');
     }
+    // The main fixture deliberately freezes motion for deterministic screenshots. Turn that
+    // override off while emulating the OS preference, otherwise a reduced-motion test is vacuous.
+    await js(`document.querySelector('[data-preset="gamer"]').click()`);
+    const debuggerClient = win.webContents.debugger;
+    debuggerClient.attach('1.3');
+    let reducedMotion;
+    try {
+      await debuggerClient.sendCommand('Emulation.setEmulatedMedia',
+        {features:[{name:'prefers-reduced-motion',value:'reduce'}]});
+      reducedMotion = await js(`(() => {
+        document.getElementById('fixture-motion-freeze').disabled=true;
+        const button=document.querySelector('[data-preset="gamer"]');
+        return {matches:matchMedia('(prefers-reduced-motion: reduce)').matches,
+          buttonTransition:getComputedStyle(button).transitionDuration,
+          buttonAnimation:getComputedStyle(button).animationName,
+          topbarAnimation:getComputedStyle(document.querySelector('.app-topbar')).animationName};
+      })()`);
+    } finally {
+      await js(`document.getElementById('fixture-motion-freeze').disabled=false`);
+      await debuggerClient.sendCommand('Emulation.setEmulatedMedia',{features:[]});
+      debuggerClient.detach();
+    }
+    assert.equal(reducedMotion.matches,true,'Reduced motion must be emulated, not fixture-forced');
+    assert.ok(reducedMotion.buttonTransition.split(',').every(value=>parseFloat(value)===0),
+      'Style selection must not transition when reduced motion is requested');
+    assert.equal(reducedMotion.buttonAnimation,'none','No animated skin selection in reduced motion');
+    assert.equal(reducedMotion.topbarAnimation,'none','Gamer RGB topbar must stop moving in reduced motion');
+    await js(`document.querySelector('[data-preset="classic"]').click()`);
     await change('appearance-accent-hex','#a855f7');
     await change('appearance-sidebar-hex','#35234c');
     await change('appearance-background-hex','#19151f');
@@ -222,7 +376,7 @@ app.whenReady().then(async () => {
     await js(`document.querySelector('[data-tab="appearance"]').click();document.getElementById('appearanceReset').click()`);
     await js('new Promise(r=>setTimeout(r,100))');
     assert.equal(await js('document.documentElement.dataset.appearanceStyle'),'classic');
-    fs.writeFileSync(path.join(output,'results.json'),JSON.stringify({arbitraryColors:true,separateThemes:true,translucency:true,dirtyPush:true,queuedSave:true,saveFailureRollback:true,reload:true,reset:true,cyberpunkPersistence:true,cyberpunkReset:true,cyberpunkLayout,layout},null,2));
+    fs.writeFileSync(path.join(output,'results.json'),JSON.stringify({arbitraryColors:true,separateThemes:true,translucency:true,dirtyPush:true,queuedSave:true,saveFailureRollback:true,reload:true,reset:true,cyberpunkPersistence:true,cyberpunkReset:true,globalSkins:skinResults,accessibleStyleControls:true,reducedMotion,cyberpunkLayout,layout},null,2));
     console.log('Appearance Electron checks passed. '+output);
   } finally { win?.destroy(); await server.close(); }
   app.quit();

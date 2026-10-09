@@ -3717,6 +3717,15 @@ palettes and typography, and its optional `appearance.style` id chooses decorati
 in the renderer. Old saved appearance objects without a preset remain Classic. Selecting the
 Windows 95 or Solar preset also selects Light; other presets select Dark. Subsequent manual
 color edits keep the selected style's geometry. Presets never store authored CSS.
+Full-window skin decoration lives in `src/renderer/immersive-skins.css` (loaded after
+`cyberpunk.css`); all non-Classic styles skin navigation, titlebar, chat, composer,
+work docks, forms and plugin cards, while Classic keeps the original UI. Gamer uses
+lime/cyan/magenta RGB HUD styling, Futuristic uses icy blue and fluorescent white
+glass, and the other six styles also have distinct geometry and surface treatments.
+The theme's semantic text colors and user's editable accent/background/sidebar tokens
+remain authoritative; animated RGB never runs with reduced-motion preference.
+The sidebar and connection popover must share matching palette/background computed
+styles; `scripts/verify-appearance.cjs` checks both and captures nine full-window skins.
 The Appearance sample chat reflects the same semantic color and typography tokens immediately;
 it contains no session data. The composer context dialog and accessible label identify local
 estimates; its toolbar toggles percentage/token values. Compact and Cancel remain the original

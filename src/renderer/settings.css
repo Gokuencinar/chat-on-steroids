@@ -38,26 +38,81 @@
 .appearance-preset:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .appearance-preset[aria-pressed='true'] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-edge); }
 .appearance-preset[aria-pressed='true']::after { content: '✓'; position: absolute; top: 15px; right: 16px; display: grid; place-items: center; width: 19px; height: 19px; border-radius: 50%; background: var(--accent-fill); color: var(--on-accent); font-size: 12px; font-weight: 700; }
-.appearance-preset-thumbnail { position: relative; display: block; overflow: hidden; width: 100%; height: 83px; border: 1px solid color-mix(in srgb, var(--preset-accent) 35%, transparent); border-radius: 7px; background: var(--preset-page); }
-.appearance-preset-sidebar { position: absolute; inset: 0 auto 0 0; width: 32%; background: var(--preset-side); }
-.appearance-preset-sidebar::before { content: ''; position: absolute; top: 19px; left: 15%; right: 20%; height: 4px; border-radius: 2px; background: var(--preset-accent); box-shadow: 0 13px 0 color-mix(in srgb, var(--preset-accent) 30%, transparent), 0 26px 0 color-mix(in srgb, var(--preset-accent) 20%, transparent); }
-.appearance-preset-topbar { position: absolute; top: 0; right: 0; left: 32%; height: 13px; background: color-mix(in srgb, var(--preset-side) 75%, var(--preset-page)); }
-.appearance-preset-card { position: absolute; top: 25px; bottom: 18px; left: 42%; right: 10%; border: 1px solid color-mix(in srgb, var(--preset-accent) 30%, transparent); border-radius: 5px; background: color-mix(in srgb, var(--preset-side) 65%, var(--preset-page)); }
-.appearance-preset-accent { position: absolute; bottom: 25px; right: 18%; width: 25%; height: 5px; border-radius: 3px; background: var(--preset-accent); }
+.appearance-preset-thumbnail { position: relative; isolation: isolate; display: block; overflow: hidden; width: 100%; height: 83px; border: 1px solid color-mix(in srgb, var(--preset-accent) 52%, transparent); border-radius: 8px; background: radial-gradient(ellipse at 85% 5%, color-mix(in srgb, var(--preset-accent) 18%, transparent), transparent 68%), var(--preset-page); transition: box-shadow .2s ease, border-color .2s ease; }
+.appearance-preset-thumbnail::before { content: ''; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(125deg, transparent 42%, #ffffff09 52%, transparent 64%); }
+.appearance-preset-thumbnail::after { content: ''; position: absolute; inset: 0; pointer-events: none; border: 1px solid #ffffff16; border-radius: inherit; }
+.appearance-preset-sidebar { position: absolute; inset: 0 auto 0 0; width: 32%; background: var(--preset-side); border-right: 1px solid color-mix(in srgb, var(--preset-accent) 32%, transparent); }
+.appearance-preset-sidebar::before { content: ''; position: absolute; top: 19px; left: 15%; right: 20%; height: 4px; border-radius: 2px; background: var(--preset-accent); box-shadow: 0 13px 0 color-mix(in srgb, var(--preset-accent) 45%, transparent), 0 26px 0 color-mix(in srgb, var(--preset-accent) 22%, transparent); }
+.appearance-preset-topbar { position: absolute; top: 0; right: 0; left: 32%; height: 13px; background: color-mix(in srgb, var(--preset-side) 75%, var(--preset-page)); border-bottom: 1px solid color-mix(in srgb, var(--preset-accent) 20%, transparent); }
+.appearance-preset-card { position: absolute; top: 25px; bottom: 18px; left: 42%; right: 10%; border: 1px solid color-mix(in srgb, var(--preset-accent) 48%, transparent); border-radius: 6px; background: color-mix(in srgb, var(--preset-side) 65%, var(--preset-page)); box-shadow: 0 3px 9px #0000001a; }
+.appearance-preset-card::before { content: ''; position: absolute; top: 8px; left: 10%; right: 22%; height: 3px; border-radius: 3px; background: color-mix(in srgb, var(--preset-accent) 68%, transparent); box-shadow: 0 9px 0 color-mix(in srgb, var(--preset-accent) 25%, transparent); }
+.appearance-preset-accent { position: absolute; bottom: 25px; right: 18%; width: 25%; height: 5px; border-radius: 3px; background: var(--preset-accent); box-shadow: 0 0 9px color-mix(in srgb, var(--preset-accent) 40%, transparent); }
 .appearance-preset-caption { display: flex; flex-direction: column; min-width: 0; padding: 0 2px 2px; gap: 3px; }
 .appearance-preset-caption strong { overflow: hidden; color: var(--ink); font-size: calc(12px * var(--text-scale, 1)); font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
 .appearance-preset-caption > span { overflow: hidden; color: var(--soft); font-size: calc(10.5px * var(--text-scale, 1)); text-overflow: ellipsis; white-space: nowrap; }
-.appearance-preset[data-preset='cyberpunk'] .appearance-preset-thumbnail { border-radius: 2px; box-shadow: inset 0 0 16px #ff38c829; }
-.appearance-preset[data-preset='cyberpunk'] .appearance-preset-card { border-color: #36e9f1; border-radius: 0; }
-.appearance-preset[data-preset='cyberpunk'] .appearance-preset-topbar { background: linear-gradient(90deg, #ef3299, #32dceb); }
-.appearance-preset[data-preset='gamer'] .appearance-preset-thumbnail { border-bottom: 3px solid #56f595; }
-.appearance-preset[data-preset='futuristic'] .appearance-preset-thumbnail { border-radius: 14px; }
-.appearance-preset[data-preset='win95'] .appearance-preset-thumbnail, .appearance-preset[data-preset='win95'] .appearance-preset-card { border-radius: 0; }
-.appearance-preset[data-preset='win95'] .appearance-preset-topbar { background: #000080; }
-.appearance-preset[data-preset='terminal'] .appearance-preset-thumbnail { border-radius: 0; background-image: repeating-linear-gradient(0deg, transparent 0 4px, #67f5a008 4px 5px); }
-.appearance-preset[data-preset='synthwave'] .appearance-preset-thumbnail { background-image: linear-gradient(155deg, transparent 35%, #fa4aa025 80%); }
-.appearance-preset[data-preset='midnight'] .appearance-preset-thumbnail { border-color: #3b365c; }
-.appearance-preset[data-preset='solar'] .appearance-preset-thumbnail { border-color: #c5a777; }
+.appearance-preset[data-preset='classic'] .appearance-preset-thumbnail { box-shadow: inset 0 1px 0 #ffffff13; }
+.appearance-preset[data-preset='classic'] .appearance-preset-card { box-shadow: 0 4px 10px #00000030; }
+/* Cyberpunk: magenta hologram, electric-cyan rails and fine scan lines. */
+.appearance-preset[data-preset='cyberpunk'] .appearance-preset-thumbnail { border-color: #fd38d7; border-radius: 2px; background: radial-gradient(circle at 80% 45%, #fb23c534, transparent 56%), linear-gradient(130deg, #130820, #08182c); box-shadow: inset 0 0 22px #ff38c82e, 0 0 12px #fa3dde29; }
+.appearance-preset[data-preset='cyberpunk'] .appearance-preset-thumbnail::before { background: repeating-linear-gradient(0deg, #63f4ff0d 0 1px, transparent 1px 6px), linear-gradient(130deg, transparent 44%, #39f7ff29 45%, transparent 47%); }
+.appearance-preset[data-preset='cyberpunk'] .appearance-preset-thumbnail::after { inset: 6px 5px auto auto; width: 24px; height: 6px; border: 0; border-radius: 0; background: repeating-linear-gradient(90deg, #3af5ff 0 4px, transparent 4px 7px); box-shadow: 0 0 8px #3af5ff8c; }
+.appearance-preset[data-preset='cyberpunk'] .appearance-preset-sidebar { background: linear-gradient(155deg, #270d3e, #0b1028); border-right: 2px solid #fb3aca; }
+.appearance-preset[data-preset='cyberpunk'] .appearance-preset-topbar { background: linear-gradient(90deg, #ed28b0, #6533c0 42%, #21efff); box-shadow: 0 0 9px #27f8ff91; }
+.appearance-preset[data-preset='cyberpunk'] .appearance-preset-card { border-color: #36f8ff; border-radius: 0; background: linear-gradient(125deg, #1c1039, #10203b); clip-path: polygon(0 0, 91% 0, 100% 23%, 100% 100%, 0 100%); box-shadow: inset 3px 0 #ff35cb; }
+/* Gamer: the RGB bezel and three vivid light channels are visible even before selection. */
+.appearance-preset[data-preset='gamer'] .appearance-preset-thumbnail { border: 2px solid transparent; border-radius: 11px; background: linear-gradient(145deg, #070b1a, #1d0b38) padding-box, conic-gradient(from 30deg, #ff3ed2, #38faff, #b6ff26, #ff3ed2) border-box; box-shadow: inset 0 0 14px #6c46ff55, 0 0 12px #a54dff44; }
+.appearance-preset[data-preset='gamer'] .appearance-preset-thumbnail::before { background: radial-gradient(circle at 76% 35%, #ff36e32e, transparent 46%), repeating-linear-gradient(115deg, transparent 0 13px, #33eaff13 14px 15px, transparent 16px 26px); }
+.appearance-preset[data-preset='gamer'] .appearance-preset-thumbnail::after { content: 'RGB'; inset: auto 7px 5px auto; width: auto; height: auto; border: 0; color: #ecfcff; font: 900 9px/1 sans-serif; letter-spacing: 2px; text-shadow: -4px 0 5px #ff3ed2, 4px 0 5px #38faff, 0 0 8px #b6ff26; }
+.appearance-preset[data-preset='gamer'] .appearance-preset-sidebar { background: linear-gradient(135deg, #1e113d, #080e20); border-right: 2px solid #aeff31; box-shadow: inset -4px 0 14px #a444ff44; }
+.appearance-preset[data-preset='gamer'] .appearance-preset-topbar { background: linear-gradient(90deg, #ff38c8, #713eff 49%, #3bffff); box-shadow: 0 2px 9px #653cff8c; }
+.appearance-preset[data-preset='gamer'] .appearance-preset-card { border-color: #47edff; border-radius: 6px; background: linear-gradient(145deg, #1b1240, #121d36); box-shadow: -2px 1px 0 #ff36c1, 2px -1px 0 #b7ff28, 0 0 11px #5e49ff88; }
+.appearance-preset[data-preset='gamer'] .appearance-preset-accent { background: #b6ff26; box-shadow: 0 0 10px #b6ff26, 0 0 18px #b6ff2666; }
+/* Futuristic: crisp white-blue glass, luminous edges and holographic refractions. */
+.appearance-preset[data-preset='futuristic'] .appearance-preset-thumbnail { border: 1px solid #a9f8ff; border-radius: 15px; background: radial-gradient(ellipse at 74% 8%, #ccfaff78, transparent 56%), linear-gradient(145deg, #0a2540, #123f62 62%, #071728); box-shadow: inset 0 0 16px #67edff45, 0 0 12px #6fefff3b; }
+.appearance-preset[data-preset='futuristic'] .appearance-preset-thumbnail::before { background: linear-gradient(122deg, transparent 34%, #ffffff44 40%, transparent 48%), repeating-linear-gradient(90deg, transparent 0 14px, #7deaff12 14px 15px); }
+.appearance-preset[data-preset='futuristic'] .appearance-preset-thumbnail::after { inset: 6px 6px auto auto; width: 22px; height: 3px; border: 0; border-radius: 4px; background: #f6ffff; box-shadow: 0 0 10px #7ef5ff, 0 0 19px #7ef5ff; }
+.appearance-preset[data-preset='futuristic'] .appearance-preset-sidebar { background: linear-gradient(135deg, #245279ad, #0e2139e8); border-right: 1px solid #a5f8ffb8; }
+.appearance-preset[data-preset='futuristic'] .appearance-preset-topbar { background: linear-gradient(90deg, #75e5ff8a, #e5fcffdf 68%, #62d5ffad); box-shadow: 0 2px 9px #bdfbffb8; }
+.appearance-preset[data-preset='futuristic'] .appearance-preset-card { border: 1px solid #d7fcff; border-radius: 12px; background: linear-gradient(130deg, #b1eeff58, #b4e9ff0e 72%); box-shadow: inset 0 1px 0 #ffffffb8, 0 0 15px #9aefff9c; }
+.appearance-preset[data-preset='futuristic'] .appearance-preset-accent { background: #f1ffff; box-shadow: 0 0 12px #ffffff, 0 0 18px #54e3ff; }
+/* Windows 95: squared windows and the unmistakable raised/sunken grey bevel. */
+.appearance-preset[data-preset='win95'] .appearance-preset-thumbnail { border: 2px solid; border-color: #fff #666 #666 #fff; border-radius: 0; background: #c0c0c0; box-shadow: inset -1px -1px #747474, inset 1px 1px #ededed; }
+.appearance-preset[data-preset='win95'] .appearance-preset-thumbnail::after { display: none; }
+.appearance-preset[data-preset='win95'] .appearance-preset-sidebar { background: #bdbdbd; border-right: 2px solid #777; }
+.appearance-preset[data-preset='win95'] .appearance-preset-sidebar::before { border-radius: 0; }
+.appearance-preset[data-preset='win95'] .appearance-preset-topbar { background: linear-gradient(90deg, #000080, #187eb4); }
+.appearance-preset[data-preset='win95'] .appearance-preset-card { border: 2px solid; border-color: #fff #777 #777 #fff; border-radius: 0; background: #d3d3d3; box-shadow: 1px 1px 0 #555; }
+.appearance-preset[data-preset='win95'] .appearance-preset-accent { border-radius: 0; box-shadow: none; }
+/* Retro Terminal: phosphorus, scan lines, command cursor and almost-black glass. */
+.appearance-preset[data-preset='terminal'] .appearance-preset-thumbnail { border: 1px solid #4aff7b; border-radius: 0; background: #020b05; box-shadow: inset 0 0 16px #1afa4526, 0 0 9px #41ff7433; }
+.appearance-preset[data-preset='terminal'] .appearance-preset-thumbnail::before { background: repeating-linear-gradient(0deg, #7cff8512 0 1px, transparent 1px 4px), repeating-linear-gradient(90deg, transparent 0 13px, #61ff8711 13px 14px); }
+.appearance-preset[data-preset='terminal'] .appearance-preset-thumbnail::after { content: '>_'; inset: auto 10px 5px auto; width: auto; height: auto; border: 0; color: #76ff9b; font: bold 13px/1 monospace; text-shadow: 0 0 8px #42ff77; }
+.appearance-preset[data-preset='terminal'] .appearance-preset-sidebar { background: #071408; border-right: 1px dashed #43ff6b; }
+.appearance-preset[data-preset='terminal'] .appearance-preset-topbar { background: #09230d; border-bottom: 1px solid #5bff80; }
+.appearance-preset[data-preset='terminal'] .appearance-preset-card { border: 1px dashed #54ff83; border-radius: 0; background: #0d241066; box-shadow: inset 0 0 13px #57ff7520; }
+/* Synthwave: sunset disc above purple-pink horizon grid. */
+.appearance-preset[data-preset='synthwave'] .appearance-preset-thumbnail { border-color: #fa6bde; background: linear-gradient(180deg, #371044 0%, #28103a 55%, #150929 100%); box-shadow: inset 0 0 17px #f542aa38, 0 0 10px #f65ac33b; }
+.appearance-preset[data-preset='synthwave'] .appearance-preset-thumbnail::before { background: repeating-linear-gradient(90deg, transparent 0 15px, #fa57d03b 15px 16px), linear-gradient(0deg, #ee46f53b, transparent 35%); transform: perspective(80px) rotateX(25deg) scale(1.3); transform-origin: center bottom; }
+.appearance-preset[data-preset='synthwave'] .appearance-preset-thumbnail::after { content: ''; inset: 15px 14% auto auto; width: 30px; height: 30px; border: 0; border-radius: 50%; background: repeating-linear-gradient(0deg, transparent 0 5px, #40175a 5px 7px), linear-gradient(#ffcb7d, #fe59b6); box-shadow: 0 0 14px #ff77cd88; }
+.appearance-preset[data-preset='synthwave'] .appearance-preset-sidebar { background: linear-gradient(#542166, #220e42); border-right: 1px solid #f17bfc; }
+.appearance-preset[data-preset='synthwave'] .appearance-preset-topbar { background: linear-gradient(90deg, #884aff, #ff73d3); }
+.appearance-preset[data-preset='synthwave'] .appearance-preset-card { border-color: #ff74d1; background: #40194bb8; box-shadow: 0 0 11px #fa5fd055; }
+/* Midnight OLED: true-black pixels with restrained violet highlights. */
+.appearance-preset[data-preset='midnight'] .appearance-preset-thumbnail { border-color: #574e8e; background: #000; box-shadow: inset 0 0 14px #513a8422; }
+.appearance-preset[data-preset='midnight'] .appearance-preset-thumbnail::before { background: radial-gradient(circle at 83% 20%, #b99aff80 0 1px, transparent 2px), radial-gradient(circle at 61% 64%, #a49bff66 0 1px, transparent 2px); }
+.appearance-preset[data-preset='midnight'] .appearance-preset-thumbnail::after { border-color: #9672ff21; }
+.appearance-preset[data-preset='midnight'] .appearance-preset-sidebar { background: #07070d; border-right-color: #403360; }
+.appearance-preset[data-preset='midnight'] .appearance-preset-topbar { background: #08070f; }
+.appearance-preset[data-preset='midnight'] .appearance-preset-card { border-color: #675496; background: #0d0b18; box-shadow: none; }
+.appearance-preset[data-preset='midnight'] .appearance-preset-accent { box-shadow: 0 0 8px #bca6ff8c; }
+/* Solar: warm daylight across cream paper, amber gold and soft inset shadows. */
+.appearance-preset[data-preset='solar'] .appearance-preset-thumbnail { border-color: #b68644; background: radial-gradient(circle at 80% 8%, #fffdf9, #ffe4a84d 45%, transparent 76%), linear-gradient(130deg, #fff9e9, #efcf91); box-shadow: inset 0 1px 3px #fff7d8, 0 4px 10px #8e511d26; }
+.appearance-preset[data-preset='solar'] .appearance-preset-thumbnail::before { background: linear-gradient(140deg, #ffffff73 9%, transparent 35%, #bb82400c 87%); }
+.appearance-preset[data-preset='solar'] .appearance-preset-thumbnail::after { inset: 6px 9px auto auto; width: 16px; height: 16px; border: 0; border-radius: 50%; background: #ffda70; box-shadow: 0 0 15px #ffc45caa; }
+.appearance-preset[data-preset='solar'] .appearance-preset-sidebar { background: linear-gradient(160deg, #f6e8cb, #e0bf80); border-right-color: #b28e59; }
+.appearance-preset[data-preset='solar'] .appearance-preset-topbar { background: linear-gradient(90deg, #e5c58e, #fff7d5); }
+.appearance-preset[data-preset='solar'] .appearance-preset-card { border-color: #d2ab6a; background: #fff5dd; box-shadow: 0 3px 10px #9e652630; }
+.appearance-preset[data-preset='solar'] .appearance-preset-accent { box-shadow: 0 0 8px #c7823d66; }
 @media (max-width: 1100px) {
   .appearance-panel { padding: 36px 24px 52px; }
   .appearance-panel .appearance-page-head { align-items: flex-start; flex-direction: column; gap: 18px; }

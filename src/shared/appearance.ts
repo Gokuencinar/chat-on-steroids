@@ -33,43 +33,43 @@ export function defaultAppearance(): AppearanceSettings {
 /** Complete editable palettes; CSS owns only the decorative shape of each style. */
 const PRESETS: Record<Exclude<AppearancePreset, 'classic'>, Omit<AppearanceSettings, 'style'>> = {
   cyberpunk: {
-    light: { background: '#fff0fa', sidebar: '#e7dcfc', accent: '#a00091', contrast: 75 },
-    dark: { background: '#100b21', sidebar: '#1c1030', accent: '#ff38c8', contrast: 90 },
+    light: { background: '#fff0fb', sidebar: '#f3d9fd', accent: '#a00086', contrast: 82 },
+    dark: { background: '#090516', sidebar: '#210d35', accent: '#ff35cb', contrast: 95 },
     font: 'mono', fontSize: 14, translucentSidebar: false
   },
   gamer: {
-    light: { background: '#edf7f0', sidebar: '#d5e9dd', accent: '#186839', contrast: 68 },
-    dark: { background: '#0b1210', sidebar: '#101e19', accent: '#56f595', contrast: 85 },
+    light: { background: '#f1f2ff', sidebar: '#e1defb', accent: '#6430cf', contrast: 78 },
+    dark: { background: '#080917', sidebar: '#14112e', accent: '#b6ff26', contrast: 96 },
     font: 'sans', fontSize: 14, translucentSidebar: false
   },
   futuristic: {
-    light: { background: '#edf7ff', sidebar: '#dceefa', accent: '#176b93', contrast: 55 },
-    dark: { background: '#0a1827', sidebar: '#10283c', accent: '#69e0ff', contrast: 76 },
+    light: { background: '#f3fcff', sidebar: '#d9f2ff', accent: '#0077ae', contrast: 75 },
+    dark: { background: '#061629', sidebar: '#102e48', accent: '#9af4ff', contrast: 92 },
     font: 'sans', fontSize: 14, translucentSidebar: true
   },
   win95: {
-    light: { background: '#c0c0c0', sidebar: '#b6b6b6', accent: '#000080', contrast: 90 },
-    dark: { background: '#252b34', sidebar: '#353d49', accent: '#83b5ff', contrast: 88 },
+    light: { background: '#c4c4c4', sidebar: '#b5b5b5', accent: '#000080', contrast: 95 },
+    dark: { background: '#232935', sidebar: '#323b4a', accent: '#a1c8ff', contrast: 92 },
     font: 'sans', fontSize: 14, translucentSidebar: false
   },
   terminal: {
-    light: { background: '#eff7e8', sidebar: '#d9e7ce', accent: '#27672e', contrast: 85 },
-    dark: { background: '#07110a', sidebar: '#0b190e', accent: '#63ea86', contrast: 90 },
+    light: { background: '#edf9e8', sidebar: '#d4eecb', accent: '#286b2e', contrast: 92 },
+    dark: { background: '#020b05', sidebar: '#071709', accent: '#66ff86', contrast: 96 },
     font: 'mono', fontSize: 14, translucentSidebar: false
   },
   synthwave: {
-    light: { background: '#fff1fc', sidebar: '#eddafc', accent: '#ab2788', contrast: 70 },
-    dark: { background: '#1c1030', sidebar: '#29133e', accent: '#ff79d6', contrast: 80 },
+    light: { background: '#fff1fb', sidebar: '#f0d6f6', accent: '#a72583', contrast: 78 },
+    dark: { background: '#170a2a', sidebar: '#321344', accent: '#ff73d3', contrast: 89 },
     font: 'sans', fontSize: 14, translucentSidebar: true
   },
   midnight: {
-    light: { background: '#f0f0fa', sidebar: '#e5e7f6', accent: '#5652a5', contrast: 55 },
-    dark: { background: '#000000', sidebar: '#0b0c14', accent: '#b7a5ff', contrast: 70 },
+    light: { background: '#f2f3fc', sidebar: '#e1e5f6', accent: '#524a9e', contrast: 73 },
+    dark: { background: '#000000', sidebar: '#07070d', accent: '#c6afff', contrast: 84 },
     font: 'system', fontSize: 14, translucentSidebar: false
   },
   solar: {
-    light: { background: '#fbf5e7', sidebar: '#efe1c8', accent: '#956025', contrast: 62 },
-    dark: { background: '#242017', sidebar: '#2e2a20', accent: '#efbb72', contrast: 72 },
+    light: { background: '#fff9e9', sidebar: '#f1e1c4', accent: '#915213', contrast: 77 },
+    dark: { background: '#211c15', sidebar: '#352919', accent: '#ffd18a', contrast: 85 },
     font: 'serif', fontSize: 14, translucentSidebar: false
   }
 };
