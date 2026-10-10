@@ -131,6 +131,101 @@ app.whenReady().then(async () => {
           })]))
       };
     })()`);
+    // Sample the real Settings cards, not just preset thumbnails. Keeping this probe in the
+    // production renderer catches specificity mistakes where a new skin only paints its picker.
+    const deepSettingsSnapshot = () => js(`(() => {
+      const panel=document.getElementById('appearancePanel');
+      const card=panel.querySelector('.appearance-settings-card');
+      const preview=panel.querySelector('.appearance-preview');
+      const style=element=>{
+        const css=getComputedStyle(element);
+        const rect=element.getBoundingClientRect();
+        return {background:css.backgroundImage,fill:css.backgroundColor,border:css.borderTopColor,
+          radius:css.borderTopLeftRadius,shadow:css.boxShadow,width:rect.width};
+      };
+      return {card:style(card),preview:style(preview),
+        overflow:panel.scrollWidth-panel.clientWidth,
+        cardControls:[...card.querySelectorAll('input,select,button')].filter(node=>!node.disabled).length};
+    })()`);
+    // These fixtures expose hidden production surfaces without a backend or synthetic CSS:
+    // focus a real composer textarea, select a sidebar button, and show an existing dock status.
+    const deepChatSnapshot = () => js(`(() => {
+      const composer=document.getElementById('composer'),input=document.getElementById('chatInput');
+      const nav=document.getElementById('sidebarPlugins'),dock=document.getElementById('composerDock');
+      const status=document.getElementById('backgroundExecStatus');
+      const style=element=>{
+        const css=getComputedStyle(element);
+        const rect=element.getBoundingClientRect();
+        return {background:css.backgroundImage,fill:css.backgroundColor,
+          shadow:css.boxShadow,border:css.borderTopColor,radius:css.borderTopLeftRadius,
+          outline:css.outlineStyle,filter:css.filter,animation:css.animationName,
+          transition:css.transitionProperty,width:rect.width,height:rect.height};
+      };
+      const idleComposer=style(composer);
+      input.focus();
+      const focusedComposer=style(composer);
+      const focusedPseudo=getComputedStyle(composer,'::before');
+      const focusArt={content:focusedPseudo.content,background:focusedPseudo.backgroundImage,
+        height:focusedPseudo.height,visibility:focusedPseudo.visibility};
+      input.blur();
+      const idleNav=style(nav);
+      const alreadySelected=nav.classList.contains('is-sel');
+      nav.classList.add('is-sel');
+      const selectedNav=style(nav);
+      if(!alreadySelected)nav.classList.remove('is-sel');
+      const originallyHidden=status.hidden;
+      status.hidden=false;
+      const shownDock=style(dock);
+      const visibleDock=getComputedStyle(dock).display!=='none' &&
+        Number(getComputedStyle(dock).opacity)>.9 && shownDock.width>0 && shownDock.height>0;
+      status.hidden=originallyHidden;
+      const app=document.querySelector('.app');
+      const fullscreenEffects=['.app','.sidebar','.card.is-session','#chatBody','.chat-head']
+        .map(selector=>({selector,filter:getComputedStyle(document.querySelector(selector)).filter,
+          willChange:getComputedStyle(document.querySelector(selector)).willChange}));
+      return {idleComposer,focusedComposer,focusArt,idleNav,selectedNav,
+        shownDock,visibleDock,fullscreenEffects,appWidth:app.clientWidth,appScroll:app.scrollWidth};
+    })()`);
+    // Render short synthetic conversation DOM with the same production classes used by chat.ts.
+    // This lives only in the isolated fixture, never in app data or any user conversation.
+    const richScene = () => js(`(() => {
+      const timeline=document.getElementById('timeline');
+      const empty=document.getElementById('timelineEmpty');
+      const wasHidden=empty.hidden; empty.hidden=true;
+      const fixture=document.createElement('section');fixture.id='appearance-rich-fixture';
+      const user=document.createElement('div');user.className='said is-user';
+      const userBody=document.createElement('div');userBody.className='msg user-message-text';
+      userBody.textContent='Check the build and report accessibility findings.';
+      user.append(userBody);
+      const assistant=document.createElement('article');assistant.className='said';
+      const rich=document.createElement('div');rich.className='msg rich';
+      const heading=document.createElement('h2');heading.textContent='Build and accessibility report';
+      const summary=document.createElement('p');summary.textContent='The check finished using local fixture data only.';
+      const quote=document.createElement('blockquote');quote.textContent='Keep the readable surface and keyboard focus visible.';
+      const pre=document.createElement('pre'),code=document.createElement('code');
+      code.textContent='npm run build -- --fixture-only\\n'+('console.log("safe local output"); '.repeat(12));
+      pre.append(code);rich.append(heading,summary,quote,pre);assistant.append(rich);
+      const details=document.createElement('details');details.className='tool-group';details.open=true;
+      const toolLabel=document.createElement('summary');toolLabel.textContent='Fixture tool output';
+      const toolBody=document.createElement('div');toolBody.className='tool-group-body';
+      toolBody.textContent='Local check passed';details.append(toolLabel,toolBody);
+      fixture.append(user,assistant,details);timeline.append(fixture);
+      const paint=element=>{
+        const css=getComputedStyle(element),rect=element.getBoundingClientRect();
+        return {background:css.backgroundImage,fill:css.backgroundColor,color:css.color,
+          border:css.borderInlineStartWidth,borderColor:css.borderInlineStartColor,
+          shadow:css.boxShadow,radius:css.borderTopLeftRadius,width:rect.width};
+      };
+      const reader=document.getElementById('chatBody');
+      return {user:paint(userBody),code:paint(pre),quote:paint(quote),tool:paint(toolLabel),
+        reader:paint(reader),readerOverflow:reader.scrollWidth-reader.clientWidth,
+        codeScroll:pre.scrollWidth,codeWidth:pre.clientWidth,fixtureHeight:fixture.getBoundingClientRect().height,
+        wasHidden};
+    })()`);
+    const removeRichScene = wasHidden => js(`(() => {
+      const fixture=document.getElementById('appearance-rich-fixture');
+      fixture?.remove();document.getElementById('timelineEmpty').hidden=${JSON.stringify(wasHidden)};
+    })()`);
     const assertGlobalSkin = (style, actual, baseline) => {
       assert.equal(actual.style,style);
       assert.equal(actual.theme,baseline.theme);
@@ -161,13 +256,21 @@ app.whenReady().then(async () => {
     await js(`document.querySelector('[data-tab="appearance"]').click()`);
     assert.equal(await js(`document.getElementById('appearancePanel').classList.contains('is-active')`),true);
     await screenshot('default-dark.png');
+    const classicDarkSettings = await deepSettingsSnapshot();
     // Both Classic baselines are necessary: Windows 95/Solar select light, other skins dark.
     await js(`document.getElementById('backToChat').click()`);
     const classicDark = await skinSnapshot();
+    const classicDarkDeep = await deepChatSnapshot();
+    const classicDarkRich = await richScene();
+    await removeRichScene(classicDarkRich.wasHidden);
     await js(`document.querySelector('[data-tab="appearance"]').click()`);
     await change('appearanceTheme','light');
+    const classicLightSettings = await deepSettingsSnapshot();
     await js(`document.getElementById('backToChat').click()`);
     const classicLight = await skinSnapshot();
+    const classicLightDeep = await deepChatSnapshot();
+    const classicLightRich = await richScene();
+    await removeRichScene(classicLightRich.wasHidden);
     await js(`document.querySelector('[data-tab="appearance"]').click()`);
     await change('appearanceTheme','dark');
     const skinResults = [];
@@ -188,10 +291,77 @@ app.whenReady().then(async () => {
       assert.equal(controls.length,9,'All nine styles must be selectable');
       assert.ok(controls.every(button=>button.name && button.keyboard && button.visible),'Style buttons need accessible labels and keyboard access');
       assert.deepEqual(controls.filter(button=>button.pressed==='true').map(button=>button.style),[preset]);
+      const deepSettings = await deepSettingsSnapshot();
+      const referenceSettings = ['win95','solar'].includes(preset)?classicLightSettings:classicDarkSettings;
+      assert.ok(deepSettings.card.width>150 && deepSettings.cardControls>0,
+        preset+' settings card or controls lost layout: '+JSON.stringify(deepSettings));
+      assert.ok(deepSettings.overflow<=2,
+        preset+' settings card leaks horizontal overflow: '+JSON.stringify(deepSettings));
+      if (preset!=='classic') for (const surface of ['card','preview']) {
+        const decorate = value=>[value.background,value.border,value.radius,value.shadow];
+        assert.notDeepEqual(decorate(deepSettings[surface]),decorate(referenceSettings[surface]),
+          preset+' '+surface+' lost global skin decoration (palette-only is not sufficient)');
+      }
       await screenshot('skin-'+preset+'-settings.png');
       await js(`document.getElementById('backToChat').click()`);
       const currentSkin = await skinSnapshot();
       const decorated = assertGlobalSkin(preset,currentSkin,['win95','solar'].includes(preset)?classicLight:classicDark);
+      const deepChat = await deepChatSnapshot();
+      const referenceDeep = ['win95','solar'].includes(preset)?classicLightDeep:classicDarkDeep;
+      const visual = value=>[value.background,value.fill,value.shadow,value.border,value.radius,value.outline];
+      assert.ok(deepChat.visibleDock,preset+' production composer-dock cannot be displayed by status fixture');
+      assert.notDeepEqual(visual(deepChat.idleNav),visual(deepChat.selectedNav),
+        preset+' sidebar selected row has no discernible active-state feedback');
+      assert.notDeepEqual(visual(deepChat.idleComposer),visual(deepChat.focusedComposer),
+        preset+' composer focus has no visible style change');
+      if(preset!=='classic') {
+        assert.notDeepEqual(visual(deepChat.shownDock),visual(referenceDeep.shownDock),
+          preset+' work dock inherits Classic styling instead of its skin');
+        assert.notDeepEqual(visual(deepChat.focusedComposer),visual(referenceDeep.focusedComposer),
+          preset+' focused composer inherits Classic styling instead of its skin');
+        assert.ok(deepChat.focusArt.content!=='none' && deepChat.focusArt.background!=='none',
+          preset+' focused composer lost its accessible decorative focus rail');
+      }
+      for(const effect of deepChat.fullscreenEffects) {
+        assert.equal(effect.filter,'none',preset+' permanent whole-surface GPU filter on '+effect.selector);
+        assert.ok(effect.willChange==='auto' || effect.willChange==='contents',
+          preset+' permanent layer allocation (will-change) on '+effect.selector+': '+effect.willChange);
+      }
+      await js(`(() => {
+        const input=document.getElementById('chatInput');
+        input.value='A workspace in the '+${JSON.stringify(preset)}+' style.';
+        input.dispatchEvent(new Event('input',{bubbles:true}));
+      })()`);
+      if(preset==='gamer'||preset==='futuristic') {
+        await js(`(() => {
+          document.getElementById('chatInput').focus();
+          document.getElementById('sidebarPlugins').classList.add('is-sel');
+          document.getElementById('backgroundExecStatus').hidden=false;
+        })()`);
+        await screenshot('skin-'+preset+'-deep-focus.png');
+        await js(`(() => {
+          document.getElementById('chatInput').blur();
+          document.getElementById('sidebarPlugins').classList.remove('is-sel');
+          document.getElementById('backgroundExecStatus').hidden=true;
+        })()`);
+      }
+      const rich = await richScene();
+      const referenceRich = ['win95','solar'].includes(preset)?classicLightRich:classicDarkRich;
+      assert.ok(rich.fixtureHeight>75 && rich.readerOverflow<=2,
+        preset+' rich fixture overflows the reader: '+JSON.stringify(rich));
+      assert.ok(rich.codeScroll>=rich.codeWidth && rich.codeWidth>100,
+        preset+' code block clipping or invalid width: '+JSON.stringify(rich));
+      if(preset!=='classic')for(const surface of ['user','code','quote','tool','reader']) {
+        // Win95 intentionally has --scene-reader:none: the flat document has no
+        // ambient background by design, while its message/code/tool frames carry bevels.
+        if(preset==='win95' && surface==='reader')continue;
+        const paint = value=>[value.background,value.fill,value.color,value.border,value.borderColor,value.shadow,value.radius];
+        assert.notDeepEqual(paint(rich[surface]),paint(referenceRich[surface]),
+          preset+' rich '+surface+' surface matches Classic instead of scene styling');
+      }
+      if(['gamer','futuristic','win95','classic'].includes(preset))
+        await screenshot('skin-'+preset+'-rich.png');
+      await removeRichScene(rich.wasHidden);
       if (preset === 'gamer' || preset === 'futuristic') {
         const accent = await js(`getComputedStyle(document.documentElement).getPropertyValue('--accent-fill').trim().toLowerCase()`);
         assert.match(accent,/^#[0-9a-f]{6}$/);
@@ -222,7 +392,6 @@ app.whenReady().then(async () => {
           assert.ok(stops.some(([r,g,b])=>Math.min(r,g,b)>=190),'Futuristic gradient needs fluorescent icy white');
         }
       }
-      await js(`(() => {const input=document.getElementById('chatInput');input.value='A workspace in the '+${JSON.stringify(preset)}+' style.';input.dispatchEvent(new Event('input',{bubbles:true}));})()`);
       await screenshot('skin-'+preset+'-chat.png');
       // A skin must keep the real conversation column usable after responsive zoom,
       // not only keep the Appearance preset grid inside its scroll container.
@@ -283,7 +452,13 @@ app.whenReady().then(async () => {
         return {matches:matchMedia('(prefers-reduced-motion: reduce)').matches,
           buttonTransition:getComputedStyle(button).transitionDuration,
           buttonAnimation:getComputedStyle(button).animationName,
-          topbarAnimation:getComputedStyle(document.querySelector('.app-topbar')).animationName};
+          topbarAnimation:getComputedStyle(document.querySelector('.app-topbar')).animationName,
+          largeSurfaces:['.app','.app-topbar','.sidebar','.card.is-session','#chatBody','.composer']
+            .map(selector=>{
+              const css=getComputedStyle(document.querySelector(selector));
+              return {selector,animation:css.animationName,transition:css.transitionProperty,
+                duration:css.transitionDuration,filter:css.filter,willChange:css.willChange};
+            })};
       })()`);
     } finally {
       await js(`document.getElementById('fixture-motion-freeze').disabled=false`);
@@ -295,6 +470,17 @@ app.whenReady().then(async () => {
       'Style selection must not transition when reduced motion is requested');
     assert.equal(reducedMotion.buttonAnimation,'none','No animated skin selection in reduced motion');
     assert.equal(reducedMotion.topbarAnimation,'none','Gamer RGB topbar must stop moving in reduced motion');
+    for(const surface of reducedMotion.largeSurfaces) {
+      assert.equal(surface.animation,'none','Reduced motion must stop large-area animation on '+surface.selector);
+      assert.equal(surface.filter,'none','Reduced motion must avoid whole-surface filters on '+surface.selector);
+      assert.ok(surface.willChange==='auto' || surface.willChange==='contents',
+        'Reduced motion must not allocate permanent compositor layers on '+surface.selector+': '+surface.willChange);
+      const properties=surface.transition.split(',').map(value=>value.trim());
+      const durations=surface.duration.split(',').map(value=>parseFloat(value));
+      const layout=/^(?:all|width|height|top|left|right|bottom|inset|margin|padding|grid-template|flex-basis|font-size)/;
+      assert.ok(!properties.some((property,index)=>layout.test(property) && (durations[index%durations.length]??0)>0),
+        'Reduced motion still transitions layout on '+surface.selector+': '+JSON.stringify(surface));
+    }
     const textContrast = async (preset,mode,selector) => {
       await js(`document.querySelector('[data-preset="${preset}"]').click()`);
       await change('appearanceTheme',mode);

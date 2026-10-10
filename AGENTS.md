@@ -3729,6 +3729,17 @@ must remain distinct across styles (e.g. Win95 bevels, terminal command lines,
 Solar paper dividers) and must not interfere with resizing, draggable titlebars,
 dialog hit targets or keyboard focus. Preset thumbnails live in `settings.css`
 and should be understandable before applying any style.
+The fourth-generation `src/renderer/skin-scene.css`, loaded after skin-polish,
+applies distinctive static scene backgrounds to the real chat reader, user messages,
+rich-text code/quotes, settings cards and headings, plugins, activity/tool summaries
+and work dock tabs. Each preset has its own identity; Windows 95 remains squared and
+beveled, Gamer RGB is tactical, Futuristic is icy glass, Terminal uses phosphor
+dividers, Cyberpunk uses pink/cyan cut corners, Synthwave uses sunset gradients,
+Midnight keeps OLED negative space and Solar uses paper-like treatments. No fake
+conversation text or interactive controls are injected into production DOM.
+Keep these scene layers visually distinctive but semantically passive: no overlays
+on editor hit targets, no infinite animations on the scrollable timeline, no
+variable changes that defeat custom Appearance palettes or safety/status colors.
 The theme's semantic text colors and user's editable accent/background/sidebar tokens
 remain authoritative; animated RGB never runs with reduced-motion preference.
 The sidebar and connection popover must share matching palette/background computed

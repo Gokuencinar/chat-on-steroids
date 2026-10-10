@@ -1,0 +1,582 @@
+/*
+ * Immersive appearances / scene layer.
+ *
+ * This is the fourth-pass visual language for actual sessions, not a mock UI.
+ * No new controls, scripts, resource downloads or authority: just the existing
+ * editor, timeline, settings, menus and tool output. All content remains real.
+ *
+ *  - Semantic color variables always come from Appearance (editable by user).
+ *  - Static decorative backgrounds avoid continuous GPU/raster work on scroll.
+ *  - Disabled, keyboard focus, responsive width and reduced motion are retained.
+ *  - Classic is explicitly excluded from every scene rule.
+ */
+
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) {
+  --scene-line: var(--skin-soft-stroke);
+  --scene-hot: var(--accent);
+  --scene-cold: var(--skin-secondary);
+  --scene-panel: color-mix(in srgb, var(--accent-fill) 4%, var(--card));
+  --scene-tile: color-mix(in srgb, var(--accent-fill) 7%, var(--card));
+  --scene-code: color-mix(in srgb, var(--accent-fill) 6%, var(--sunk));
+  --scene-reader: radial-gradient(ellipse at 90% 5%, var(--skin-ambient), transparent 60%);
+  --scene-message: linear-gradient(135deg, var(--skin-shine), transparent 80%);
+  --scene-guide: linear-gradient(90deg, var(--skin-secondary), var(--accent-fill));
+  --scene-hairline: 1px;
+  --scene-radius: var(--r-md);
+  --scene-label-space: .035em;
+}
+
+/* The reader stays independently scrollable and its transparent content never
+   grabs pointers or changes the established explicit grid/row tracks. */
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) [data-panel='chat'] .card.is-session {
+  background-color: var(--page);
+  background-image: var(--scene-reader);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) #chatBody {
+  background-image: var(--scene-reader);
+  background-size: 100% 100%;
+  min-width: 0;
+}
+/* Static optical signature in the draggable titlebar. It does not intercept
+   clicks, reposition window controls or take space from the native caption. */
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .app-topbar::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: calc(50% - 1px);
+  width: 108px;
+  max-width: 24vw;
+  height: 2px;
+  transform: translateX(-50%);
+  background: var(--scene-guide);
+  opacity: .68;
+  pointer-events: none;
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.msg.rich pre, .msg.rich .markdown-code, .msg.rich blockquote) {
+  border-color: var(--scene-line);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .msg.rich pre {
+  background-color: var(--scene-code);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .msg.rich blockquote {
+  border-inline-start: 3px solid var(--scene-hot);
+  background-image: var(--scene-message);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .msg.rich :is(h1, h2, h3) {
+  letter-spacing: -.012em;
+  text-wrap: pretty;
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .said.is-user .user-message-text,
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .pending-message-text {
+  border: var(--scene-hairline) solid var(--scene-line);
+  background-color: var(--scene-tile);
+  background-image: var(--scene-message);
+  color: var(--ink);
+  box-shadow: inset 0 1px var(--skin-shine);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.composer-selected-skill, .attachment-card, .search-dialog, .plugin-card) {
+  border-color: var(--scene-line);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .composer-selected-skill {
+  color: var(--ink);
+  background: var(--scene-tile);
+}
+
+/* The application already uses aria, is-sel and focus-visible. Scene changes
+   add a visible rail but do not reassign state or replace keyboard outlines. */
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) #tabs > button {
+  min-width: 0;
+  border-radius: var(--scene-radius);
+  border-inline-start: 2px solid transparent;
+  transition: color 130ms ease, border-color 130ms ease, background-color 130ms ease, box-shadow 130ms ease;
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) #tabs > button:is(:hover, .is-sel, [aria-current='page']) {
+  border-inline-start-color: var(--scene-hot);
+  background: color-mix(in srgb, var(--accent-fill) 12%, var(--hover));
+  color: var(--ink);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) #tabs > button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .settings-section-head {
+  position: relative;
+  padding-block-end: 12px;
+  border-bottom: var(--scene-hairline) solid var(--scene-line);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .settings-section-head > div > h2 {
+  color: var(--ink);
+  letter-spacing: var(--scene-label-space);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.settings-surface, .plugin-card) {
+  background-color: var(--scene-panel);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .setting:focus-within {
+  box-shadow: inset 3px 0 var(--scene-hot);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.tool-group > summary, .routine-activity > summary) {
+  border-radius: var(--scene-radius);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.tool-group[open] > summary, .routine-activity[open] > summary) {
+  background: var(--scene-tile);
+  color: var(--ink);
+  box-shadow: inset 2px 0 var(--scene-hot);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.tool-group > summary, .routine-activity > summary):hover {
+  color: var(--ink);
+  background: var(--scene-tile);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.tool-group > summary, .routine-activity > summary):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.work-dock-tab, .terminal-tab) {
+  letter-spacing: var(--scene-label-space);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.row-menu-item, .composer-popover button):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* GAMER / competition arena: tactical HUD, tri-channel rail, sharp data readouts.
+   No spinning ambient background; only the existing optional RGB highlights move. */
+:root[data-appearance-style='gamer'] {
+  --scene-line: #00e4ff69;
+  --scene-hot: #b6ff26;
+  --scene-cold: #31effb;
+  --scene-panel: color-mix(in srgb, #38efbd 5%, var(--card));
+  --scene-tile: color-mix(in srgb, #17dfef 12%, var(--card));
+  --scene-code: color-mix(in srgb, #0d3669 30%, var(--sunk));
+  --scene-reader: radial-gradient(ellipse at 100% 8%, #00efff15, transparent 47%),
+    radial-gradient(ellipse at 0% 100%, #d64bff13, transparent 51%),
+    repeating-linear-gradient(90deg, transparent 0 53px, #13cfff05 53px 54px);
+  --scene-message: linear-gradient(135deg, #15f6a41b, #5a45ff10 58%, #d239e50b);
+  --scene-guide: linear-gradient(90deg, #b6ff26, #00e9fb, #ff4dca);
+  --scene-hairline: 1px;
+  --scene-radius: 5px;
+  --scene-label-space: .085em;
+}
+:root[data-appearance-style='gamer'] .sidebar-brand {
+  background: linear-gradient(90deg, #b6ff260a, transparent 80%);
+}
+:root[data-appearance-style='gamer'] .app-topbar::after {
+  height: 3px;
+  background: repeating-linear-gradient(90deg, #b6ff26 0 26px, transparent 26px 32px, #00edfa 32px 60px, transparent 60px 66px, #ff4ed0 66px 92px, transparent 92px 97px);
+  box-shadow: 0 0 8px #38eefb45;
+}
+:root[data-appearance-style='gamer'] :is(.settings-section-head h2, .sidebar-session-label, .plugin-card-title h2) {
+  text-transform: uppercase;
+  font-weight: 760;
+}
+:root[data-appearance-style='gamer'] .settings-section-head {
+  border-image: linear-gradient(90deg, #b6ff26, #15eafb, #ff4bd7, transparent 83%) 1;
+}
+:root[data-appearance-style='gamer'] .msg.rich :is(h1, h2, h3) {
+  text-transform: uppercase;
+  font-weight: 750;
+  text-shadow: 0 0 15px #b6ff2621;
+}
+:root[data-appearance-style='gamer'] .said.is-user .user-message-text {
+  border-inline-start: 3px solid #b6ff26;
+  box-shadow: inset 3px 0 #b6ff2650, 0 0 12px #00e5ff1c;
+}
+:root[data-appearance-style='gamer'] .msg.rich pre {
+  border-left: 3px solid #25e7fb;
+  box-shadow: inset 0 1px #b6ff2625;
+}
+:root[data-appearance-style='gamer'] :is(.composer-selected-skill, .attachment-card) {
+  border-radius: 5px;
+  box-shadow: 0 0 12px #00e5ff15;
+}
+:root[data-appearance-style='gamer'] :is(.plugin-card, .settings-surface) {
+  border-top: 2px solid #b6ff2657;
+}
+:root[data-appearance-style='gamer'] :is(.work-dock-tab.is-selected, .terminal-tab.is-selected) {
+  text-shadow: 0 0 10px #31f7fb60;
+  box-shadow: inset 0 -3px #b6ff26;
+}
+:root[data-appearance-style='gamer'] #timelineEmpty {
+  text-shadow: 0 0 24px #22e9f728;
+}
+:root[data-appearance-style='gamer'] .sidebar-connection.is-connected .sidebar-connection-dot {
+  box-shadow: 0 0 0 3px #b6ff2624, 0 0 12px #37f9a7a3;
+}
+/* User can manually switch Gamer to Light; don't force fixed lime labels on
+   pale surfaces. Decorative lines remain neons, text stays semantic. */
+:root[data-appearance-style='gamer'][data-theme='light'] .settings-section-head {
+  border-bottom-color: var(--accent-edge);
+}
+
+/* FUTURISTIC / orbital glass: white-blue instrumentation, wide breathing space,
+   delicate isobar lines and translucent panel depth. */
+:root[data-appearance-style='futuristic'] {
+  --scene-line: color-mix(in srgb, #93e7ff 55%, var(--line));
+  --scene-hot: var(--accent);
+  --scene-cold: #e4ffff;
+  --scene-panel: color-mix(in srgb, #77ccff 11%, var(--card));
+  --scene-tile: color-mix(in srgb, #a0eeff 10%, var(--card));
+  --scene-code: color-mix(in srgb, #3883ce 13%, var(--sunk));
+  --scene-reader: radial-gradient(ellipse at 52% -25%, #56daff23, transparent 68%),
+    repeating-linear-gradient(90deg, transparent 0 89px, #87e9ff09 89px 90px),
+    linear-gradient(122deg, #76b8ff08, transparent 66%);
+  --scene-message: linear-gradient(133deg, #c1fbff1f, #348dff0b 78%);
+  --scene-guide: linear-gradient(90deg, #4bafff, #a9fbff, #f8ffff);
+  --scene-hairline: 1px;
+  --scene-radius: 17px;
+  --scene-label-space: .095em;
+}
+:root[data-appearance-style='futuristic'] .chat-head {
+  border-bottom: 1px solid #a7efff55;
+  box-shadow: inset 0 1px #ffffff17;
+}
+:root[data-appearance-style='futuristic'] .app-topbar::after {
+  width: 152px;
+  height: 1px;
+  opacity: .82;
+  background: linear-gradient(90deg, transparent, #7cdbff 23%, #f5ffff 50%, #7cdbff 77%, transparent);
+  box-shadow: 0 0 10px #c6ffff75;
+}
+:root[data-appearance-style='futuristic'] .settings-section-head {
+  border-color: #93e8ff55;
+}
+:root[data-appearance-style='futuristic'] .settings-section-head::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: -2px;
+  width: min(100px, 32%);
+  height: 3px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, transparent, #7edaff, #f3ffff);
+  box-shadow: 0 0 10px #7edaff5e;
+  pointer-events: none;
+}
+:root[data-appearance-style='futuristic'] :is(.msg.rich h1, .msg.rich h2) {
+  font-weight: 490;
+  letter-spacing: .038em;
+}
+:root[data-appearance-style='futuristic'] .said.is-user .user-message-text {
+  border: 1px solid #94eaff80;
+  border-radius: 20px 20px 5px 20px;
+  box-shadow: inset 0 1px #ffffff25, 0 8px 26px #1b94ff17;
+}
+:root[data-appearance-style='futuristic'] .msg.rich pre {
+  border: 1px solid #98e7ff61;
+  box-shadow: inset 0 1px #ffffff20, 0 8px 24px #137db516;
+}
+:root[data-appearance-style='futuristic'] .composer-selected-skill {
+  border-radius: 999px;
+  box-shadow: inset 0 1px #ffffff42;
+}
+:root[data-appearance-style='futuristic'] :is(.plugin-card, .settings-surface) {
+  border-color: var(--scene-line);
+  box-shadow: inset 0 1px #ffffff28, 0 9px 32px #2a9aff12;
+}
+:root[data-appearance-style='futuristic'] .work-dock-tab.is-selected {
+  box-shadow: inset 0 -2px #a0ffff, 0 5px 12px #67dfff35;
+}
+
+/* CYBERPUNK / outlaw control room: asymmetric cut corners, noise-like
+   diagonal warning rails (static), hot pink/cyan information hierarchy. */
+:root[data-appearance-style='cyberpunk'] {
+  --scene-line: color-mix(in srgb, #f840c9 40%, var(--edge));
+  --scene-hot: var(--accent);
+  --scene-tile: color-mix(in srgb, #fa37d6 9%, var(--card));
+  --scene-code: color-mix(in srgb, #1e0a3e 40%, var(--sunk));
+  --scene-reader: radial-gradient(ellipse at 90% 0, #f61fbf22, transparent 53%),
+    radial-gradient(ellipse at 0% 95%, #14ebff10, transparent 51%),
+    repeating-linear-gradient(0deg, transparent 0 5px, #f42dc707 5px 6px);
+  --scene-message: linear-gradient(120deg, #ff26bd22, #00deff09);
+  --scene-guide: repeating-linear-gradient(115deg, #ff38c8 0 18px, #27dff0 18px 22px);
+  --scene-radius: 3px;
+  --scene-label-space: .09em;
+}
+:root[data-appearance-style='cyberpunk'] .settings-section-head {
+  border-bottom: 2px solid #ff3dc87c;
+}
+:root[data-appearance-style='cyberpunk'] .app-topbar::after {
+  height: 3px;
+  opacity: .88;
+  background: repeating-linear-gradient(110deg, #ff31c3 0 13px, transparent 13px 18px, #27ddea 18px 22px);
+}
+:root[data-appearance-style='cyberpunk'] .settings-section-head::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: -2px;
+  width: 80px;
+  height: 2px;
+  background: #28e9f5;
+}
+:root[data-appearance-style='cyberpunk'] .msg.rich :is(h1, h2, h3) {
+  font-weight: 780;
+  text-transform: uppercase;
+  letter-spacing: .025em;
+}
+:root[data-appearance-style='cyberpunk'] .said.is-user .user-message-text {
+  border-left: 3px solid #29f0f7;
+  border-radius: 2px;
+  clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% 100%, 9px 100%, 0 calc(100% - 9px));
+}
+:root[data-appearance-style='cyberpunk'] .msg.rich pre {
+  border-left: 3px solid #ff3fcf;
+  border-radius: 3px;
+}
+:root[data-appearance-style='cyberpunk'] .plugin-card {
+  clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% 100%, 9px 100%, 0 calc(100% - 9px));
+}
+:root[data-appearance-style='cyberpunk'] .sidebar-connection.is-connected .sidebar-connection-dot {
+  box-shadow: 0 0 11px #28e6eea0;
+}
+
+/* WIN95 / desktop workstation: bevels and a readable status UI, no smooth
+   corners, blur or GPU lights. Respects both light and dark preference. */
+:root[data-appearance-style='win95'] {
+  --scene-line: #757575;
+  --scene-hot: #000080;
+  --scene-panel: #c0c0c0;
+  --scene-tile: #c0c0c0;
+  --scene-code: #e0e0e0;
+  --scene-reader: none;
+  --scene-message: none;
+  --scene-guide: linear-gradient(90deg, #000080, #1185a4);
+  --scene-radius: 0px;
+  --scene-label-space: 0;
+}
+:root[data-appearance-style='win95'] :is(.settings-section-head, .chat-head) {
+  border-bottom: 2px solid #666;
+}
+:root[data-appearance-style='win95'] .app-topbar::after { display: none; }
+:root[data-appearance-style='win95'] .settings-section-head h2 {
+  font-family: Tahoma, "MS Sans Serif", Arial, sans-serif;
+  font-weight: 700;
+}
+:root[data-appearance-style='win95'] :is(.settings-surface, .plugin-card, .msg.rich pre, .composer-selected-skill) {
+  border: 2px solid;
+  border-color: #fff #777 #777 #fff;
+  border-radius: 0;
+  background: #c0c0c0;
+  color: #181818;
+  box-shadow: inset 1px 1px #eeeeee, inset -1px -1px #898989;
+}
+:root[data-appearance-style='win95'] :is(.setting-text, .settings-surface .setting-text b, .settings-surface .setting-text em) {
+  color: #141414;
+}
+:root[data-appearance-style='win95'] .msg.rich pre code {
+  color: #161616;
+}
+:root[data-appearance-style='win95'] .said.is-user .user-message-text,
+:root[data-appearance-style='win95'] .pending-message-text {
+  border: 2px solid;
+  border-color: #777 #fff #fff #777;
+  border-radius: 0;
+  color: #151515;
+  background: #e0e0e0;
+  box-shadow: inset 1px 1px #aaa;
+}
+:root[data-appearance-style='win95'] #tabs > button:is(.is-sel, :hover) {
+  background: #000080;
+  color: #fff;
+  border-inline-start: 2px solid #fff;
+}
+:root[data-appearance-style='win95'] :is(.composer-selected-skill, .attachment-card) {
+  background: #e0e0e0;
+  color: #171717;
+  border-radius: 0;
+}
+:root[data-appearance-style='win95'] :is(.tool-group[open] > summary, .routine-activity[open] > summary) {
+  background: #000080;
+  color: #fff;
+  box-shadow: none;
+  border-radius: 0;
+}
+:root[data-appearance-style='win95'] :is(.work-dock-tab.is-selected, .terminal-tab.is-selected) {
+  background: #000080;
+  color: #fff;
+  box-shadow: inset 0 -2px #fff;
+}
+
+/* RETRO TERMINAL / green-screen station: monospace terminal rows, source
+   panel indentation and faint phosphor rules. No opaque overlays on text. */
+:root[data-appearance-style='terminal'] {
+  --scene-line: color-mix(in srgb, #63fa8b 44%, var(--edge));
+  --scene-hot: var(--accent);
+  --scene-panel: color-mix(in srgb, #4cfb7e 5%, var(--card));
+  --scene-tile: color-mix(in srgb, #4cfa75 10%, var(--card));
+  --scene-code: #04170a;
+  --scene-reader: repeating-linear-gradient(0deg, transparent 0 4px, #51fa7706 4px 5px),
+    radial-gradient(ellipse at 50% 0%, #42fa7c16, transparent 70%);
+  --scene-message: linear-gradient(95deg, #52ef8313, transparent);
+  --scene-guide: repeating-linear-gradient(90deg, #61ff88 0 9px, transparent 9px 13px);
+  --scene-radius: 2px;
+  --scene-label-space: .06em;
+}
+:root[data-appearance-style='terminal'] :is(.msg.rich h1, .msg.rich h2, .settings-section-head h2, .plugin-card-title h2, #tabs > button) {
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: .018em;
+}
+:root[data-appearance-style='terminal'] .app-topbar::after {
+  width: 80px;
+  background: repeating-linear-gradient(90deg, #54f183 0 7px, transparent 7px 12px);
+}
+:root[data-appearance-style='terminal'] .settings-section-head {
+  border-bottom: 1px dashed var(--scene-line);
+}
+:root[data-appearance-style='terminal'] .said.is-user .user-message-text,
+:root[data-appearance-style='terminal'] .pending-message-text {
+  border: 1px dashed var(--scene-line);
+  border-left: 3px solid var(--scene-hot);
+  border-radius: 0;
+}
+:root[data-appearance-style='terminal'] .msg.rich pre,
+:root[data-appearance-style='terminal'] .plugin-card {
+  border: 1px solid var(--scene-line);
+  border-radius: 0;
+  box-shadow: inset 0 0 15px #39e65e13;
+}
+:root[data-appearance-style='terminal'] .tool-group > summary {
+  font-family: var(--mono);
+}
+:root[data-appearance-style='terminal'] :is(.work-dock-tab.is-selected, .terminal-tab.is-selected) {
+  border-bottom: 1px dashed var(--scene-hot);
+}
+
+/* SYNTHWAVE / sunset boulevard: silhouetted horizon, warm pink edges and
+   dreamy gradient panels rather than another Cyberpunk terminal. */
+:root[data-appearance-style='synthwave'] {
+  --scene-line: color-mix(in srgb, #ff79d8 49%, var(--edge));
+  --scene-hot: var(--accent);
+  --scene-panel: color-mix(in srgb, #bb63ed 10%, var(--card));
+  --scene-tile: color-mix(in srgb, #ff66bf 10%, var(--card));
+  --scene-code: color-mix(in srgb, #7935d0 19%, var(--sunk));
+  --scene-reader: radial-gradient(ellipse at 60% -15%, #ffbd7b24, transparent 47%),
+    radial-gradient(ellipse at 50% 100%, #8f40f434, transparent 57%),
+    linear-gradient(115deg, #ff64b709, transparent 55%);
+  --scene-message: linear-gradient(135deg, #ff78d41e, #8253fb11);
+  --scene-guide: linear-gradient(90deg, #ffb467, #ff6ccc, #9c57ff);
+  --scene-radius: 16px;
+  --scene-label-space: .04em;
+}
+:root[data-appearance-style='synthwave'] .settings-section-head {
+  border-image: linear-gradient(90deg, #ffad76, #fb58c8 45%, #9254ff, transparent) 1;
+}
+:root[data-appearance-style='synthwave'] .app-topbar::after {
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #ffab72 25%, #ff6ccb 58%, #8954ff 85%, transparent);
+  box-shadow: 0 0 9px #f16bd64f;
+}
+:root[data-appearance-style='synthwave'] .said.is-user .user-message-text {
+  border: 1px solid #fd7ada72;
+  border-radius: 17px 17px 5px 17px;
+  box-shadow: 0 8px 22px #8034dd1b, inset 0 1px #f8a9e51c;
+}
+:root[data-appearance-style='synthwave'] .msg.rich :is(h1, h2) {
+  text-shadow: 0 0 17px #fd78be29;
+}
+:root[data-appearance-style='synthwave'] .msg.rich pre {
+  border: 1px solid #e473e74f;
+  box-shadow: 0 7px 25px #7a2cba12;
+}
+:root[data-appearance-style='synthwave'] :is(.plugin-card, .settings-surface) {
+  box-shadow: inset 0 1px #fdb2e72c, 0 14px 33px #6120b61a;
+}
+
+/* MIDNIGHT OLED / observatory: pure-black negative space, thin violet ink,
+   isolated focus islands. Avoid glow on whole reader and high-contrast noise. */
+:root[data-appearance-style='midnight'] {
+  --scene-line: #7f6bba4b;
+  --scene-hot: var(--accent);
+  --scene-panel: color-mix(in srgb, #9388dd 4%, var(--card));
+  --scene-tile: color-mix(in srgb, #8674c6 8%, var(--card));
+  --scene-code: color-mix(in srgb, #7769be 8%, var(--sunk));
+  --scene-reader: radial-gradient(ellipse at 70% -20%, #7b60f913, transparent 53%);
+  --scene-message: linear-gradient(105deg, #8d78ed0c, transparent);
+  --scene-guide: linear-gradient(90deg, transparent, #bbaaff, transparent);
+  --scene-radius: 14px;
+  --scene-label-space: .012em;
+}
+:root[data-appearance-style='midnight'] .settings-section-head {
+  border-bottom: 1px solid #8b78c53c;
+}
+:root[data-appearance-style='midnight'] .app-topbar::after {
+  width: 75px;
+  height: 1px;
+  opacity: .45;
+  background: linear-gradient(90deg, transparent, #bca9ff, transparent);
+}
+:root[data-appearance-style='midnight'] :is(.settings-surface, .plugin-card) {
+  border: 1px solid #897dbb39;
+  box-shadow: inset 0 1px #a89bec14;
+}
+:root[data-appearance-style='midnight'] .said.is-user .user-message-text {
+  border: 1px solid #8979d957;
+  border-radius: 17px;
+}
+:root[data-appearance-style='midnight'] .msg.rich pre {
+  border: 1px solid #8477c137;
+}
+:root[data-appearance-style='midnight'] :is(.tool-group[open] > summary, .routine-activity[open] > summary) {
+  box-shadow: inset 2px 0 #a99aff;
+}
+
+/* SOLAR / print studio: parchment, gilt rules, editorial reading surfaces and
+   measured serif headlines. Body prose remains user's chosen font. */
+:root[data-appearance-style='solar'] {
+  --scene-line: color-mix(in srgb, #c69a5f 37%, var(--line));
+  --scene-hot: var(--accent);
+  --scene-panel: color-mix(in srgb, #ecc99a 8%, var(--card));
+  --scene-tile: color-mix(in srgb, #d8b27d 10%, var(--card));
+  --scene-code: color-mix(in srgb, #d6aa7c 11%, var(--sunk));
+  --scene-reader: radial-gradient(ellipse at 95% -20%, #ffd59b28, transparent 67%),
+    repeating-linear-gradient(0deg, transparent 0 34px, #946b3405 34px 35px);
+  --scene-message: linear-gradient(120deg, #efc28123, transparent);
+  --scene-guide: linear-gradient(90deg, #af763b, #ebc489, transparent);
+  --scene-radius: 12px;
+  --scene-label-space: -.01em;
+}
+:root[data-appearance-style='solar'] :is(.msg.rich h1, .msg.rich h2, .msg.rich h3, .settings-section-head h2) {
+  font-family: Georgia, "Palatino Linotype", serif;
+  font-weight: 550;
+  letter-spacing: -.022em;
+}
+:root[data-appearance-style='solar'] .app-topbar::after {
+  height: 1px;
+  opacity: .7;
+  background: linear-gradient(90deg, transparent, #ae7a3d 26%, #f5d5a1 50%, #ae7a3d 74%, transparent);
+}
+:root[data-appearance-style='solar'] .settings-section-head {
+  border-color: #bc956352;
+}
+:root[data-appearance-style='solar'] .said.is-user .user-message-text {
+  border: 1px solid #c59c6366;
+  border-left: 3px solid #bc8746;
+  border-radius: 9px;
+  box-shadow: 0 5px 17px #9d70311c;
+}
+:root[data-appearance-style='solar'] .msg.rich blockquote {
+  font-family: Georgia, "Palatino Linotype", serif;
+  border-inline-start: 3px solid #ba874c;
+}
+:root[data-appearance-style='solar'] .msg.rich pre {
+  border: 1px solid #c59c6345;
+}
+:root[data-appearance-style='solar'] :is(.settings-surface, .plugin-card) {
+  box-shadow: 0 10px 28px #9c71321b;
+}
+
+@media (max-width: 700px) {
+  :root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .settings-section-head {
+    padding-block-end: 9px;
+  }
+}
+@media (max-width: 520px) {
+  :root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .app-topbar::after {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-appearance-style]:where(:not([data-appearance-style='classic'])) #tabs > button {
+    transition: none;
+  }
+}
