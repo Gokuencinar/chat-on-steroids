@@ -657,7 +657,7 @@ describe('the window as a whole', () => {
   });
 
   it('never scrolls sideways', () => {
-    // Wide authored content and compact dock controls may scroll locally; the app must not.
+    // Wide authored content, appearance-preview code, and compact dock controls may scroll locally; the app must not.
     const horizontal = [...css.matchAll(/([^{}]+)\{[^{}]*overflow-x:\s*(?:auto|scroll)[^{}]*\}/g)];
     expect(horizontal.map(match => match[1]!.trim())).toEqual([
       '.msg.rich .markdown-table',
@@ -670,7 +670,8 @@ describe('the window as a whole', () => {
       '.terminal-tabs',
       '.work-dock-tabs',
       '.usage-heatmap-surface',
-      '.usage-table-stack'
+      '.usage-table-stack',
+      '.appearance-panel .appearance-preview-message pre'
     ]);
     expect(css).not.toMatch(/overflow:\s*(auto|scroll)\s+/);
     // The one scrolling surface in the app is vertical only.
