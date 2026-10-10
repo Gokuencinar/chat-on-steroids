@@ -34,6 +34,26 @@ const RELEASES: Readonly<Record<string, Release>> = {
       { icon: 'i-panel-right', title: () => t('Panels in the title bar'), text: () => t('The panel buttons moved to the title bar, and the right panel now runs the full height of the window.') }
     ]
   },
+  '2.1.32': {
+    lead: () => t('Messages that reach the running answer, the choices ChatGPT asks you about, and a Stop that sticks.'),
+    highlights: [
+      { icon: 'i-bolt', title: () => t('Messages reach the running answer'), text: () => t('Send directly puts your message into the running answer as a real ChatGPT message, even while a command runs, and the command keeps its result.') },
+      { icon: 'i-check-circle', title: () => t("ChatGPT's choices in the timeline"), text: () => t('When ChatGPT asks you to pick an option, the timeline shows the question and its choices.') },
+      { icon: 'i-ban', title: () => t('A Stop that sticks'), text: () => t('Stop ends the turn even when a late tool result reopens it, and the timeline says when it stopped.') },
+      { icon: 'i-chart', title: () => t('A clearer Usage page'), text: () => t('Whole token counts, a lower bound for costs without a price, and the newest weeks of activity first.') },
+      { icon: 'i-skill', title: () => t('Skills in your language'), text: () => t('The recommended skills describe themselves in the language of the app.') }
+    ]
+  },
+  '2.1.31': {
+    lead: () => t('GPT-6 support, a timeline that reads like ChatGPT, and a clearer view of your sub-agents.'),
+    highlights: [
+      { icon: 'i-sparkle', title: () => t('Ready for GPT-6'), text: () => t('Pick GPT-6, GPT-5.6 or GPT-5.5 with Instant, Medium or High. Goal, Loop and Compact & Resume work on GPT-6.') },
+      { icon: 'i-steps', title: () => t('A timeline in rounds'), text: () => t("Each turn reads in rounds like ChatGPT's own, with the model's notes between steps, a live status line and formulas.") },
+      { icon: 'i-agents', title: () => t('A clearer sub-agent list'), text: () => t('Each worker is named for its job and shows its task, its state and its model.') },
+      { icon: 'i-lock', title: () => t('Setup asks what ChatGPT may do'), text: () => t('The same permission switches as in Workspace, and Setup tells you when access is limited.') },
+      { icon: 'i-panel-right', title: () => t('Panels in the title bar'), text: () => t('The panel buttons moved to the title bar, and the right panel now runs the full height of the window.') }
+    ]
+  },
   '2.1.30': {
     lead: () => t('See what changed after each update, and long runs that stop and recover more calmly.'),
     highlights: [

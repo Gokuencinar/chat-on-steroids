@@ -1264,7 +1264,10 @@ function paintDeliveryControls(): void {
   const immediateAction = $('sendOptions').querySelector<HTMLElement>('[data-delivery="auto"]');
   if (immediateAction) immediateAction.hidden = (nativeFiles && working) || canInject;
   const injectionAction = $('sendOptions').querySelector<HTMLElement>('[data-delivery="tool"]');
-  const explicitInjection = (canInject || canSendDirectly) && (!files.length || injectableAttachments(files));
+  // A text for the running turn goes through ChatGPT's composer either way (Send directly); Inject now
+  // stays a separate choice only where it differs: a Pro turn, or images into the tool result.
+  const explicitInjection = (canInject && (!files.length || injectableAttachments(files))) ||
+    (canSendDirectly && files.length > 0 && injectableAttachments(files));
   if (injectionAction) injectionAction.hidden = !explicitInjection;
   if ($<HTMLSelectElement>('sendMode').value === 'tool' && !explicitInjection) $<HTMLSelectElement>('sendMode').value = 'auto';
   if (canInject && explicitInjection && $<HTMLSelectElement>('sendMode').value === 'auto') $<HTMLSelectElement>('sendMode').value = 'tool';
@@ -2114,6 +2117,86 @@ const WRITING_BLOCK: TokenizerAndRendererExtension = {
   }
 };
 
+/**
+ * A native ChatGPT form is not safe to replay in Electron. The recorded markup can, however,
+ * contain the only visible copy of its question and choices. Keep those words as inert text,
+ * never the provider's buttons, editable values, handlers or submission state.
+ *
+ * Ordinary canonical Markdown may be ahead of the recorded DOM. Only borrow a prompt from that
+ * DOM when its question also appears in the current canonical answer; a stale capture must not
+ * append a question from an earlier revision.
+ */
+const NATIVE_PROMPT_GROUPS = 'form, [role="radiogroup"], [role="listbox"], [role="group"]';
+const NATIVE_PROMPT_CONTROL = 'input, textarea, select, button, [role="radio"], [role="checkbox"], [role="option"]';
+const promptWords = (value: string): string => value.replace(/\s+/g, ' ').trim().slice(0, 250);
+const promptMatchText = (value: string): string => value.replace(/\s+/g, ' ').trim().toLocaleLowerCase();
+
+function nativePromptCards(root: ParentNode): Array<{ group: Element; anchor: string; card: HTMLElement; options: string[] }> {
+  const cards: Array<{ group: Element; anchor: string; card: HTMLElement; options: string[] }> = [];
+  for (const group of root.querySelectorAll(NATIVE_PROMPT_GROUPS)) {
+    if (cards.length >= 8) break;
+    if (group.closest('[hidden], [aria-hidden="true"], svg, math, script, style, template, pre, code')) continue;
+    if (group.parentElement?.closest(NATIVE_PROMPT_GROUPS)) continue;
+    const role = group.getAttribute('role');
+    const controls = [...group.querySelectorAll(NATIVE_PROMPT_CONTROL)].filter(control =>
+      !control.closest('[hidden], [aria-hidden="true"]'));
+    if (!controls.length || (role === 'group' && !controls.some(control =>
+      control.matches('input, textarea, select, [role="radio"], [role="checkbox"]')))) continue;
+    const heading = group.querySelector('legend, h1, h2, h3, h4, [role="heading"], p');
+    const preceding = group.previousElementSibling;
+    const anchor = promptWords(group.getAttribute('aria-label') || heading?.textContent ||
+      (preceding?.matches('p, h1, h2, h3, h4') ? preceding.textContent : '') || '');
+    const options: string[] = [];
+    const actions: string[] = [];
+    const add = (value: string): void => { const label = promptWords(value); if (label && !options.includes(label) && options.length < 16) options.push(label); };
+    for (const control of controls) {
+      if (control.matches('input')) {
+        const type = (control.getAttribute('type') || 'text').toLowerCase();
+        if (type === 'hidden' || type === 'password' || type === 'submit' || type === 'button') continue;
+        const id = control.getAttribute('id');
+        const label = control.closest('label') ?? (id ? [...group.querySelectorAll('label')].find(node => node.getAttribute('for') === id) : null);
+        add(label?.textContent || control.getAttribute('aria-label') || control.getAttribute('placeholder') || '');
+      } else if (control.matches('select')) {
+        for (const option of control.querySelectorAll('option')) add(option.textContent || '');
+      } else if (control.matches('[role="radio"], [role="checkbox"], [role="option"]')) {
+        add(control.getAttribute('aria-label') || control.textContent || '');
+      } else if (control.matches('textarea')) {
+        add(control.getAttribute('aria-label') || control.getAttribute('placeholder') || '');
+      } else if (control.matches('button') && group.matches('form')) {
+        const label = promptWords(control.textContent || control.getAttribute('aria-label') || '');
+        if (label && !actions.includes(label)) actions.push(label);
+      }
+    }
+    // An action such as Continue is not a third radio choice. In a button-only prompt,
+    // retaining its label is still more useful than dropping the prompt altogether.
+    if (!options.length) for (const action of actions) add(action);
+    if (!options.length) continue;
+    const card = document.createElement('blockquote');
+    card.className = 'native-prompt-readonly';
+    if (anchor) {
+      const headingLine = document.createElement('p');
+      const strong = document.createElement('strong');
+      strong.textContent = anchor;
+      headingLine.append(strong);
+      card.append(headingLine);
+    }
+    const list = document.createElement('ul');
+    for (const option of options) {
+      const row = document.createElement('li');
+      row.textContent = option;
+      list.append(row);
+    }
+    card.append(list);
+    const instruction = document.createElement('p');
+    const explanation = document.createElement('em');
+    explanation.textContent = t('Answer this prompt in ChatGPT');
+    instruction.append(explanation);
+    card.append(instruction);
+    cards.push({ group, anchor, card, options });
+  }
+  return cards;
+}
+
 export function renderedMarkdown(source: string, capture?: StoredText, references?: readonly MessageReference[]): HTMLElement {
   // Fiber's canonical text can be complete while a background provider tab still
   // paints its first words. Render this revision directly; captured DOM HTML is
@@ -2176,6 +2259,21 @@ export function renderedMarkdown(source: string, capture?: StoredText, reference
   const html = parser.parse(text, { async: false });
   const box = renderedMessage({ text: html, chars: html.length, truncated: html.length > MAX_RENDERED_HTML_CHARS }, text);
   drawMath(box, math);
+  if (capture?.text && !capture.truncated && capture.text.length <= MAX_RENDERED_HTML_CHARS) {
+    const template = document.createElement('template');
+    template.innerHTML = capture.text;
+    const current = promptMatchText(box.textContent ?? '');
+    for (const prompt of nativePromptCards(template.content)) {
+      // An independently recorded question anchors the captured choices to this revision.
+      // Never replace the canonical answer or repeat choices it already includes.
+      if (prompt.anchor.length < 8 || !current.includes(promptMatchText(prompt.anchor)) ||
+          prompt.options.every(option => current.includes(promptMatchText(option)))) continue;
+      // The canonical Markdown already displays this exact question above the choices.
+      // Repeating it inside the native prompt card made it read as two questions.
+      prompt.card.querySelector(':scope > p:first-child')?.remove();
+      box.append(prompt.card);
+    }
+  }
   if (pills.size) {
     for (const anchor of box.querySelectorAll('a[href]')) {
       const probe = anchor.textContent?.match(PILL_PLACEHOLDER)?.[1];
@@ -2205,12 +2303,18 @@ export function renderedMessage(html: StoredText | null | undefined, fallback: s
   // Parsing untrusted captured HTML constructs a second tree before sanitisation. Bound it
   // before innerHTML so a valid but huge recorded turn cannot freeze/OOM the renderer.
   template.innerHTML = html.text.slice(0, MAX_RENDERED_HTML_CHARS);
+  // Preserve user-facing native forms before the sanitizer intentionally removes active form
+  // elements. These replacement nodes contain text only and undergo that same sanitizer.
+  const prompts = nativePromptCards(template.content);
+  for (const prompt of prompts) prompt.group.replaceWith(prompt.card);
   sanitizeHtmlTree(template.content, {
     allowedTags: RENDERED_TAGS,
     dropTags: DROP_RENDERED_TAGS,
     safeHref: safeRenderedHref,
     preserveDirection: true
   });
+  // Only reapply our own presentation class, after the capture's untrusted classes are gone.
+  for (const prompt of prompts) prompt.card.classList.add('native-prompt-readonly');
   box.append(template.content);
   const openLink = (event: MouseEvent): void => {
     if (event.type === 'auxclick' && event.button !== 1) return;
@@ -2897,6 +3001,11 @@ function eventBody(event: SessionEvent, context?: { id: string; current: () => b
     case 'turn_start':
       return el('p', 'meta', () => event.detail ? t("Turn reopened — {0}", [event.detail]) : t("Turn started"));
     case 'turn_end': {
+      if (stoppedTurnEnd(event, context?.history ?? events)) {
+        const line = el('p', 'meta is-progress thinking-line turn-stopped');
+        line.append(icon('i-check-circle', 'ico thinking-ico'), el('span', '', () => t("Stopped. ChatGPT no longer shows this turn running.")));
+        return line;
+      }
       const line = el(
         'p',
         event.outcome === 'completed' ? 'meta' : 'meta is-warn',
@@ -3017,6 +3126,20 @@ function answerActions(turnId: string): HTMLElement {
   menu.addEventListener('keydown', event => { if (event.key === 'Escape') { menu.open = false; trigger.focus(); } });
   bar.append(copy, menu);
   return bar;
+}
+
+/**
+ * A turn's stopped end, while it is still that turn's last word: the line that says it stopped.
+ *
+ * The app's Stop note stays where Stop was asked (finish.ts) and says what was known then. The
+ * end of the turn is where it stopped: the page's stopped end, after every call the turn made.
+ * Late work can reopen the turn (recorder.ts); that end then stops being the last word, and the
+ * next stopped end, after the late work, says it again.
+ */
+function stoppedTurnEnd(event: SessionEvent, history: readonly SessionEvent[]): boolean {
+  if (event.kind !== 'turn_end' || event.outcome !== 'stopped' || !event.turnId) return false;
+  return !history.some(later => later.seq > event.seq && later.turnId === event.turnId &&
+    (later.kind === 'turn_start' || later.kind === 'turn_end'));
 }
 
 function eventRow(event: SessionEvent): HTMLElement {
@@ -3780,12 +3903,14 @@ function paintDetail(followBottom = historyBefore === null): void {
     if (item.kind === 'event' && duplicateErrors.has(item.event.seq)) continue;
     appendRetiredInputs(item.kind === 'event' ? item.event.time : item.block.time);
     if (!deps.state()?.config.ui.developerMode && item.kind === 'event' && item.event.source === 'app' && item.event.kind === 'progress' && item.event.progressId?.startsWith('browser-repair:')) continue;
-    if (!deps.state()?.config.ui.developerMode && item.kind === 'event' && ['session_start', 'session_end', 'turn_start', 'turn_end', 'note'].includes(item.event.kind)) continue;
+    if (!deps.state()?.config.ui.developerMode && item.kind === 'event' && ['session_start', 'session_end', 'turn_start', 'turn_end', 'note'].includes(item.event.kind) &&
+        !stoppedTurnEnd(item.event, events)) continue;
     const key = itemKey(item);
     const answerTurn = item.kind === 'event' && item.event.kind === 'assistant_message' && item.event.turnId &&
       anchors.get(item.event.turnId) === item.event.seq ? item.event.turnId : null;
     const sig = itemSignature(item) + (item.kind === 'event' && item.event.kind === 'chat_error'
-      ? JSON.stringify(chatErrorPresentation(item.event, events)) : '') + (answerTurn ? '\u0000answer' : '');
+      ? JSON.stringify(chatErrorPresentation(item.event, events)) : '') + (answerTurn ? '\u0000answer' : '') +
+      (item.kind === 'event' && stoppedTurnEnd(item.event, events) ? '\u0000stopped' : '');
     keep.add(key);
     const cached = rowCache.get(key);
     const workerIds = JSON.stringify(item.kind === 'event' ? participatingWorkers(item.event, workers).map(worker => worker.id) : []);
@@ -5098,8 +5223,23 @@ const CHAT_INPUTS = [
 ];
 
 /** Writes app state into this panel's controls. Called from the renderer's apply(). */
+/** Until when a message for an existing chat waits for a new tunnel-client's route (#1220). */
+let routeSettlingUntil = 0;
+let routeSettleTimer: number | undefined;
+function applyRouteSettling(until: number): void {
+  if (until === routeSettlingUntil) return;
+  routeSettlingUntil = until;
+  window.clearTimeout(routeSettleTimer);
+  void refreshInputQueue();
+  if (until > Date.now()) routeSettleTimer = window.setTimeout(() => void refreshInputQueue(), until - Date.now() + 50);
+}
+function routeHeld(entry: InputEntry): boolean {
+  return entry.state === 'queued' && !entry.error && !!entry.sessionId && Date.now() < routeSettlingUntil;
+}
+
 export function chatApply(state: AppState, previous?: Config): void {
   const { config, bridge } = state;
+  applyRouteSettling(state.status.routeSettlingUntil ?? 0);
   if (visible && selectedId) void refreshSessionControls();
   paintContextMeter(sessions.find(session => session.id === selectedId) ?? null, config, confirmedComposerModel());
   applyChatModels(config, previous);
@@ -5231,12 +5371,14 @@ function inputMessageRow(entry: InputEntry, notice: boolean): HTMLElement {
   const row = el('div', 'pending-message');
   row.classList.toggle('is-delivered', !entry.error && ['sent', 'tool'].includes(entry.state));
   row.classList.toggle('is-delivery-error', !!entry.error || entry.state === 'failed');
+  const held = routeHeld(entry);
+  row.classList.toggle('is-route-held', held);
   row.dataset.inputId = entry.id;
   row.dataset.timelineKey = `input:${entry.id}`;
   if (!visibleInputIds.has(entry.id)) row.classList.add('is-entering');
   visibleInputIds.add(entry.id);
   if (visibleInputIds.size > 100) visibleInputIds.delete(visibleInputIds.values().next().value!);
-  const status = () => entry.error ? t(entry.error) : (entry.state === 'failed' ? t("Delivery not confirmed") : entry.state === 'decision' ? t("Preparing follow-up") : entry.state === 'browser' ? t("Delivery confirmation pending") : entry.state === 'tool' ? t("Sent to the active turn · awaiting receipt") : entry.dueAt > Date.now() ? t("Scheduled {0}", [new Date(entry.dueAt).toLocaleString(currentLanguage())]) : entry.delivery === 'tool' ? t("Waiting for the next tool call") : t("Queued"));
+  const status = () => entry.error ? t(entry.error) : held ? t("Sending in a moment…") : (entry.state === 'failed' ? t("Delivery not confirmed") : entry.state === 'decision' ? t("Preparing follow-up") : entry.state === 'browser' ? t("Delivery confirmation pending") : entry.state === 'tool' ? t("Sent to the active turn · awaiting receipt") : entry.dueAt > Date.now() ? t("Scheduled {0}", [new Date(entry.dueAt).toLocaleString(currentLanguage())]) : entry.delivery === 'tool' ? t("Waiting for the next tool call") : t("Queued"));
   const files = el('div', 'message-attachments');
   if (entry.attachments?.length) files.append(...entry.attachments.map(file => attachmentCard(file)));
   for (const image of entry.images ?? []) { const preview = document.createElement('img'); preview.src = image.dataUrl; preview.alt = image.name; files.append(preview); }
@@ -5248,7 +5390,7 @@ function inputMessageRow(entry: InputEntry, notice: boolean): HTMLElement {
   }
   const receipt = el('span', 'pending-message-status');
   ui(receipt, 'title', status); ui(receipt, 'aria-label', status);
-  if (entry.error || entry.state === 'failed') {
+  if (entry.error || entry.state === 'failed' || held) {
     ui(receipt, 'textContent', status);
   }
   else receipt.append(icon(['sent', 'tool'].includes(entry.state) ? 'i-check' : 'i-clock'));
@@ -5345,7 +5487,7 @@ function paintPendingInputs(): void {
   const host = $('inputQueue');
   const previous = new Map([...host.querySelectorAll<HTMLElement>(':scope > .pending-message')].map(row => [row.dataset.inputId, row]));
   const next = rows.filter(entry => !historicalAutomaticInput(entry)).map(entry => {
-    const sig = JSON.stringify([entry.text, entry.state, entry.error, entry.dueAt, notice(entry), entry.stagesApplied,
+    const sig = JSON.stringify([entry.text, entry.state, entry.error, entry.dueAt, notice(entry), routeHeld(entry), entry.stagesApplied,
       entry.stages, entry.attachments?.map(file => file.id), entry.images?.map(image => [image.name, image.dataUrl.length]),
       hasLaterModelActivity(entry.deliveredAt ?? entry.offeredAt ?? entry.createdAt)]);
     const old = previous.get(entry.id);
