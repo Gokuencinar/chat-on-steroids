@@ -1,9 +1,11 @@
 # Changelog
 
-## [2.1.41] — Windows microphone dictation and official upstream 2.1.32 integration (candidate; 2026-10-10)
+## [2.1.41] — Windows microphone dictation and official upstream 2.1.32–2.1.33 integration (candidate; 2026-10-10)
 
 - Add opt-in native Windows speech-to-text beside the chat composer. Interim and final recognition update editable draft text; users must explicitly press Send. Stopping, switching drafts or leaving the chat retires dictation, and microphone errors remain visible.
 - Integrate upstream official v2.1.32 at e3596a7b with read-only ChatGPT choice cards, durable Stop/turn lifecycle repairs, delivery into the running answer, tunnel-route settlement after restart, plugin error/refresh improvements, usage display fixes and translated recommended Skills.
+- Integrate upstream official v2.1.33 at 1c1a90d8: reuse saved Compact & Resume summaries, show reasons for pending sends, follow selected background chats, respect history rate limits, reduce idle ChatGPT CPU work, prevent duplicate tool group updates and improve Send confirmation recovery.
+- Improve Windows terminal shutdown and installer permission diagnostics, allow slower first launches of local plugins, restore Markdown export Unicode filenames and translate pending-delivery errors. The fork's original v2.1.33 release notes remain separate from the official upstream v2.1.33 notes in docs/upstream/v2.1.33.md.
 - Preserve the fork's nine immersive light/dark appearances, their editable palettes and accessibility controls, Windows x64-only distribution, bridge protocol 14, existing user settings and Core/native attachment safety protections.
 - Preserve Gokuencinar/chat-on-steroids release/extension URLs, exact-version updater and mandatory SHA-256 checks. This is release preparation, **not** a published release.
 - Pair app and extension at 2.1.41, with release metadata and localized microphone/What's New strings for all twelve supported languages.

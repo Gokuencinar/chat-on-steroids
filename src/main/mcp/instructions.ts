@@ -10,7 +10,6 @@
  * that server does not have, which is exactly the confusion the split exists to end.
  */
 
-import { LAUNCHES_WINDOWS_POWERSHELL_5 } from '../codex/tool-specs.js';
 import { CODING_INSTRUCTIONS } from './coding-instructions.js';
 import { skillCatalogInstructions } from '../skills.js';
 import { listSkillLibrary, skillLibraryInstructions } from '../skill-library.js';
@@ -116,7 +115,7 @@ function coreInstructions(ctx: ToolContext, platform: NodeJS.Platform, skills: s
   if (caps.read || caps.browse || caps.metadata) lines.push(
     'read batches paths, lists folders, expands globs and returns numbered text. Read whole files for orientation; otherwise use known regions. A start_line/end_line range applies to every file the call reads.',
   );
-  if (caps.read) lines.push('view_image inspects a local image. Use it when visual evidence matters.');
+  if (caps.read) lines.push('view_image inspects a local image when visual evidence matters.');
   if (caps.command) {
     lines.push(
       'Use rg or rg --files for searches; if unavailable, use the next best tool. Prefer rg -g \'*.ts\' src over shell globs.',
@@ -128,8 +127,7 @@ function coreInstructions(ctx: ToolContext, platform: NodeJS.Platform, skills: s
     );
     if (windows) lines.push(
       'PowerShell does not expand * or ? for native programs. Regex \\x22 matches double quotes. Use script files for complex JavaScript; nested -Command/-e can corrupt quotes or expand variables. Pipe loops as @(foreach (...) { ... }) | Format-Table.',
-      'rg/ripgrep uses the bundled executable. Omit 2>&1 on native programs in PowerShell: stderr is captured; redirecting it can leave $? false after exit 0.',
-      ...(LAUNCHES_WINDOWS_POWERSHELL_5 ? ['This is Windows PowerShell 5.1, without && or ||. Use cmds or A; if ($?) { B }.'] : [])
+      'rg is bundled. Omit 2>&1 on native programs in PowerShell: stderr is captured; redirecting it can leave $? false after exit 0.'
     );
     else lines.push('exec_command uses the host’s normal POSIX shell (zsh/bash/sh unless requested otherwise). The bundled ripgrep directory is first on PATH.');
     if (config.commandAllowlist.enabled) lines.push(
