@@ -3737,6 +3737,14 @@ beveled, Gamer RGB is tactical, Futuristic is icy glass, Terminal uses phosphor
 dividers, Cyberpunk uses pink/cyan cut corners, Synthwave uses sunset gradients,
 Midnight keeps OLED negative space and Solar uses paper-like treatments. No fake
 conversation text or interactive controls are injected into production DOM.
+The fifth-pass `src/renderer/skin-finale.css`, loaded after skin-scene, extends the
+same style identity to existing dialogs, search, plugin cards/catalog, connection
+state, Markdown tables/inline code, section rails and empty chat. Its shared
+semantic variables allow preset geometry without writing new state or hijacking
+native controls. Retro Terminal presents real prose, code and composer text in
+monospace with a visual phosphor cursor and a short reduced-motion-safe entrance
+on the newest paragraph, without changing the recorded or selectable text.
+Classic still receives none of these selectors.
 Keep these scene layers visually distinctive but semantically passive: no overlays
 on editor hit targets, no infinite animations on the scrollable timeline, no
 variable changes that defeat custom Appearance palettes or safety/status colors.

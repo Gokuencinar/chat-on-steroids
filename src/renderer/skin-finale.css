@@ -1,0 +1,442 @@
+/*
+ * Fifth-pass appearance finish: the same real controls acquire a coherent
+ * surface language outside the main chat viewport (dialogs, plugins, menus,
+ * search, terminal, code, states). This is presentation only.
+ *
+ * Invariants: Classic is untouched; foregrounds use semantic editable ink /
+ * accent tokens; no layout animations or filters on persistent large surfaces;
+ * all decoration ignores pointer events; native buttons/ARIA remain in charge.
+ */
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) {
+  --final-rule: var(--scene-line);
+  --final-ink: var(--ink);
+  --final-surface: var(--scene-panel);
+  --final-inset: var(--scene-code);
+  --final-gleam: var(--skin-shine);
+  --final-bright: var(--accent);
+  --final-card-edge: var(--scene-hairline) solid var(--final-rule);
+  --final-corner: var(--scene-radius);
+  --final-heading-track: var(--scene-label-space);
+  --final-card-accent: linear-gradient(90deg, var(--final-bright), transparent 85%);
+  --final-empty-art: radial-gradient(circle at 50% 50%, var(--skin-ambient), transparent 68%);
+  --final-dialog-top: var(--skin-gradient);
+  --final-code-gutter: var(--accent);
+}
+
+/* Keep the shell's interactive targets and document hierarchy intact. */
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .sidebar-session-heading {
+  border-block-end: 1px solid var(--final-rule);
+  box-shadow: inset 0 -1px var(--final-gleam);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .sidebar-session-heading .sidebar-session-label {
+  letter-spacing: var(--final-heading-track);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .sidebar-session-section[open] > .sidebar-session-heading {
+  border-block-end-color: var(--final-bright);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.sidebar-primary-link, .sidebar .new-chat, .sess, .work-dock-tab, .terminal-tab):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .connection-popover {
+  border: var(--final-card-edge);
+  border-radius: var(--final-corner);
+  /* Inherits the identical full background from the sidebar skin contract. */
+  box-shadow: inset 0 2px var(--final-gleam), 0 14px 30px #0003;
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .connection-popover-head {
+  border-block-end: 1px solid var(--final-rule);
+  letter-spacing: var(--final-heading-track);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.notice, .plugin-connection:not(.is-configured), .plugin-empty) {
+  border-radius: var(--final-corner);
+  background-image: var(--scene-message);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .plugin-empty {
+  border-color: var(--final-rule);
+}
+
+/* Small real-content surfaces: the search dialog, plugin catalog and actions. */
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.search-dialog, .plugin-dialog, .setup-profile-dialog, .whats-new-dialog) {
+  border: var(--final-card-edge);
+  border-radius: var(--final-corner);
+  background-color: var(--card);
+  box-shadow: 0 24px 60px #0005, inset 0 1px var(--final-gleam);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.search-dialog, .plugin-dialog, .setup-profile-dialog, .whats-new-dialog)::backdrop {
+  background: #03030ad0;
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.search-dialog-field, .plugin-search, .settings-find) {
+  border-color: var(--final-rule);
+  background-color: var(--final-inset);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.search-dialog-field, .plugin-search, .settings-find):focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--ring);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.plugin-dialog-head, .whats-new-head) {
+  border-block-end: 1px solid var(--final-rule);
+  background-image: var(--scene-message);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.plugin-card, .plugin-catalog-card, .plugin-menu-actions, .settings-find-results) {
+  border-color: var(--final-rule);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .plugin-card:focus-within {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.plugin-card-title h2, .plugin-dialog-head h2, .plugin-section-head h2) {
+  letter-spacing: var(--final-heading-track);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.plugin-card, .plugin-catalog-card) {
+  background-image: var(--scene-message);
+}
+
+/* Reading quality: long tables scroll in their existing wrapper; readable
+   inline code, quote hierarchies and document rules work in every skin. */
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .msg.rich :is(code:not(pre code), kbd) {
+  border: 1px solid var(--final-rule);
+  border-radius: min(5px, var(--final-corner));
+  padding-inline: .28em;
+  background-color: var(--final-inset);
+  color: var(--ink);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .msg.rich :is(table, th, td) {
+  border-color: var(--final-rule);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .msg.rich th {
+  background-color: var(--final-surface);
+  color: var(--ink);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .msg.rich :is(hr, blockquote) {
+  border-color: var(--final-rule);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .msg.rich blockquote {
+  border-inline-start-color: var(--accent);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .msg.rich :is(a, a:visited) {
+  text-decoration-color: color-mix(in srgb, var(--accent) 65%, transparent);
+  text-underline-offset: .2em;
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .msg.rich a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .msg.rich pre {
+  border-inline-start: 3px solid var(--final-code-gutter);
+}
+
+/* Empty conversation becomes a theme-specific welcome composition; the actual
+   text and icon are unchanged, and the decoration is not another widget. */
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) #timelineEmpty {
+  position: relative;
+  isolation: isolate;
+  text-wrap: balance;
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) #timelineEmpty::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: -48px -55px;
+  pointer-events: none;
+  background: var(--final-empty-art);
+  opacity: .8;
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) #timelineEmpty .welcome-mark {
+  color: var(--final-bright);
+}
+
+/* Workspace tool chrome, with no change to the terminal's editable text. */
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.work-dock-tabs, .terminal-tabs, .file-panel-toolbar-actions) {
+  border-color: var(--final-rule);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.terminal-tab.is-selected, .work-dock-tab.is-selected, .work-dock-tab.is-active) {
+  border-color: var(--accent);
+  color: var(--ink);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.terminal-tab, .work-dock-tab) {
+  border-radius: min(8px, var(--final-corner));
+}
+
+/* GAMER: modular race UI, segmented counters, thin grid markers. */
+:root[data-appearance-style='gamer'] {
+  --final-card-edge: 1px solid #00efff59;
+  --final-bright: var(--accent);
+  --final-card-accent: linear-gradient(90deg, #b6ff26, #11e5ff, #ff4dd7);
+  --final-empty-art: radial-gradient(circle at 50% 50%, #b6ff2610, transparent 60%),
+    repeating-linear-gradient(90deg, transparent 0 26px, #03e7fb07 26px 27px);
+  --final-code-gutter: #3cefff;
+}
+:root[data-appearance-style='gamer'] :is(.plugin-card, .plugin-catalog-card, .search-dialog) {
+  border-start-start-radius: 0;
+  border-end-end-radius: 0;
+}
+:root[data-appearance-style='gamer'] :is(.plugin-card, .plugin-search, .search-dialog-field) {
+  box-shadow: inset 0 2px #b6ff2650;
+}
+:root[data-appearance-style='gamer'] :is(.plugin-card-title h2, .plugin-section-head h2, .connection-popover-head) {
+  text-transform: uppercase;
+  font-weight: 740;
+}
+:root[data-appearance-style='gamer'] .sidebar-session-section[open] > .sidebar-session-heading {
+  border-image: var(--final-card-accent) 1;
+}
+
+/* FUTURISTIC: layered scientific glass, soft orbit arcs, generous geometry. */
+:root[data-appearance-style='futuristic'] {
+  --final-card-edge: 1px solid #8ae5ff77;
+  --final-empty-art: radial-gradient(ellipse at 50% 50%, #75e6ff19, transparent 65%),
+    repeating-radial-gradient(circle at 50% 50%, transparent 0 49px, #7fe9ff15 50px 51px, transparent 52px 75px);
+  --final-code-gutter: #8defff;
+}
+:root[data-appearance-style='futuristic'] :is(.search-dialog, .plugin-dialog, .whats-new-dialog) {
+  box-shadow: inset 0 1px #ffffff67, 0 18px 48px #0679da28;
+}
+:root[data-appearance-style='futuristic'] :is(.plugin-icon, .search-dialog-field, .plugin-search) {
+  border-radius: 16px;
+}
+:root[data-appearance-style='futuristic'] :is(.plugin-card-title h2, .plugin-dialog-head h2) {
+  font-weight: 480;
+  letter-spacing: .035em;
+}
+
+/* CYBERPUNK: angular security-console cards and hard barcode dividers. */
+:root[data-appearance-style='cyberpunk'] {
+  --final-card-edge: 1px solid #fa4bcb66;
+  --final-empty-art: radial-gradient(ellipse at 50% 50%, #ff36c01b, transparent 66%),
+    repeating-linear-gradient(0deg, transparent 0 10px, #28eaff0a 10px 11px);
+  --final-code-gutter: #ff3bca;
+}
+:root[data-appearance-style='cyberpunk'] :is(.search-dialog, .plugin-dialog, .plugin-connection) {
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+}
+:root[data-appearance-style='cyberpunk'] :is(.search-dialog-field, .plugin-search, .plugin-menu-actions) {
+  border-radius: 2px;
+  border-inline-start: 3px solid #1de9f1;
+}
+:root[data-appearance-style='cyberpunk'] :is(.plugin-section-head h2, .plugin-card-title h2, .connection-popover-head) {
+  text-transform: uppercase;
+  font-weight: 750;
+}
+
+/* Windows 95: legible hardware rectangles and embossed native-like dialogs. */
+:root[data-appearance-style='win95'] {
+  --final-rule: #747474;
+  --final-bright: #000080;
+  --final-inset: #e2e2e2;
+  --final-card-edge: 2px solid;
+  --final-empty-art: none;
+  --final-code-gutter: #000080;
+}
+:root[data-appearance-style='win95'] :is(.search-dialog, .plugin-dialog, .setup-profile-dialog, .whats-new-dialog, .plugin-menu-actions) {
+  border: 2px solid;
+  border-color: #fff #626262 #626262 #fff;
+  background: #c0c0c0;
+  color: #161616;
+  border-radius: 0;
+  box-shadow: inset 1px 1px #eeeeee, inset -1px -1px #808080, 2px 2px #303030;
+}
+:root[data-appearance-style='win95'] .connection-popover {
+  border: 2px solid;
+  border-color: #fff #626262 #626262 #fff;
+  border-radius: 0;
+  box-shadow: inset 1px 1px #eeeeee, inset -1px -1px #808080, 2px 2px #303030;
+}
+:root[data-appearance-style='win95'] :is(.search-dialog-field, .plugin-search, .settings-find) {
+  border: 2px solid;
+  border-color: #777 #fff #fff #777;
+  color: #161616;
+  border-radius: 0;
+}
+:root[data-appearance-style='win95'] :is(.search-dialog-field, .plugin-search, .settings-find) input {
+  color: #161616;
+}
+:root[data-appearance-style='win95'] .msg.rich :is(code:not(pre code), kbd, th) {
+  color: #161616;
+}
+:root[data-appearance-style='win95'] :is(.plugin-dialog-head, .whats-new-head) {
+  background: #000080;
+  color: #fff;
+}
+:root[data-appearance-style='win95'] :is(.plugin-dialog-head h2, .whats-new-head h2) {
+  color: #fff;
+}
+:root[data-appearance-style='win95'] .plugin-dialog-head .btn {
+  color: #161616;
+  background: #c0c0c0;
+  border: 2px solid;
+  border-color: #fff #666 #666 #fff;
+  border-radius: 0;
+  box-shadow: inset 1px 1px #ececec, inset -1px -1px #868686;
+}
+:root[data-appearance-style='win95'] .plugin-dialog-head .btn:is(:hover, :focus-visible) {
+  color: #000;
+  background: #e2e2e2;
+}
+:root[data-appearance-style='win95'] #timelineEmpty .welcome-mark { color: #000080; }
+:root[data-appearance-style='win95'] .sidebar-session-section[open] > .sidebar-session-heading {
+  border-bottom: 2px solid #666;
+}
+
+/* TERMINAL: monochrome instrument surfaces and ruled system prompts. */
+:root[data-appearance-style='terminal'] {
+  --final-card-edge: 1px dashed var(--final-rule);
+  --final-empty-art: repeating-linear-gradient(0deg, transparent 0 6px, #5afa7609 6px 7px),
+    radial-gradient(circle, #50f87810, transparent 70%);
+  --final-code-gutter: #4cfb8a;
+}
+:root[data-appearance-style='terminal'] :is(.search-dialog, .plugin-dialog, .plugin-card, .plugin-search, .connection-popover) {
+  border-style: dashed;
+  border-radius: 0;
+  box-shadow: inset 0 0 14px #40f76b0e;
+}
+:root[data-appearance-style='terminal'] :is(.plugin-card-title h2, .plugin-dialog-head h2, .plugin-section-head h2, .connection-popover-head, .search-dialog-field) {
+  font-family: var(--mono);
+  text-transform: uppercase;
+}
+:root[data-appearance-style='terminal'] .msg.rich th {
+  font-family: var(--mono);
+}
+:root[data-appearance-style='terminal'] :is(.sidebar-session-heading, .plugin-dialog-head) {
+  border-bottom-style: dashed;
+}
+/* Retro Terminal renders the actual conversation as a phosphor character
+   terminal, not just the headings. Never rewrite text nodes: selection,
+   links, screen readers and recorded text retain their normal identity. */
+:root[data-appearance-style='terminal'] :is(
+  #timeline .msg,
+  #inputQueue .msg,
+  .said.is-user .user-message-text,
+  .pending-message-text,
+  .msg.rich :is(p, li, dt, dd, blockquote, th, td),
+  .msg.rich :is(h1, h2, h3, h4, h5, h6),
+  .msg.rich :is(pre, code, kbd),
+  .composer textarea,
+  .tool-group > summary,
+  .routine-activity > summary
+) {
+  font-family: var(--mono);
+  letter-spacing: .015em;
+  line-height: 1.65;
+  font-variant-ligatures: none;
+}
+:root[data-appearance-style='terminal'] .msg.rich :is(h1, h2, h3, h4, h5, h6) {
+  color: var(--ink);
+  font-weight: 650;
+  text-shadow: 0 0 9px #56f67c25;
+}
+:root[data-appearance-style='terminal'] .msg.rich blockquote {
+  border-inline-start-style: dashed;
+}
+:root[data-appearance-style='terminal'] .msg.rich :is(pre, .markdown-code) {
+  background-color: color-mix(in srgb, var(--accent-fill) 4%, var(--sunk));
+  border-style: solid dashed solid solid;
+}
+:root[data-appearance-style='terminal'] .msg.rich th {
+  background-color: color-mix(in srgb, var(--accent-fill) 12%, var(--card));
+}
+:root[data-appearance-style='terminal'] .said.is-user .user-message-text {
+  text-shadow: 0 0 8px #4ffa7d18;
+}
+:root[data-appearance-style='terminal'] #timelineEmpty > span::after {
+  content: ' ▮';
+  display: inline;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-weight: 500;
+}
+@media (prefers-reduced-motion: no-preference) {
+  /* A small stepped entrance on only the newest paragraph, not a slow mask on
+     every historic message. The complete words remain selectable at all times. */
+  :root[data-appearance-style='terminal'] #timeline > :last-child .msg.rich > p:last-of-type {
+    animation: retro-terminal-line-in 300ms steps(8, end) both;
+  }
+  :root[data-appearance-style='terminal'] #timelineEmpty > span::after {
+    animation: retro-terminal-cursor 1.1s steps(1, end) infinite;
+  }
+}
+@keyframes retro-terminal-line-in {
+  from { opacity: .55; clip-path: inset(0 12% 0 0); }
+  to { opacity: 1; clip-path: inset(0); }
+}
+@keyframes retro-terminal-cursor {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+/* SYNTHWAVE: warm sunset glow over a static receding horizon. */
+:root[data-appearance-style='synthwave'] {
+  --final-card-edge: 1px solid #fa78dd78;
+  --final-empty-art: radial-gradient(ellipse 72px 72px at 50% 47%, #ffa87724 0 56%, transparent 57%),
+    linear-gradient(transparent 65%, #ba58ff10 65%, #f965d609 90%, transparent);
+  --final-code-gutter: #ff86bd;
+}
+:root[data-appearance-style='synthwave'] :is(.search-dialog, .plugin-dialog, .whats-new-dialog) {
+  box-shadow: 0 22px 46px #681fa95a, inset 0 1px #ffc0ee35;
+}
+:root[data-appearance-style='synthwave'] :is(.plugin-card, .plugin-catalog-card) {
+  background-image: linear-gradient(145deg, #f468cd13, transparent 60%, #7451f116);
+}
+:root[data-appearance-style='synthwave'] :is(.plugin-section-head h2, .plugin-dialog-head h2) {
+  font-weight: 730;
+}
+
+/* MIDNIGHT OLED: almost no ornament; spacing, restrained focus and black ink. */
+:root[data-appearance-style='midnight'] {
+  --final-card-edge: 1px solid #8c7bb145;
+  --final-empty-art: radial-gradient(circle, #7560c90d, transparent 64%);
+  --final-code-gutter: #afa3f7;
+}
+:root[data-appearance-style='midnight'] :is(.search-dialog, .plugin-dialog) {
+  background-color: #09080e;
+  box-shadow: 0 20px 48px #000a, inset 0 1px #9080d01b;
+}
+:root[data-appearance-style='midnight'] :is(.plugin-card, .plugin-catalog-card, .plugin-menu-actions) {
+  background-image: none;
+}
+:root[data-appearance-style='midnight'] :is(.plugin-section-head h2, .plugin-dialog-head h2) {
+  font-weight: 490;
+  letter-spacing: -.02em;
+}
+
+/* SOLAR: editorial paper, section rules and a quiet warm library aesthetic. */
+:root[data-appearance-style='solar'] {
+  --final-card-edge: 1px solid #c19a6869;
+  --final-empty-art: radial-gradient(ellipse, #deb77e1c, transparent 70%);
+  --final-code-gutter: #b17e3d;
+}
+:root[data-appearance-style='solar'] :is(.plugin-section-head h2, .plugin-dialog-head h2, .connection-popover-head, .whats-new-head h2) {
+  font-family: Georgia, 'Palatino Linotype', serif;
+  font-weight: 560;
+  letter-spacing: -.025em;
+}
+:root[data-appearance-style='solar'] :is(.plugin-card, .plugin-catalog-card, .search-dialog, .plugin-dialog) {
+  border-radius: 9px;
+  background-image: linear-gradient(135deg, #f9d49a14, transparent 75%);
+}
+:root[data-appearance-style='solar'] .sidebar-session-heading {
+  border-bottom: 1px double #b18a5a82;
+}
+
+/* Don't let theme decoration eat small touch/zoom viewports. */
+@media (max-width: 700px) {
+  :root[data-appearance-style]:where(:not([data-appearance-style='classic'])) #timelineEmpty::before {
+    inset: -30px -18px;
+  }
+  :root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.search-dialog, .plugin-dialog, .whats-new-dialog) {
+    max-width: calc(100vw - 24px);
+  }
+}
+@media (prefers-contrast: more) {
+  :root[data-appearance-style]:where(:not([data-appearance-style='classic'])) {
+    --final-rule: var(--ink);
+  }
+  :root[data-appearance-style]:where(:not([data-appearance-style='classic'])) #timelineEmpty::before {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.plugin-card, .plugin-catalog-card, .search-dialog, .connection-popover) {
+    transition: none;
+  }
+}

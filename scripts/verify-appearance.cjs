@@ -74,7 +74,8 @@ app.whenReady().then(async () => {
         return ['background', 'backdrop-filter', '--ink', '--soft', '--faint', '--edge', '--hover', '--accent', '--accent-edge']
           .filter(key => sidebar.getPropertyValue(key) !== popup.getPropertyValue(key));
       })()`);
-      assert.deepEqual(mismatch, [], 'Connection popover must share the live sidebar palette');
+      assert.deepEqual(mismatch, [], 'Connection popover must share the live sidebar palette, style='+
+        await js('document.documentElement.dataset.appearanceStyle')+', mismatch='+mismatch.join(', '));
     };
     const screenshot = async name => {
       await verifyPopoverPalette();
@@ -214,7 +215,8 @@ app.whenReady().then(async () => {
         const css=getComputedStyle(element),rect=element.getBoundingClientRect();
         return {background:css.backgroundImage,fill:css.backgroundColor,color:css.color,
           border:css.borderInlineStartWidth,borderColor:css.borderInlineStartColor,
-          shadow:css.boxShadow,radius:css.borderTopLeftRadius,width:rect.width};
+          shadow:css.boxShadow,radius:css.borderTopLeftRadius,width:rect.width,
+          font:css.fontFamily,animation:css.animationName};
       };
       const reader=document.getElementById('chatBody');
       return {user:paint(userBody),code:paint(pre),quote:paint(quote),tool:paint(toolLabel),
@@ -226,6 +228,125 @@ app.whenReady().then(async () => {
       const fixture=document.getElementById('appearance-rich-fixture');
       fixture?.remove();document.getElementById('timelineEmpty').hidden=${JSON.stringify(wasHidden)};
     })()`);
+    // Exercise genuine dialogs/search and plugins panels, plus isolated command/terminal DOM
+    // with the production classes. Never create a session or execute the fixture command.
+    const fifthSurfaceAudit = async preset => {
+      const dialog = await js(`(() => {
+        const modal=document.getElementById('searchDialog');
+        modal.showModal();
+        const input=document.getElementById('chatSearch');input.focus();
+        const rect=modal.getBoundingClientRect(),css=getComputedStyle(modal);
+        return {open:modal.open,focus:document.activeElement===input,
+          width:rect.width,left:rect.left,right:rect.right,top:rect.top,bottom:rect.bottom,
+          viewWidth:innerWidth,viewHeight:innerHeight,background:css.backgroundColor,
+          color:css.color,filter:css.filter,willChange:css.willChange};
+      })()`);
+      assert.ok(dialog.open && dialog.focus && dialog.width>200 && dialog.left>=-2 &&
+        dialog.right<=dialog.viewWidth+2 && dialog.top>=-2 && dialog.bottom<=dialog.viewHeight+2,
+        preset+' native search dialog inaccessible/overflowed: '+JSON.stringify(dialog));
+      assert.equal(dialog.filter,'none',preset+' permanent modal filter');
+      assert.ok(dialog.willChange==='auto' || dialog.willChange==='contents',preset+' modal permanent layer');
+      if(['gamer','futuristic','win95'].includes(preset))await screenshot('skin-'+preset+'-search-dialog.png');
+      // True keyboard Escape from Electron, rather than a fabricated DOM KeyboardEvent.
+      win.webContents.sendInputEvent({type:'keyDown',keyCode:'Escape'});
+      win.webContents.sendInputEvent({type:'keyUp',keyCode:'Escape'});
+      for(let n=0;n<30 && await js('document.getElementById("searchDialog").open');n++)
+        await new Promise(resolve=>setTimeout(resolve,20));
+      assert.equal(await js('document.getElementById("searchDialog").open'),false,
+        preset+' native search dialog cannot be dismissed with Escape');
+      const plugin = await js(`(() => {
+        document.getElementById('sidebarPlugins').click();
+        const panel=document.querySelector('[data-panel="plugins"]');
+        const input=document.getElementById('pluginsSearch');input.focus();
+        const target=document.getElementById('pluginsInstalled');
+        const card=document.createElement('article');card.id='skin-plugin-fixture';card.className='plugin-card';
+        const title=document.createElement('div');title.className='plugin-card-title';
+        const h=document.createElement('h2');h.textContent='Visual regression plugin with a very long name '.repeat(5);
+        const description=document.createElement('p');description.textContent='No connection or installation is performed. '.repeat(24);
+        title.append(h,description);card.append(title);target.append(card);
+        const css=getComputedStyle(card),rect=card.getBoundingClientRect();
+        const search=getComputedStyle(input.parentElement);
+        const status=document.getElementById('pluginsConnectionStatus');
+        return {panelActive:panel.classList.contains('is-active'),inputFocused:document.activeElement===input,
+          cardWidth:rect.width,cardRight:rect.right,cardBackground:css.backgroundColor,
+          cardBorder:css.borderTopColor,cardShadow:css.boxShadow,
+          searchShadow:search.boxShadow,searchBorder:search.borderTopColor,
+          status:status.getAttribute('role'),statusText:status.textContent.trim(),
+          overflow:panel.scrollWidth-panel.clientWidth,viewport:innerWidth};
+      })()`);
+      assert.ok(plugin.panelActive && plugin.inputFocused && plugin.cardWidth>120 &&
+        plugin.cardRight<=plugin.viewport+2 && plugin.overflow<=2 && plugin.status==='status' && plugin.statusText,
+        preset+' plugins/search/status overflow or inaccessible: '+JSON.stringify(plugin));
+      if(['gamer','futuristic','win95'].includes(preset))await screenshot('skin-'+preset+'-plugins.png');
+      await js('document.getElementById("skin-plugin-fixture")?.remove()');
+      const skill = await js(`(() => {
+        document.getElementById('sidebarSkills').click();
+        const modal=document.getElementById('skillGithubDialog');modal.showModal();
+        const input=document.getElementById('skillGithubUrl');input.focus();
+        const rect=modal.getBoundingClientRect(),css=getComputedStyle(modal);
+        return {open:modal.open,focused:document.activeElement===input,
+          left:rect.left,right:rect.right,top:rect.top,bottom:rect.bottom,
+          viewport:innerWidth,height:innerHeight,color:css.color,background:css.backgroundColor};
+      })()`);
+      assert.ok(skill.open && skill.focused && skill.left>=-2 && skill.right<=skill.viewport+2 &&
+        skill.top>=-2 && skill.bottom<=skill.height+2,
+        preset+' plugin modal inaccessible or overflowed: '+JSON.stringify(skill));
+      if(['gamer','win95'].includes(preset))await screenshot('skin-'+preset+'-plugin-modal.png');
+      await js(`(() => {
+        document.getElementById('skillGithubDialog').close();
+        document.querySelector('[data-tab="appearance"]').click();
+        document.getElementById('backToChat').click();
+      })()`);
+      const terminal=await js(`(() => {
+        const reader=document.getElementById('chatBody');
+        const beforeOverflow=reader.scrollWidth-reader.clientWidth;
+        const fixture=document.createElement('section');fixture.id='skin-terminal-fixture';
+        fixture.className='work-dock-bottom';fixture.style.height='170px';
+        const bar=document.createElement('div');bar.className='terminal-bar';
+        const tabs=document.createElement('div');tabs.className='terminal-tabs';
+        const tab=document.createElement('div');tab.className='terminal-tab is-selected';
+        const button=document.createElement('button');button.type='button';button.className='btn';
+        const caption=document.createElement('span');caption.className='tab-label';
+        caption.textContent='Terminal · '// title includes a long label but must ellipsize
+          + 'fixture-command-editor-'.repeat(12);button.append(caption);tab.append(button);tabs.append(tab);bar.append(tabs);
+        const body=document.createElement('div');body.className='terminal-body';
+        const screen=document.createElement('div');screen.className='terminal-screen';
+        const pre=document.createElement('pre');pre.style.cssText='white-space:pre;overflow-x:auto;max-width:100%;';
+        pre.textContent='> npm run verify -- --local-fixture\\n'+('Output 00000000000000000000000 '.repeat(18));
+        screen.append(pre);body.append(screen);fixture.append(bar,body);reader.append(fixture);
+        const rect=fixture.getBoundingClientRect(),buttonRect=button.getBoundingClientRect();
+        const tabCss=getComputedStyle(tab),barCss=getComputedStyle(bar),screenCss=getComputedStyle(screen);
+        const readerRect=reader.getBoundingClientRect();
+        const overflowing=[...reader.querySelectorAll('*')]
+          .filter(node=>{
+            const rect=node.getBoundingClientRect();
+            return rect.width>0 && rect.right>readerRect.right+2;
+          }).slice(0,6).map(node=>({tag:node.tagName,selector:node.id||node.className||'',
+            right:Math.round(node.getBoundingClientRect().right-readerRect.right)}));
+        return {width:rect.width,viewport:reader.clientWidth,
+          beforeOverflow,readerOverflow:reader.scrollWidth-reader.clientWidth,overflowing,
+          tabWidth:buttonRect.width,tabBorder:tabCss.borderTopColor,tabShadow:tabCss.boxShadow,
+          tabBackground:tabCss.backgroundColor,barBackground:barCss.backgroundImage,
+          barColor:barCss.color,screenColor:screenCss.color,screenBackground:screenCss.backgroundColor,
+          screenFilter:screenCss.filter,screenWillChange:screenCss.willChange,
+          codeScroll:pre.scrollWidth,codeWidth:pre.clientWidth};
+      })()`);
+      assert.ok(terminal.width>250 && terminal.readerOverflow<=Math.max(2,terminal.beforeOverflow+2) && terminal.tabWidth>0 &&
+        terminal.codeWidth>0 && terminal.codeScroll>=terminal.codeWidth,
+        preset+' terminal/editor long output overflow: '+JSON.stringify(terminal));
+      assert.equal(terminal.screenFilter,'none',preset+' large terminal output always filtered');
+      assert.ok(terminal.screenWillChange==='auto' || terminal.screenWillChange==='contents',
+        preset+' terminal output permanently promoted to GPU layer');
+      if(['gamer','futuristic','terminal','win95'].includes(preset)) {
+        await js(`document.getElementById('skin-terminal-fixture').scrollIntoView({block:'end'})`);
+        await screenshot('skin-'+preset+'-terminal.png');
+      }
+      await js(`(() => {
+        document.getElementById('skin-terminal-fixture')?.remove();
+        document.getElementById('chatBody').scrollTop=0;
+      })()`);
+      return {dialog,plugin,skill,terminal};
+    };
     const assertGlobalSkin = (style, actual, baseline) => {
       assert.equal(actual.style,style);
       assert.equal(actual.theme,baseline.theme);
@@ -351,6 +472,11 @@ app.whenReady().then(async () => {
         preset+' rich fixture overflows the reader: '+JSON.stringify(rich));
       assert.ok(rich.codeScroll>=rich.codeWidth && rich.codeWidth>100,
         preset+' code block clipping or invalid width: '+JSON.stringify(rich));
+      if(preset==='terminal') {
+        const composerFont=await js('getComputedStyle(document.getElementById("chatInput")).fontFamily');
+        assert.equal(rich.user.font,rich.code.font,'Retro Terminal real user and code text must share monospace typography');
+        assert.equal(rich.user.font,composerFont,'Retro Terminal composer must use the same monospace typography');
+      }
       if(preset!=='classic')for(const surface of ['user','code','quote','tool','reader']) {
         // Win95 intentionally has --scene-reader:none: the flat document has no
         // ambient background by design, while its message/code/tool frames carry bevels.
@@ -362,6 +488,7 @@ app.whenReady().then(async () => {
       if(['gamer','futuristic','win95','classic'].includes(preset))
         await screenshot('skin-'+preset+'-rich.png');
       await removeRichScene(rich.wasHidden);
+      const fifth = await fifthSurfaceAudit(preset);
       if (preset === 'gamer' || preset === 'futuristic') {
         const accent = await js(`getComputedStyle(document.documentElement).getPropertyValue('--accent-fill').trim().toLowerCase()`);
         assert.match(accent,/^#[0-9a-f]{6}$/);
@@ -425,7 +552,9 @@ app.whenReady().then(async () => {
         assert.ok(ornament.chatArt.startsWith('linear-gradient('),
           preset+' chat header lost styled background: '+JSON.stringify(ornament));
       }
-      skinResults.push({style:preset,theme:currentSkin.theme,regions:Object.keys(currentSkin.regions),decorated});
+      skinResults.push({style:preset,theme:currentSkin.theme,regions:Object.keys(currentSkin.regions),decorated,
+        fifthPass:{searchDialog:true,plugins:true,skillDialog:true,terminal:true,
+          pluginCardWidth:fifth.plugin.cardWidth,terminalCodeScrollable:fifth.terminal.codeScroll>fifth.terminal.codeWidth}});
       await js(`document.querySelector('[data-tab="appearance"]').click()`);
       if (preset === 'cyberpunk') {
         assert.ok((await js(`getComputedStyle(document.querySelector('.sidebar')).backgroundImage`)).includes('linear-gradient'));
@@ -439,17 +568,24 @@ app.whenReady().then(async () => {
     }
     // The main fixture deliberately freezes motion for deterministic screenshots. Turn that
     // override off while emulating the OS preference, otherwise a reduced-motion test is vacuous.
-    await js(`document.querySelector('[data-preset="gamer"]').click()`);
     const debuggerClient = win.webContents.debugger;
     debuggerClient.attach('1.3');
-    let reducedMotion;
+    let reducedMotion, terminalMotion;
     try {
       await debuggerClient.sendCommand('Emulation.setEmulatedMedia',
         {features:[{name:'prefers-reduced-motion',value:'reduce'}]});
+      // Establish the OS preference BEFORE changing skins, so we test reduced-motion
+      // behavior at interaction time instead of sampling a pre-existing 220ms WAAPI resize.
+      await js(`document.querySelector('[data-preset="gamer"]').click()`);
+      await js('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
       reducedMotion = await js(`(() => {
         document.getElementById('fixture-motion-freeze').disabled=true;
         const button=document.querySelector('[data-preset="gamer"]');
+        const composer=document.querySelector('.composer');
         return {matches:matchMedia('(prefers-reduced-motion: reduce)').matches,
+          composerClasses:composer.className,
+          composerAnimations:composer.getAnimations().map(animation=>({playState:animation.playState,
+            currentTime:animation.currentTime,duration:animation.effect?.getTiming().duration})),
           buttonTransition:getComputedStyle(button).transitionDuration,
           buttonAnimation:getComputedStyle(button).animationName,
           topbarAnimation:getComputedStyle(document.querySelector('.app-topbar')).animationName,
@@ -460,6 +596,24 @@ app.whenReady().then(async () => {
                 duration:css.transitionDuration,filter:css.filter,willChange:css.willChange};
             })};
       })()`);
+      await js(`(() => {
+        document.querySelector('[data-preset="terminal"]').click();
+        document.getElementById('backToChat').click();
+      })()`);
+      const terminalFixture=await richScene();
+      const terminalAnimation=()=>js(`(() => {
+        const p=document.querySelector('#appearance-rich-fixture .msg.rich > p:last-of-type');
+        const style=getComputedStyle(p);
+        const composer=getComputedStyle(document.getElementById('chatInput'));
+        return {reduced:matchMedia('(prefers-reduced-motion: reduce)').matches,
+          animation:style.animationName,font:style.fontFamily,composerFont:composer.fontFamily};
+      })()`);
+      terminalMotion={reduced:await terminalAnimation()};
+      await debuggerClient.sendCommand('Emulation.setEmulatedMedia',
+        {features:[{name:'prefers-reduced-motion',value:'no-preference'}]});
+      terminalMotion.normal=await terminalAnimation();
+      await removeRichScene(terminalFixture.wasHidden);
+      await js(`document.querySelector('[data-tab="appearance"]').click()`);
     } finally {
       await js(`document.getElementById('fixture-motion-freeze').disabled=false`);
       await debuggerClient.sendCommand('Emulation.setEmulatedMedia',{features:[]});
@@ -470,11 +624,19 @@ app.whenReady().then(async () => {
       'Style selection must not transition when reduced motion is requested');
     assert.equal(reducedMotion.buttonAnimation,'none','No animated skin selection in reduced motion');
     assert.equal(reducedMotion.topbarAnimation,'none','Gamer RGB topbar must stop moving in reduced motion');
+    assert.equal(terminalMotion.reduced.reduced,true,'Retro Terminal reduced-motion environment not applied');
+    assert.equal(terminalMotion.reduced.animation,'none','Retro Terminal stepped paragraph must not animate with reduced motion');
+    assert.equal(terminalMotion.reduced.font,terminalMotion.reduced.composerFont,'Retro Terminal paragraph/composer must share monospace');
+    assert.equal(terminalMotion.normal.reduced,false,'Retro Terminal normal-motion environment not restored');
+    assert.equal(terminalMotion.normal.animation,'retro-terminal-line-in',
+      'Retro Terminal should only animate its latest paragraph when motion is permitted');
     for(const surface of reducedMotion.largeSurfaces) {
       assert.equal(surface.animation,'none','Reduced motion must stop large-area animation on '+surface.selector);
       assert.equal(surface.filter,'none','Reduced motion must avoid whole-surface filters on '+surface.selector);
       assert.ok(surface.willChange==='auto' || surface.willChange==='contents',
-        'Reduced motion must not allocate permanent compositor layers on '+surface.selector+': '+surface.willChange);
+        'Reduced motion must not allocate permanent compositor layers on '+surface.selector+': '+
+          JSON.stringify({willChange:surface.willChange,composerClasses:reducedMotion.composerClasses,
+            composerAnimations:reducedMotion.composerAnimations}));
       const properties=surface.transition.split(',').map(value=>value.trim());
       const durations=surface.duration.split(',').map(value=>parseFloat(value));
       const layout=/^(?:all|width|height|top|left|right|bottom|inset|margin|padding|grid-template|flex-basis|font-size)/;
@@ -632,7 +794,7 @@ app.whenReady().then(async () => {
     await js(`document.querySelector('[data-tab="appearance"]').click();document.getElementById('appearanceReset').click()`);
     await js('new Promise(r=>setTimeout(r,100))');
     assert.equal(await js('document.documentElement.dataset.appearanceStyle'),'classic');
-    fs.writeFileSync(path.join(output,'results.json'),JSON.stringify({arbitraryColors:true,separateThemes:true,translucency:true,dirtyPush:true,queuedSave:true,saveFailureRollback:true,reload:true,reset:true,cyberpunkPersistence:true,cyberpunkReset:true,globalSkins:skinResults,accessibleStyleControls:true,reducedMotion,cyberpunkLayout,layout},null,2));
+    fs.writeFileSync(path.join(output,'results.json'),JSON.stringify({arbitraryColors:true,separateThemes:true,translucency:true,dirtyPush:true,queuedSave:true,saveFailureRollback:true,reload:true,reset:true,cyberpunkPersistence:true,cyberpunkReset:true,globalSkins:skinResults,accessibleStyleControls:true,reducedMotion,terminalMotion,cyberpunkLayout,layout},null,2));
     console.log('Appearance Electron checks passed. '+output);
   } finally { win?.destroy(); await server.close(); }
   app.quit();
