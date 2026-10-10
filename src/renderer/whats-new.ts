@@ -14,6 +14,16 @@ interface Highlight { icon: string; title: () => string; text: () => string }
 interface Release { lead: () => string; highlights: Highlight[] }
 
 const RELEASES: Readonly<Record<string, Release>> = {
+  '2.1.41': {
+    lead: () => t('Microphone dictation, more reliable active turns, and nine immersive appearances.'),
+    highlights: [
+      { icon: 'i-chat', title: () => t('Speak your message'), text: () => t('Dictate editable text with the Windows microphone. Only Send submits it.') },
+      { icon: 'i-lock', title: () => t('You control dictation'), text: () => t('Stop or cancel anytime; changing chats or drafts ends recognition.') },
+      { icon: 'i-bolt', title: () => t('Send while ChatGPT works'), text: () => t('Direct messages reach the current answer even during tool calls.') },
+      { icon: 'i-check-circle', title: () => t('Stops and reconnects'), text: () => t('Late tool results no longer undo Stop, and reconnecting chats wait for their route.') },
+      { icon: 'i-sparkle', title: () => t('Nine immersive appearances'), text: () => t('Pick one of nine adjustable styles with live previews.') }
+    ]
+  },
   '2.1.40': {
     lead: () => t('Pick a look, then customize its colors below.'),
     highlights: [

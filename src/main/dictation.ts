@@ -5,7 +5,7 @@
  *
  * This process is spawned only when the user clicks the microphone. The child
  * event loop never reads stdin (a synchronous Windows Console reader can block
- * recognition events); the parent stops it after a brief final-result grace.
+ * recognition events); the parent stops it after a short final-result grace.
  */
 import { app, ipcMain, type BrowserWindow, type WebContents } from 'electron';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
@@ -83,11 +83,19 @@ export function registerDictationIpc(getWindow: () => BrowserWindow | null): voi
     row.stopping = true;
     row.killTimeout = setTimeout(() => {
       if (active === row) row.child.kill();
-    }, 650);
+    }, 1_500);
     row.killTimeout.unref();
   };
 
-  app.once('before-quit', () => { if (active) stop(active); });
+  // Quit cannot await a delayed stop: terminate the helper synchronously so a
+  // tray quit never leaves a microphone-owning PowerShell process orphaned.
+  app.once('before-quit', () => {
+    if (active) {
+      if (active.killTimeout) clearTimeout(active.killTimeout);
+      active.child.kill();
+      active = null;
+    }
+  });
   ipcMain.handle('dictation:start', async event => {
     const window = getWindow();
     if (!window || window.isDestroyed() || event.sender !== window.webContents)

@@ -67,3 +67,32 @@ it('translates every recommended skill description in every catalog', () => {
     expect(RECOMMENDED_SKILLS.filter(skill => !Object.hasOwn(catalog, skill.description)).map(skill => skill.id), locale).toEqual([]);
   }
 });
+
+it('translates all dynamic microphone controls, statuses and native errors in every catalog', () => {
+  // chat.ts chooses button text dynamically through t(label), so the static t()
+  // source scan above cannot discover these keys. Error text arrives from native IPC.
+  const keys = [
+    'Dictation unavailable', 'Cancel dictation', 'Stop dictation',
+    'Stopping dictation', 'Retry dictation', 'Start dictation',
+    'Dictation did not stop normally. Please try again.',
+    'Dictation could not start. Check microphone access and try again.',
+    'Microphone dictation is unavailable.', 'Stopping dictation…',
+    'Microphone dictation stopped.', 'Dictation stopped.', 'Preparing microphone…',
+    'Listening…', 'Finishing dictation…', 'Dictate into message',
+    'Speech recognition failed',
+    'No Windows speech recognizer is installed. Install a Windows speech language pack.',
+    'Dictation can only start from the CoS window',
+    'Microphone dictation currently requires Windows', 'Dictation is already running',
+    'Could not launch the Windows speech recognizer',
+    'Windows speech recognition could not start',
+    'Windows speech recognition exited unexpectedly',
+    'Dictation is not owned by this window'
+  ];
+  for (const locale of LOCALES) {
+    const catalog = JSON.parse(readFileSync(`src/renderer/locales/${locale}.json`, 'utf8')) as Record<string, string>;
+    for (const key of keys) {
+      expect(catalog[key]?.trim(), `${locale}: ${key}`).toBeTruthy();
+      expect(catalog[key], `${locale} untranslated: ${key}`).not.toBe(key);
+    }
+  }
+});
