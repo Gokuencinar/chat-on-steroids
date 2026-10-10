@@ -49,7 +49,7 @@ app.whenReady().then(async () => {
       removeSetupProfile:id=>{config.setupProfiles=config.setupProfiles.filter(p=>p.id!==id);return ok(state)}
     },{get:(target,key)=>key in target?target[key]:()=>ok(null)});
     await import('/main.ts');
-    const still=document.createElement('style'); still.textContent='*,*::before,*::after{animation:none!important;transition:none!important}'; document.head.append(still);
+    const still=document.createElement('style'); still.id='fixture-motion-freeze'; still.textContent='*,*::before,*::after{animation:none!important;transition:none!important}'; document.head.append(still);
     window.fixtureState=state; window.fixtureReady=true;
   `;
   const server = await createServer({ configFile:false, root:path.join(root,'src/renderer'),
@@ -74,7 +74,8 @@ app.whenReady().then(async () => {
         return ['background', 'backdrop-filter', '--ink', '--soft', '--faint', '--edge', '--hover', '--accent', '--accent-edge']
           .filter(key => sidebar.getPropertyValue(key) !== popup.getPropertyValue(key));
       })()`);
-      assert.deepEqual(mismatch, [], 'Connection popover must share the live sidebar palette');
+      assert.deepEqual(mismatch, [], 'Connection popover must share the live sidebar palette, style='+
+        await js('document.documentElement.dataset.appearanceStyle')+', mismatch='+mismatch.join(', '));
     };
     const screenshot = async name => {
       await verifyPopoverPalette();
@@ -88,9 +89,312 @@ app.whenReady().then(async () => {
       await js(`(() => {const input=document.getElementById(${JSON.stringify(id)});input.value=${JSON.stringify(value)};input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
       await js('new Promise(r=>setTimeout(r,40))');
     };
+    // These are actual, visible app regions, not preset thumbnails. In addition to the editable
+    // palette, each immersive skin must change the rendered geometry/ornament on every surface.
+    // Comparing a style against Classic in the SAME theme prevents light/dark alone from passing.
+    const skinSurfaces = {
+      background:['.app'],
+      chrome:['.app-topbar','.chat-head'],
+      sidebar:['.sidebar'],
+      chat:['.card.is-session','#chatBody','.welcome-mark'],
+      composer:['.composer','.send-button'],
+      navigation:['.sidebar .new-chat','.sidebar-primary-link','.sess','.sidebar-session-label','.sidebar-brand .mark']
+    };
+    const skinSnapshot = () => js(`(() => {
+      const regions = ${JSON.stringify(skinSurfaces)};
+      const appearance = element => {
+        const style = getComputedStyle(element);
+        const decoration = value => [
+          value.backgroundImage, value.boxShadow, value.borderRadius,
+          value.borderTopStyle, value.borderTopWidth, value.backdropFilter,
+          value.filter, value.textShadow, value.outlineStyle, value.outlineWidth,
+          value.clipPath, value.maskImage, value.borderImageSource,
+          value.fontFamily, value.letterSpacing, value.fontWeight, value.textTransform
+        ];
+        const pseudo = name => {
+          const value = getComputedStyle(element, name);
+          return [value.content, value.backgroundImage, value.backgroundColor,
+            value.boxShadow, value.borderRadius, value.opacity, value.transform];
+        };
+        return {
+          visible: element.getClientRects().length > 0 && style.visibility !== 'hidden',
+          colors:[style.backgroundColor,style.color,style.borderTopColor],
+          decoration:[...decoration(style),...pseudo('::before'),...pseudo('::after')]
+        };
+      };
+      return {
+        style:document.documentElement.dataset.appearanceStyle,
+        theme:document.documentElement.dataset.theme,
+        regions:Object.fromEntries(Object.entries(regions).map(([name, selectors]) =>
+          [name, selectors.map(selector => {
+            const element = document.querySelector(selector);
+            return element ? appearance(element) : null;
+          })]))
+      };
+    })()`);
+    // Sample the real Settings cards, not just preset thumbnails. Keeping this probe in the
+    // production renderer catches specificity mistakes where a new skin only paints its picker.
+    const deepSettingsSnapshot = () => js(`(() => {
+      const panel=document.getElementById('appearancePanel');
+      const card=panel.querySelector('.appearance-settings-card');
+      const preview=panel.querySelector('.appearance-preview');
+      const style=element=>{
+        const css=getComputedStyle(element);
+        const rect=element.getBoundingClientRect();
+        return {background:css.backgroundImage,fill:css.backgroundColor,border:css.borderTopColor,
+          radius:css.borderTopLeftRadius,shadow:css.boxShadow,width:rect.width};
+      };
+      return {card:style(card),preview:style(preview),
+        overflow:panel.scrollWidth-panel.clientWidth,
+        cardControls:[...card.querySelectorAll('input,select,button')].filter(node=>!node.disabled).length};
+    })()`);
+    // These fixtures expose hidden production surfaces without a backend or synthetic CSS:
+    // focus a real composer textarea, select a sidebar button, and show an existing dock status.
+    const deepChatSnapshot = () => js(`(() => {
+      const composer=document.getElementById('composer'),input=document.getElementById('chatInput');
+      const nav=document.getElementById('sidebarPlugins'),dock=document.getElementById('composerDock');
+      const status=document.getElementById('backgroundExecStatus');
+      const style=element=>{
+        const css=getComputedStyle(element);
+        const rect=element.getBoundingClientRect();
+        return {background:css.backgroundImage,fill:css.backgroundColor,
+          shadow:css.boxShadow,border:css.borderTopColor,radius:css.borderTopLeftRadius,
+          outline:css.outlineStyle,filter:css.filter,animation:css.animationName,
+          transition:css.transitionProperty,width:rect.width,height:rect.height};
+      };
+      const idleComposer=style(composer);
+      input.focus();
+      const focusedComposer=style(composer);
+      const focusedPseudo=getComputedStyle(composer,'::before');
+      const focusArt={content:focusedPseudo.content,background:focusedPseudo.backgroundImage,
+        height:focusedPseudo.height,visibility:focusedPseudo.visibility};
+      input.blur();
+      const idleNav=style(nav);
+      const alreadySelected=nav.classList.contains('is-sel');
+      nav.classList.add('is-sel');
+      const selectedNav=style(nav);
+      if(!alreadySelected)nav.classList.remove('is-sel');
+      const originallyHidden=status.hidden;
+      status.hidden=false;
+      const shownDock=style(dock);
+      const visibleDock=getComputedStyle(dock).display!=='none' &&
+        Number(getComputedStyle(dock).opacity)>.9 && shownDock.width>0 && shownDock.height>0;
+      status.hidden=originallyHidden;
+      const app=document.querySelector('.app');
+      const fullscreenEffects=['.app','.sidebar','.card.is-session','#chatBody','.chat-head']
+        .map(selector=>({selector,filter:getComputedStyle(document.querySelector(selector)).filter,
+          willChange:getComputedStyle(document.querySelector(selector)).willChange}));
+      return {idleComposer,focusedComposer,focusArt,idleNav,selectedNav,
+        shownDock,visibleDock,fullscreenEffects,appWidth:app.clientWidth,appScroll:app.scrollWidth};
+    })()`);
+    // Render short synthetic conversation DOM with the same production classes used by chat.ts.
+    // This lives only in the isolated fixture, never in app data or any user conversation.
+    const richScene = () => js(`(() => {
+      const timeline=document.getElementById('timeline');
+      const empty=document.getElementById('timelineEmpty');
+      const wasHidden=empty.hidden; empty.hidden=true;
+      const fixture=document.createElement('section');fixture.id='appearance-rich-fixture';
+      const user=document.createElement('div');user.className='said is-user';
+      const userBody=document.createElement('div');userBody.className='msg user-message-text';
+      userBody.textContent='Check the build and report accessibility findings.';
+      user.append(userBody);
+      const assistant=document.createElement('article');assistant.className='said';
+      const rich=document.createElement('div');rich.className='msg rich';
+      const heading=document.createElement('h2');heading.textContent='Build and accessibility report';
+      const summary=document.createElement('p');summary.textContent='The check finished using local fixture data only.';
+      const quote=document.createElement('blockquote');quote.textContent='Keep the readable surface and keyboard focus visible.';
+      const pre=document.createElement('pre'),code=document.createElement('code');
+      code.textContent='npm run build -- --fixture-only\\n'+('console.log("safe local output"); '.repeat(12));
+      pre.append(code);rich.append(heading,summary,quote,pre);assistant.append(rich);
+      const details=document.createElement('details');details.className='tool-group';details.open=true;
+      const toolLabel=document.createElement('summary');toolLabel.textContent='Fixture tool output';
+      const toolBody=document.createElement('div');toolBody.className='tool-group-body';
+      toolBody.textContent='Local check passed';details.append(toolLabel,toolBody);
+      fixture.append(user,assistant,details);timeline.append(fixture);
+      const paint=element=>{
+        const css=getComputedStyle(element),rect=element.getBoundingClientRect();
+        return {background:css.backgroundImage,fill:css.backgroundColor,color:css.color,
+          border:css.borderInlineStartWidth,borderColor:css.borderInlineStartColor,
+          shadow:css.boxShadow,radius:css.borderTopLeftRadius,width:rect.width,
+          font:css.fontFamily,animation:css.animationName};
+      };
+      const reader=document.getElementById('chatBody');
+      return {user:paint(userBody),code:paint(pre),quote:paint(quote),tool:paint(toolLabel),
+        reader:paint(reader),readerOverflow:reader.scrollWidth-reader.clientWidth,
+        codeScroll:pre.scrollWidth,codeWidth:pre.clientWidth,fixtureHeight:fixture.getBoundingClientRect().height,
+        wasHidden};
+    })()`);
+    const removeRichScene = wasHidden => js(`(() => {
+      const fixture=document.getElementById('appearance-rich-fixture');
+      fixture?.remove();document.getElementById('timelineEmpty').hidden=${JSON.stringify(wasHidden)};
+    })()`);
+    // Exercise genuine dialogs/search and plugins panels, plus isolated command/terminal DOM
+    // with the production classes. Never create a session or execute the fixture command.
+    const fifthSurfaceAudit = async preset => {
+      const dialog = await js(`(() => {
+        const modal=document.getElementById('searchDialog');
+        modal.showModal();
+        const input=document.getElementById('chatSearch');input.focus();
+        const rect=modal.getBoundingClientRect(),css=getComputedStyle(modal);
+        return {open:modal.open,focus:document.activeElement===input,
+          width:rect.width,left:rect.left,right:rect.right,top:rect.top,bottom:rect.bottom,
+          viewWidth:innerWidth,viewHeight:innerHeight,background:css.backgroundColor,
+          color:css.color,filter:css.filter,willChange:css.willChange};
+      })()`);
+      assert.ok(dialog.open && dialog.focus && dialog.width>200 && dialog.left>=-2 &&
+        dialog.right<=dialog.viewWidth+2 && dialog.top>=-2 && dialog.bottom<=dialog.viewHeight+2,
+        preset+' native search dialog inaccessible/overflowed: '+JSON.stringify(dialog));
+      assert.equal(dialog.filter,'none',preset+' permanent modal filter');
+      assert.ok(dialog.willChange==='auto' || dialog.willChange==='contents',preset+' modal permanent layer');
+      if(['gamer','futuristic','win95'].includes(preset))await screenshot('skin-'+preset+'-search-dialog.png');
+      // True keyboard Escape from Electron, rather than a fabricated DOM KeyboardEvent.
+      win.webContents.sendInputEvent({type:'keyDown',keyCode:'Escape'});
+      win.webContents.sendInputEvent({type:'keyUp',keyCode:'Escape'});
+      for(let n=0;n<30 && await js('document.getElementById("searchDialog").open');n++)
+        await new Promise(resolve=>setTimeout(resolve,20));
+      assert.equal(await js('document.getElementById("searchDialog").open'),false,
+        preset+' native search dialog cannot be dismissed with Escape');
+      const plugin = await js(`(() => {
+        document.getElementById('sidebarPlugins').click();
+        const panel=document.querySelector('[data-panel="plugins"]');
+        const input=document.getElementById('pluginsSearch');input.focus();
+        const target=document.getElementById('pluginsInstalled');
+        const card=document.createElement('article');card.id='skin-plugin-fixture';card.className='plugin-card';
+        const title=document.createElement('div');title.className='plugin-card-title';
+        const h=document.createElement('h2');h.textContent='Visual regression plugin with a very long name '.repeat(5);
+        const description=document.createElement('p');description.textContent='No connection or installation is performed. '.repeat(24);
+        title.append(h,description);card.append(title);target.append(card);
+        const css=getComputedStyle(card),rect=card.getBoundingClientRect();
+        const search=getComputedStyle(input.parentElement);
+        const status=document.getElementById('pluginsConnectionStatus');
+        return {panelActive:panel.classList.contains('is-active'),inputFocused:document.activeElement===input,
+          cardWidth:rect.width,cardRight:rect.right,cardBackground:css.backgroundColor,
+          cardBorder:css.borderTopColor,cardShadow:css.boxShadow,
+          searchShadow:search.boxShadow,searchBorder:search.borderTopColor,
+          status:status.getAttribute('role'),statusText:status.textContent.trim(),
+          overflow:panel.scrollWidth-panel.clientWidth,viewport:innerWidth};
+      })()`);
+      assert.ok(plugin.panelActive && plugin.inputFocused && plugin.cardWidth>120 &&
+        plugin.cardRight<=plugin.viewport+2 && plugin.overflow<=2 && plugin.status==='status' && plugin.statusText,
+        preset+' plugins/search/status overflow or inaccessible: '+JSON.stringify(plugin));
+      if(['gamer','futuristic','win95'].includes(preset))await screenshot('skin-'+preset+'-plugins.png');
+      await js('document.getElementById("skin-plugin-fixture")?.remove()');
+      const skill = await js(`(() => {
+        document.getElementById('sidebarSkills').click();
+        const modal=document.getElementById('skillGithubDialog');modal.showModal();
+        const input=document.getElementById('skillGithubUrl');input.focus();
+        const rect=modal.getBoundingClientRect(),css=getComputedStyle(modal);
+        return {open:modal.open,focused:document.activeElement===input,
+          left:rect.left,right:rect.right,top:rect.top,bottom:rect.bottom,
+          viewport:innerWidth,height:innerHeight,color:css.color,background:css.backgroundColor};
+      })()`);
+      assert.ok(skill.open && skill.focused && skill.left>=-2 && skill.right<=skill.viewport+2 &&
+        skill.top>=-2 && skill.bottom<=skill.height+2,
+        preset+' plugin modal inaccessible or overflowed: '+JSON.stringify(skill));
+      if(['gamer','win95'].includes(preset))await screenshot('skin-'+preset+'-plugin-modal.png');
+      await js(`(() => {
+        document.getElementById('skillGithubDialog').close();
+        document.querySelector('[data-tab="appearance"]').click();
+        document.getElementById('backToChat').click();
+      })()`);
+      const terminal=await js(`(() => {
+        const reader=document.getElementById('chatBody');
+        const beforeOverflow=reader.scrollWidth-reader.clientWidth;
+        const fixture=document.createElement('section');fixture.id='skin-terminal-fixture';
+        fixture.className='work-dock-bottom';fixture.style.height='170px';
+        const bar=document.createElement('div');bar.className='terminal-bar';
+        const tabs=document.createElement('div');tabs.className='terminal-tabs';
+        const tab=document.createElement('div');tab.className='terminal-tab is-selected';
+        const button=document.createElement('button');button.type='button';button.className='btn';
+        const caption=document.createElement('span');caption.className='tab-label';
+        caption.textContent='Terminal · '// title includes a long label but must ellipsize
+          + 'fixture-command-editor-'.repeat(12);button.append(caption);tab.append(button);tabs.append(tab);bar.append(tabs);
+        const body=document.createElement('div');body.className='terminal-body';
+        const screen=document.createElement('div');screen.className='terminal-screen';
+        const pre=document.createElement('pre');pre.style.cssText='white-space:pre;overflow-x:auto;max-width:100%;';
+        pre.textContent='> npm run verify -- --local-fixture\\n'+('Output 00000000000000000000000 '.repeat(18));
+        screen.append(pre);body.append(screen);fixture.append(bar,body);reader.append(fixture);
+        const rect=fixture.getBoundingClientRect(),buttonRect=button.getBoundingClientRect();
+        const tabCss=getComputedStyle(tab),barCss=getComputedStyle(bar),screenCss=getComputedStyle(screen);
+        const readerRect=reader.getBoundingClientRect();
+        const overflowing=[...reader.querySelectorAll('*')]
+          .filter(node=>{
+            const rect=node.getBoundingClientRect();
+            return rect.width>0 && rect.right>readerRect.right+2;
+          }).slice(0,6).map(node=>({tag:node.tagName,selector:node.id||node.className||'',
+            right:Math.round(node.getBoundingClientRect().right-readerRect.right)}));
+        return {width:rect.width,viewport:reader.clientWidth,
+          beforeOverflow,readerOverflow:reader.scrollWidth-reader.clientWidth,overflowing,
+          tabWidth:buttonRect.width,tabBorder:tabCss.borderTopColor,tabShadow:tabCss.boxShadow,
+          tabBackground:tabCss.backgroundColor,barBackground:barCss.backgroundImage,
+          barColor:barCss.color,screenColor:screenCss.color,screenBackground:screenCss.backgroundColor,
+          screenFilter:screenCss.filter,screenWillChange:screenCss.willChange,
+          codeScroll:pre.scrollWidth,codeWidth:pre.clientWidth};
+      })()`);
+      assert.ok(terminal.width>250 && terminal.readerOverflow<=Math.max(2,terminal.beforeOverflow+2) && terminal.tabWidth>0 &&
+        terminal.codeWidth>0 && terminal.codeScroll>=terminal.codeWidth,
+        preset+' terminal/editor long output overflow: '+JSON.stringify(terminal));
+      assert.equal(terminal.screenFilter,'none',preset+' large terminal output always filtered');
+      assert.ok(terminal.screenWillChange==='auto' || terminal.screenWillChange==='contents',
+        preset+' terminal output permanently promoted to GPU layer');
+      if(['gamer','futuristic','terminal','win95'].includes(preset)) {
+        await js(`document.getElementById('skin-terminal-fixture').scrollIntoView({block:'end'})`);
+        await screenshot('skin-'+preset+'-terminal.png');
+      }
+      await js(`(() => {
+        document.getElementById('skin-terminal-fixture')?.remove();
+        document.getElementById('chatBody').scrollTop=0;
+      })()`);
+      return {dialog,plugin,skill,terminal};
+    };
+    const assertGlobalSkin = (style, actual, baseline) => {
+      assert.equal(actual.style,style);
+      assert.equal(actual.theme,baseline.theme);
+      const decorated = [];
+      for (const [region, elements] of Object.entries(actual.regions)) {
+        const reference = baseline.regions[region];
+        assert.equal(elements.length,reference.length,style+' / '+region+' probe count');
+        assert.ok(elements.some(element=>element?.visible),style+' / '+region+' is not visible in chat');
+        const decoratedRegion = elements.some((element,index) =>
+          element?.visible && reference[index]?.visible &&
+          JSON.stringify(element.decoration)!==JSON.stringify(reference[index].decoration)
+        );
+        const recoloredRegion = elements.some((element,index) =>
+          element?.visible && reference[index]?.visible &&
+          JSON.stringify(element.colors)!==JSON.stringify(reference[index].colors)
+        );
+        // Flat Win95 and true-black Midnight legitimately use fewer ornaments on the
+        // canvas itself. Even so, every *visible* region must differ, and most must
+        // visibly change ornament/typography rather than merely inherit a new palette.
+        if (style !== 'classic') assert.ok(decoratedRegion || recoloredRegion,
+          style+' does not change the visible '+region+' surface');
+        if (decoratedRegion) decorated.push(region);
+      }
+      if (style !== 'classic') assert.ok(decorated.length>=4,
+        style+' recolors too many regions without skin-specific chrome: '+decorated.join(', '));
+      return decorated;
+    };
     await js(`document.querySelector('[data-tab="appearance"]').click()`);
     assert.equal(await js(`document.getElementById('appearancePanel').classList.contains('is-active')`),true);
     await screenshot('default-dark.png');
+    const classicDarkSettings = await deepSettingsSnapshot();
+    // Both Classic baselines are necessary: Windows 95/Solar select light, other skins dark.
+    await js(`document.getElementById('backToChat').click()`);
+    const classicDark = await skinSnapshot();
+    const classicDarkDeep = await deepChatSnapshot();
+    const classicDarkRich = await richScene();
+    await removeRichScene(classicDarkRich.wasHidden);
+    await js(`document.querySelector('[data-tab="appearance"]').click()`);
+    await change('appearanceTheme','light');
+    const classicLightSettings = await deepSettingsSnapshot();
+    await js(`document.getElementById('backToChat').click()`);
+    const classicLight = await skinSnapshot();
+    const classicLightDeep = await deepChatSnapshot();
+    const classicLightRich = await richScene();
+    await removeRichScene(classicLightRich.wasHidden);
+    await js(`document.querySelector('[data-tab="appearance"]').click()`);
+    await change('appearanceTheme','dark');
+    const skinResults = [];
     for (const preset of ['cyberpunk','gamer','futuristic','win95','terminal','synthwave','midnight','solar','classic']) {
       await js(`document.querySelector('[data-preset="${preset}"]').click()`);
       await js('new Promise(r=>setTimeout(r,45))');
@@ -100,6 +404,158 @@ app.whenReady().then(async () => {
       assert.equal(await js(`document.querySelector('.appearance-preset[aria-pressed="true"]').dataset.preset`),preset);
       assert.equal(await js(`document.getElementById('appearanceTheme').value`),['win95','solar'].includes(preset)?'light':'dark');
       await verifyPopoverPalette();
+      const controls = await js(`[...document.querySelectorAll('#appearancePresets button[data-preset]')].map(button => ({
+        style:button.dataset.preset, name:button.textContent.trim(),
+        pressed:button.getAttribute('aria-pressed'), keyboard:button.tabIndex>=0,
+        visible:button.getClientRects().length>0
+      }))`);
+      assert.equal(controls.length,9,'All nine styles must be selectable');
+      assert.ok(controls.every(button=>button.name && button.keyboard && button.visible),'Style buttons need accessible labels and keyboard access');
+      assert.deepEqual(controls.filter(button=>button.pressed==='true').map(button=>button.style),[preset]);
+      const deepSettings = await deepSettingsSnapshot();
+      const referenceSettings = ['win95','solar'].includes(preset)?classicLightSettings:classicDarkSettings;
+      assert.ok(deepSettings.card.width>150 && deepSettings.cardControls>0,
+        preset+' settings card or controls lost layout: '+JSON.stringify(deepSettings));
+      assert.ok(deepSettings.overflow<=2,
+        preset+' settings card leaks horizontal overflow: '+JSON.stringify(deepSettings));
+      if (preset!=='classic') for (const surface of ['card','preview']) {
+        const decorate = value=>[value.background,value.border,value.radius,value.shadow];
+        assert.notDeepEqual(decorate(deepSettings[surface]),decorate(referenceSettings[surface]),
+          preset+' '+surface+' lost global skin decoration (palette-only is not sufficient)');
+      }
+      await screenshot('skin-'+preset+'-settings.png');
+      await js(`document.getElementById('backToChat').click()`);
+      const currentSkin = await skinSnapshot();
+      const decorated = assertGlobalSkin(preset,currentSkin,['win95','solar'].includes(preset)?classicLight:classicDark);
+      const deepChat = await deepChatSnapshot();
+      const referenceDeep = ['win95','solar'].includes(preset)?classicLightDeep:classicDarkDeep;
+      const visual = value=>[value.background,value.fill,value.shadow,value.border,value.radius,value.outline];
+      assert.ok(deepChat.visibleDock,preset+' production composer-dock cannot be displayed by status fixture');
+      assert.notDeepEqual(visual(deepChat.idleNav),visual(deepChat.selectedNav),
+        preset+' sidebar selected row has no discernible active-state feedback');
+      assert.notDeepEqual(visual(deepChat.idleComposer),visual(deepChat.focusedComposer),
+        preset+' composer focus has no visible style change');
+      if(preset!=='classic') {
+        assert.notDeepEqual(visual(deepChat.shownDock),visual(referenceDeep.shownDock),
+          preset+' work dock inherits Classic styling instead of its skin');
+        assert.notDeepEqual(visual(deepChat.focusedComposer),visual(referenceDeep.focusedComposer),
+          preset+' focused composer inherits Classic styling instead of its skin');
+        assert.ok(deepChat.focusArt.content!=='none' && deepChat.focusArt.background!=='none',
+          preset+' focused composer lost its accessible decorative focus rail');
+      }
+      for(const effect of deepChat.fullscreenEffects) {
+        assert.equal(effect.filter,'none',preset+' permanent whole-surface GPU filter on '+effect.selector);
+        assert.ok(effect.willChange==='auto' || effect.willChange==='contents',
+          preset+' permanent layer allocation (will-change) on '+effect.selector+': '+effect.willChange);
+      }
+      await js(`(() => {
+        const input=document.getElementById('chatInput');
+        input.value='A workspace in the '+${JSON.stringify(preset)}+' style.';
+        input.dispatchEvent(new Event('input',{bubbles:true}));
+      })()`);
+      if(preset==='gamer'||preset==='futuristic') {
+        await js(`(() => {
+          document.getElementById('chatInput').focus();
+          document.getElementById('sidebarPlugins').classList.add('is-sel');
+          document.getElementById('backgroundExecStatus').hidden=false;
+        })()`);
+        await screenshot('skin-'+preset+'-deep-focus.png');
+        await js(`(() => {
+          document.getElementById('chatInput').blur();
+          document.getElementById('sidebarPlugins').classList.remove('is-sel');
+          document.getElementById('backgroundExecStatus').hidden=true;
+        })()`);
+      }
+      const rich = await richScene();
+      const referenceRich = ['win95','solar'].includes(preset)?classicLightRich:classicDarkRich;
+      assert.ok(rich.fixtureHeight>75 && rich.readerOverflow<=2,
+        preset+' rich fixture overflows the reader: '+JSON.stringify(rich));
+      assert.ok(rich.codeScroll>=rich.codeWidth && rich.codeWidth>100,
+        preset+' code block clipping or invalid width: '+JSON.stringify(rich));
+      if(preset==='terminal') {
+        const composerFont=await js('getComputedStyle(document.getElementById("chatInput")).fontFamily');
+        assert.equal(rich.user.font,rich.code.font,'Retro Terminal real user and code text must share monospace typography');
+        assert.equal(rich.user.font,composerFont,'Retro Terminal composer must use the same monospace typography');
+      }
+      if(preset!=='classic')for(const surface of ['user','code','quote','tool','reader']) {
+        // Win95 intentionally has --scene-reader:none: the flat document has no
+        // ambient background by design, while its message/code/tool frames carry bevels.
+        if(preset==='win95' && surface==='reader')continue;
+        const paint = value=>[value.background,value.fill,value.color,value.border,value.borderColor,value.shadow,value.radius];
+        assert.notDeepEqual(paint(rich[surface]),paint(referenceRich[surface]),
+          preset+' rich '+surface+' surface matches Classic instead of scene styling');
+      }
+      if(['gamer','futuristic','win95','classic'].includes(preset))
+        await screenshot('skin-'+preset+'-rich.png');
+      await removeRichScene(rich.wasHidden);
+      const fifth = await fifthSurfaceAudit(preset);
+      if (preset === 'gamer' || preset === 'futuristic') {
+        const accent = await js(`getComputedStyle(document.documentElement).getPropertyValue('--accent-fill').trim().toLowerCase()`);
+        assert.match(accent,/^#[0-9a-f]{6}$/);
+        const [red,green,blue] = [1,3,5].map(at=>parseInt(accent.slice(at,at+2),16));
+        if (preset==='gamer') {
+          assert.ok(green>=220 && green>red && green>blue*1.5,
+            'Gamer accent needs bright neon green, actual '+accent);
+        } else {
+          assert.ok(green>=210 && blue>=220 && blue>red*1.3,
+            'Futuristic accent needs bright fluorescent cyan, actual '+accent);
+        }
+        const accentInk = await js(`getComputedStyle(document.documentElement).getPropertyValue('--ink').trim().toLowerCase()`);
+        assert.equal(accentInk,'#ffffff',preset+' dark surfaces must retain white readable text');
+        // Assert the actual skin-gradient's color stops, not just the single editable accent.
+        // RGB Gaming needs green, cyan and pink/violet; Futuristic needs blue, cyan and icy white.
+        const gradient = await js(`getComputedStyle(document.documentElement).getPropertyValue('--skin-gradient').trim()`);
+        const stops = [...gradient.matchAll(/#[0-9a-f]{6}\b/gi)].map(([hex]) =>
+          [1,3,5].map(at=>parseInt(hex.slice(at,at+2),16))
+        );
+        assert.ok(stops.length>=3,preset+' requires a multi-stop luminous color treatment: '+JSON.stringify({gradient,stops}));
+        if (preset==='gamer') {
+          assert.ok(stops.some(([r,g,b])=>g>r*1.4 && g>b*1.1),'Gamer RGB gradient needs green');
+          assert.ok(stops.some(([r,g,b])=>b>r*1.5 && g>r*1.5),'Gamer RGB gradient needs cyan');
+          assert.ok(stops.some(([r,g,b])=>r>g*1.5 && b>g*1.5),'Gamer RGB gradient needs violet/magenta');
+        } else {
+          assert.ok(stops.some(([r,g,b])=>b>r*3 && b>g*1.25),'Futuristic gradient needs electric blue');
+          assert.ok(stops.some(([r,g,b])=>g>r*2 && b>r*2),'Futuristic gradient needs cyan');
+          assert.ok(stops.some(([r,g,b])=>Math.min(r,g,b)>=190),'Futuristic gradient needs fluorescent icy white');
+        }
+      }
+      await screenshot('skin-'+preset+'-chat.png');
+      // A skin must keep the real conversation column usable after responsive zoom,
+      // not only keep the Appearance preset grid inside its scroll container.
+      win.setSize(800,900);win.webContents.setZoomFactor(1.17);
+      const expectedWidth=Math.round(win.getContentSize()[0]/1.17);
+      for(let i=0;i<200 && Math.abs(await js('innerWidth')-expectedWidth)>1;i++) await new Promise(r=>setTimeout(r,10));
+      const chatGeometry = await js(`(() => {
+        const app=document.querySelector('.app'),composer=document.querySelector('.composer');
+        const composerRect=composer.getBoundingClientRect(),viewport=innerWidth;
+        return {viewport,body:document.documentElement.scrollWidth,app:app.scrollWidth,appWidth:app.clientWidth,
+          composerLeft:composerRect.left,composerRight:composerRect.right,composerWidth:composerRect.width};
+      })()`);
+      assert.ok(chatGeometry.body<=chatGeometry.viewport+2 &&
+        chatGeometry.app<=chatGeometry.appWidth+2 &&
+        chatGeometry.composerWidth>0 && chatGeometry.composerLeft>=-2 &&
+        chatGeometry.composerRight<=chatGeometry.viewport+2,
+      preset+' chat/composer overflow at zoom 1.17: '+JSON.stringify(chatGeometry));
+      if (preset==='gamer' || preset==='futuristic') await screenshot('skin-'+preset+'-narrow.png');
+      win.setSize(1100,900);win.webContents.setZoomFactor(1);
+      for(let i=0;i<200 && Math.abs(await js('innerWidth')-win.getContentSize()[0])>1;i++) await new Promise(r=>setTimeout(r,10));
+      if (preset==='gamer' || preset==='futuristic') {
+        // Distinguish intended per-skin HUD ornaments from a higher-specificity
+        // generic declaration accidentally winning the cascade.
+        const ornament = await js(`(() => {
+          const brand=getComputedStyle(document.querySelector('.sidebar-brand'),'::after');
+          const head=getComputedStyle(document.querySelector('.chat-head'));
+          return {brandWidth:brand.width,brandArt:brand.backgroundImage,chatArt:head.backgroundImage};
+        })()`);
+        assert.ok(Math.abs(parseFloat(ornament.brandWidth)-(preset==='gamer'?85:98))<1,
+          preset+' specific sidebar branding lost to generic CSS specificity: '+JSON.stringify(ornament));
+        assert.ok(ornament.chatArt.startsWith('linear-gradient('),
+          preset+' chat header lost styled background: '+JSON.stringify(ornament));
+      }
+      skinResults.push({style:preset,theme:currentSkin.theme,regions:Object.keys(currentSkin.regions),decorated,
+        fifthPass:{searchDialog:true,plugins:true,skillDialog:true,terminal:true,
+          pluginCardWidth:fifth.plugin.cardWidth,terminalCodeScrollable:fifth.terminal.codeScroll>fifth.terminal.codeWidth}});
+      await js(`document.querySelector('[data-tab="appearance"]').click()`);
       if (preset === 'cyberpunk') {
         assert.ok((await js(`getComputedStyle(document.querySelector('.sidebar')).backgroundImage`)).includes('linear-gradient'));
         await screenshot('preset-cyberpunk.png');
@@ -110,6 +566,122 @@ app.whenReady().then(async () => {
       }
       if (preset === 'gamer') await screenshot('preset-gamer.png');
     }
+    // The main fixture deliberately freezes motion for deterministic screenshots. Turn that
+    // override off while emulating the OS preference, otherwise a reduced-motion test is vacuous.
+    const debuggerClient = win.webContents.debugger;
+    debuggerClient.attach('1.3');
+    let reducedMotion, terminalMotion;
+    try {
+      await debuggerClient.sendCommand('Emulation.setEmulatedMedia',
+        {features:[{name:'prefers-reduced-motion',value:'reduce'}]});
+      // Establish the OS preference BEFORE changing skins, so we test reduced-motion
+      // behavior at interaction time instead of sampling a pre-existing 220ms WAAPI resize.
+      await js(`document.querySelector('[data-preset="gamer"]').click()`);
+      await js('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
+      reducedMotion = await js(`(() => {
+        document.getElementById('fixture-motion-freeze').disabled=true;
+        const button=document.querySelector('[data-preset="gamer"]');
+        const composer=document.querySelector('.composer');
+        return {matches:matchMedia('(prefers-reduced-motion: reduce)').matches,
+          composerClasses:composer.className,
+          composerAnimations:composer.getAnimations().map(animation=>({playState:animation.playState,
+            currentTime:animation.currentTime,duration:animation.effect?.getTiming().duration})),
+          buttonTransition:getComputedStyle(button).transitionDuration,
+          buttonAnimation:getComputedStyle(button).animationName,
+          topbarAnimation:getComputedStyle(document.querySelector('.app-topbar')).animationName,
+          largeSurfaces:['.app','.app-topbar','.sidebar','.card.is-session','#chatBody','.composer']
+            .map(selector=>{
+              const css=getComputedStyle(document.querySelector(selector));
+              return {selector,animation:css.animationName,transition:css.transitionProperty,
+                duration:css.transitionDuration,filter:css.filter,willChange:css.willChange};
+            })};
+      })()`);
+      await js(`(() => {
+        document.querySelector('[data-preset="terminal"]').click();
+        document.getElementById('backToChat').click();
+      })()`);
+      const terminalFixture=await richScene();
+      const terminalAnimation=()=>js(`(() => {
+        const p=document.querySelector('#appearance-rich-fixture .msg.rich > p:last-of-type');
+        const style=getComputedStyle(p);
+        const composer=getComputedStyle(document.getElementById('chatInput'));
+        return {reduced:matchMedia('(prefers-reduced-motion: reduce)').matches,
+          animation:style.animationName,font:style.fontFamily,composerFont:composer.fontFamily};
+      })()`);
+      terminalMotion={reduced:await terminalAnimation()};
+      await debuggerClient.sendCommand('Emulation.setEmulatedMedia',
+        {features:[{name:'prefers-reduced-motion',value:'no-preference'}]});
+      terminalMotion.normal=await terminalAnimation();
+      await removeRichScene(terminalFixture.wasHidden);
+      await js(`document.querySelector('[data-tab="appearance"]').click()`);
+    } finally {
+      await js(`document.getElementById('fixture-motion-freeze').disabled=false`);
+      await debuggerClient.sendCommand('Emulation.setEmulatedMedia',{features:[]});
+      debuggerClient.detach();
+    }
+    assert.equal(reducedMotion.matches,true,'Reduced motion must be emulated, not fixture-forced');
+    assert.ok(reducedMotion.buttonTransition.split(',').every(value=>parseFloat(value)===0),
+      'Style selection must not transition when reduced motion is requested');
+    assert.equal(reducedMotion.buttonAnimation,'none','No animated skin selection in reduced motion');
+    assert.equal(reducedMotion.topbarAnimation,'none','Gamer RGB topbar must stop moving in reduced motion');
+    assert.equal(terminalMotion.reduced.reduced,true,'Retro Terminal reduced-motion environment not applied');
+    assert.equal(terminalMotion.reduced.animation,'none','Retro Terminal stepped paragraph must not animate with reduced motion');
+    assert.equal(terminalMotion.reduced.font,terminalMotion.reduced.composerFont,'Retro Terminal paragraph/composer must share monospace');
+    assert.equal(terminalMotion.normal.reduced,false,'Retro Terminal normal-motion environment not restored');
+    assert.equal(terminalMotion.normal.animation,'retro-terminal-line-in',
+      'Retro Terminal should only animate its latest paragraph when motion is permitted');
+    for(const surface of reducedMotion.largeSurfaces) {
+      assert.equal(surface.animation,'none','Reduced motion must stop large-area animation on '+surface.selector);
+      assert.equal(surface.filter,'none','Reduced motion must avoid whole-surface filters on '+surface.selector);
+      assert.ok(surface.willChange==='auto' || surface.willChange==='contents',
+        'Reduced motion must not allocate permanent compositor layers on '+surface.selector+': '+
+          JSON.stringify({willChange:surface.willChange,composerClasses:reducedMotion.composerClasses,
+            composerAnimations:reducedMotion.composerAnimations}));
+      const properties=surface.transition.split(',').map(value=>value.trim());
+      const durations=surface.duration.split(',').map(value=>parseFloat(value));
+      const layout=/^(?:all|width|height|top|left|right|bottom|inset|margin|padding|grid-template|flex-basis|font-size)/;
+      assert.ok(!properties.some((property,index)=>layout.test(property) && (durations[index%durations.length]??0)>0),
+        'Reduced motion still transitions layout on '+surface.selector+': '+JSON.stringify(surface));
+    }
+    const textContrast = async (preset,mode,selector) => {
+      await js(`document.querySelector('[data-preset="${preset}"]').click()`);
+      await change('appearanceTheme',mode);
+      await js(`document.getElementById('backToChat').click()`);
+      const result = await js(`(() => {
+        const element=document.querySelector(${JSON.stringify(selector)});
+        const ink=getComputedStyle(element).color;
+        // Evaluate the visible underlying surface rather than comparing
+        // transparent toolbar buttons with the sidebar behind their parent.
+        let background='transparent';
+        for (let ancestor=element;ancestor;ancestor=ancestor.parentElement) {
+          const candidate=getComputedStyle(ancestor).backgroundColor;
+          if (candidate!=='transparent' && candidate!=='rgba(0, 0, 0, 0)') {
+            background=candidate;
+            break;
+          }
+        }
+        const numbers=color=>(color.match(/[0-9.]+/g)??[]).slice(0,3).map(Number);
+        const luminance=color=>{
+          const [red,green,blue]=numbers(color).map(channel=>{
+            const value=channel/255;
+            return value<=.04045?value/12.92:((value+.055)/1.055)**2.4;
+          });
+          return red*.2126+green*.7152+blue*.0722;
+        };
+        const a=luminance(ink),b=luminance(background);
+        return {ink,background,ratio:(Math.max(a,b)+.05)/(Math.min(a,b)+.05)};
+      })()`);
+      await screenshot('skin-'+preset+'-'+mode+'-contrast.png');
+      assert.ok(result.ratio>=4.5,`${preset} ${mode} poor readable label contrast ${selector}: ${JSON.stringify(result)}`);
+      await js(`document.querySelector('[data-tab="appearance"]').click()`);
+      return result;
+    };
+    // Presets choose their starting theme, but the user can switch theme later.
+    // Hard-coded neon/paper backgrounds must not create white-on-gray or cyan-on-pale text.
+    await textContrast('win95','dark','.sidebar-primary-link');
+    await textContrast('win95','dark','.sidebar-bottom > .btn');
+    await textContrast('gamer','light','.sidebar-session-label');
+    await js(`document.querySelector('[data-preset="classic"]').click()`);
     await change('appearance-accent-hex','#a855f7');
     await change('appearance-sidebar-hex','#35234c');
     await change('appearance-background-hex','#19151f');
@@ -222,7 +794,7 @@ app.whenReady().then(async () => {
     await js(`document.querySelector('[data-tab="appearance"]').click();document.getElementById('appearanceReset').click()`);
     await js('new Promise(r=>setTimeout(r,100))');
     assert.equal(await js('document.documentElement.dataset.appearanceStyle'),'classic');
-    fs.writeFileSync(path.join(output,'results.json'),JSON.stringify({arbitraryColors:true,separateThemes:true,translucency:true,dirtyPush:true,queuedSave:true,saveFailureRollback:true,reload:true,reset:true,cyberpunkPersistence:true,cyberpunkReset:true,cyberpunkLayout,layout},null,2));
+    fs.writeFileSync(path.join(output,'results.json'),JSON.stringify({arbitraryColors:true,separateThemes:true,translucency:true,dirtyPush:true,queuedSave:true,saveFailureRollback:true,reload:true,reset:true,cyberpunkPersistence:true,cyberpunkReset:true,globalSkins:skinResults,accessibleStyleControls:true,reducedMotion,terminalMotion,cyberpunkLayout,layout},null,2));
     console.log('Appearance Electron checks passed. '+output);
   } finally { win?.destroy(); await server.close(); }
   app.quit();

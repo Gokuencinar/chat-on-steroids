@@ -3717,6 +3717,41 @@ palettes and typography, and its optional `appearance.style` id chooses decorati
 in the renderer. Old saved appearance objects without a preset remain Classic. Selecting the
 Windows 95 or Solar preset also selects Light; other presets select Dark. Subsequent manual
 color edits keep the selected style's geometry. Presets never store authored CSS.
+Full-window skin decoration lives in `src/renderer/immersive-skins.css` (loaded after
+`cyberpunk.css`); all non-Classic styles skin navigation, titlebar, chat, composer,
+work docks, forms and plugin cards, while Classic keeps the original UI. Gamer uses
+lime/cyan/magenta RGB HUD styling, Futuristic uses icy blue and fluorescent white
+glass, and the other six styles also have distinct geometry and surface treatments.
+The follow-up `src/renderer/skin-polish.css` is loaded after immersive-skins and
+adds theme-specific navigation surfaces, titlebar/heading accents, chat details
+and focus clarity without modifying DOM or saved palette fields. These decorations
+must remain distinct across styles (e.g. Win95 bevels, terminal command lines,
+Solar paper dividers) and must not interfere with resizing, draggable titlebars,
+dialog hit targets or keyboard focus. Preset thumbnails live in `settings.css`
+and should be understandable before applying any style.
+The fourth-generation `src/renderer/skin-scene.css`, loaded after skin-polish,
+applies distinctive static scene backgrounds to the real chat reader, user messages,
+rich-text code/quotes, settings cards and headings, plugins, activity/tool summaries
+and work dock tabs. Each preset has its own identity; Windows 95 remains squared and
+beveled, Gamer RGB is tactical, Futuristic is icy glass, Terminal uses phosphor
+dividers, Cyberpunk uses pink/cyan cut corners, Synthwave uses sunset gradients,
+Midnight keeps OLED negative space and Solar uses paper-like treatments. No fake
+conversation text or interactive controls are injected into production DOM.
+The fifth-pass `src/renderer/skin-finale.css`, loaded after skin-scene, extends the
+same style identity to existing dialogs, search, plugin cards/catalog, connection
+state, Markdown tables/inline code, section rails and empty chat. Its shared
+semantic variables allow preset geometry without writing new state or hijacking
+native controls. Retro Terminal presents real prose, code and composer text in
+monospace with a visual phosphor cursor and a short reduced-motion-safe entrance
+on the newest paragraph, without changing the recorded or selectable text.
+Classic still receives none of these selectors.
+Keep these scene layers visually distinctive but semantically passive: no overlays
+on editor hit targets, no infinite animations on the scrollable timeline, no
+variable changes that defeat custom Appearance palettes or safety/status colors.
+The theme's semantic text colors and user's editable accent/background/sidebar tokens
+remain authoritative; animated RGB never runs with reduced-motion preference.
+The sidebar and connection popover must share matching palette/background computed
+styles; `scripts/verify-appearance.cjs` checks both and captures nine full-window skins.
 The Appearance sample chat reflects the same semantic color and typography tokens immediately;
 it contains no session data. The composer context dialog and accessible label identify local
 estimates; its toolbar toggles percentage/token values. Compact and Cancel remain the original

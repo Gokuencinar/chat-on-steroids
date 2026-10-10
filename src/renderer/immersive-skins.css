@@ -1,0 +1,485 @@
+/*
+ * Immersive appearance system.
+ *
+ * All nine styles retain the same DOM, accessibility, layout tracks, settings
+ * persistence and semantic colors. Skin tokens intentionally decorate rather
+ * than replace the user's editable Appearance palette. Classic is untouched.
+ * The selected skin owns the entire window chrome: topbar, workspace, navigation,
+ * conversation, message input, settings, dialogs and the work docks.
+ */
+
+/* Consistent controls and surfaces for every non-Classic style. */
+:root[data-appearance-style] {
+  --skin-secondary: var(--accent);
+  --skin-tertiary: var(--accent);
+  --skin-ambient: color-mix(in srgb, var(--accent-fill) 13%, transparent);
+  --skin-stroke: color-mix(in srgb, var(--accent-fill) 36%, var(--edge));
+  --skin-soft-stroke: color-mix(in srgb, var(--accent-fill) 19%, var(--line));
+  --skin-shine: color-mix(in srgb, var(--accent-fill) 18%, transparent);
+  --skin-glow: 0 0 24px color-mix(in srgb, var(--accent-fill) 13%, transparent);
+  --skin-glow-active: 0 0 0 1px var(--skin-stroke), 0 0 22px color-mix(in srgb, var(--accent-fill) 24%, transparent);
+  --skin-gradient: linear-gradient(115deg, var(--accent-fill), var(--skin-secondary));
+  --skin-page-art: radial-gradient(ellipse at 92% 8%, var(--skin-ambient), transparent 55%);
+  --skin-sidebar-art: linear-gradient(165deg, var(--skin-ambient), transparent 45%);
+  --skin-card-art: linear-gradient(145deg, var(--skin-shine), transparent 58%);
+  --skin-letter: .015em;
+}
+
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .app,
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .app[data-screen='chat'] {
+  background-color: var(--page);
+  background-image: var(--skin-page-art);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.sidebar, .connection-popover) {
+  background-color: var(--sidebar-color);
+  background-image: var(--skin-sidebar-art);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .sidebar {
+  border-right: 1px solid var(--skin-stroke);
+  box-shadow: inset -1px 0 var(--skin-soft-stroke);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .app-topbar {
+  background-color: var(--sidebar-color);
+  background-image: var(--skin-sidebar-art);
+  border-bottom: 1px solid var(--skin-soft-stroke);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.sidebar-brand strong, .settings-page-head h1, .appearance-page-head h1, .plugin-page-head h1, .welcome-heading, #timelineEmpty) {
+  letter-spacing: var(--skin-letter);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.sidebar-brand .mark, .welcome-mark) {
+  color: var(--accent);
+  filter: drop-shadow(0 0 9px var(--skin-shine));
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.sidebar .new-chat, .sidebar-primary-link, .sess, .nav > button, .work-dock-quick, .row-menu-item) {
+  transition: background-color 160ms ease, box-shadow 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.sidebar .new-chat, .sidebar-primary-link) {
+  /* Resting HUD rail: not just a selection/hover recolor. */
+  box-shadow: inset 2px 0 var(--skin-soft-stroke);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.sidebar .new-chat, .sidebar-primary-link, .sess, .nav > button, .work-dock-quick, .row-menu-item):hover {
+  background: color-mix(in srgb, var(--accent-fill) 12%, var(--hover));
+  box-shadow: inset 3px 0 var(--skin-secondary);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.sess.is-sel, .sidebar-primary-link.is-sel, .nav > button.is-sel) {
+  background: color-mix(in srgb, var(--accent-fill) 14%, var(--card));
+  border-color: var(--skin-stroke);
+  box-shadow: inset 3px 0 var(--skin-secondary), inset 0 0 30px var(--skin-ambient);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.settings-surface, .pane, .plugin-card, .plugin-connection, .plugin-dialog, .appearance-preview, .appearance-preset, .file-panel, .agent-panel, .row-menu, .row-menu-leaving) {
+  border-color: var(--skin-soft-stroke);
+  background-image: var(--skin-card-art);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.btn, .btn-solid, .plugin-entry, .plugin-catalog-card, .settings-surface, .appearance-preset, .plugin-card) {
+  transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease, color 160ms ease, transform 160ms ease;
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.btn.is-primary, .btn-solid, .send-button:not(:disabled)) {
+  background: var(--skin-gradient);
+  color: var(--on-accent);
+  border-color: var(--skin-stroke);
+  box-shadow: var(--skin-glow);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.btn.is-primary, .btn-solid, .send-button:not(:disabled)):hover {
+  box-shadow: var(--skin-glow-active);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.appearance-preset[aria-pressed='true'], .plugin-card:hover, .settings-surface:focus-within) {
+  border-color: var(--skin-stroke);
+  box-shadow: var(--skin-glow);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.composer, .composer-dock, .appearance-preview-composer, .plugin-search) {
+  border-color: var(--skin-stroke);
+  background-color: var(--card);
+  background-image: var(--skin-card-art);
+  box-shadow: var(--skin-glow);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .composer:focus-within {
+  border-color: var(--accent);
+  box-shadow: var(--skin-glow-active);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.user-message-text, .said.is-user, .pending-message-text) {
+  border-color: var(--skin-soft-stroke);
+  background: color-mix(in srgb, var(--accent-fill) 11%, var(--card));
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.terminal-bar, .work-dock-bar, .work-dock-bottom, .work-dock-right, .tool-group[open] > .tool-group-body) {
+  border-color: var(--skin-soft-stroke);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.work-dock-tab.is-active, .work-dock-tab.is-selected, .terminal-tab.is-selected) {
+  border-color: var(--skin-stroke);
+  box-shadow: inset 0 -2px var(--skin-secondary);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(input, select, textarea, button, summary, a):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) ::selection {
+  color: var(--on-accent);
+  background: var(--accent-fill);
+}
+
+/* GAMER: bright esports RGB, luminous gaming PC edges and angular HUD panels. */
+:root[data-appearance-style='gamer'] {
+  --skin-secondary: #00dbff;
+  --skin-tertiary: #ff43dc;
+  --skin-ambient: #22f5a424;
+  --skin-shine: #50faad26;
+  --skin-stroke: color-mix(in srgb, #00f2ff 48%, var(--edge));
+  --skin-soft-stroke: color-mix(in srgb, #5cfca6 35%, var(--line));
+  --skin-gradient: linear-gradient(115deg, #48ef80, #16ccfa 52%, #d94dff);
+  --skin-glow: 0 0 0 1px #4cffad4a, 0 0 24px #00e5ff28, 0 8px 32px #0004;
+  --skin-glow-active: 0 0 0 1px #63ffbf, 0 0 21px #00edff7a, 0 0 33px #e649ff48;
+  --skin-page-art: radial-gradient(ellipse at 96% 5%, #00edff24, transparent 45%),
+    radial-gradient(ellipse at 8% 91%, #df36fa1b, transparent 46%),
+    linear-gradient(0deg, #0affb008 1px, transparent 1px),
+    linear-gradient(90deg, #00a8f00b 1px, transparent 1px);
+  --skin-sidebar-art: linear-gradient(155deg, #12f5a01e, transparent 35%, #7741ef15 85%);
+  --skin-card-art: linear-gradient(130deg, #2cf9b818, transparent 32%, #6446ff0e 80%);
+  --skin-letter: .055em;
+  --r-xs: 3px; --r-sm: 6px; --r-md: 9px; --r-lg: 13px; --r-xl: 17px;
+}
+:root[data-appearance-style='gamer'] .app-topbar {
+  border-bottom: 2px solid transparent;
+  border-image: linear-gradient(90deg, #48ff77, #00eaff, #ad54ff, #ff42b8, #48ff77) 1;
+}
+:root[data-appearance-style='gamer'] .sidebar {
+  border-right: 2px solid transparent;
+  border-image: linear-gradient(180deg, #38fa98, #00e8ff, #ed47ff, #60ff99) 1;
+}
+:root[data-appearance-style='gamer'] :is(.settings-page-head, .plugin-page-head, .appearance-page-head) {
+  padding: 14px 18px;
+  background: linear-gradient(92deg, #3df69820, #0ed9f70f 48%, #ad4cff18);
+  border-left: 4px solid #47ffaa;
+}
+:root[data-appearance-style='gamer'] :is(.sidebar-brand strong, .settings-page-head h1, .plugin-page-head h1, #timelineEmpty) {
+  font-weight: 800;
+  text-transform: uppercase;
+  text-shadow: 0 0 18px #4bffa638, 0 0 26px #36cffa24;
+}
+:root[data-appearance-style='gamer'] :is(.sidebar .new-chat, .btn.is-primary, .btn-solid, .send-button, .appearance-preset[aria-pressed='true']) {
+  border: 1px solid #6bffbd8c;
+  box-shadow: var(--skin-glow);
+}
+:root[data-appearance-style='gamer'] :is(.composer, .settings-surface, .plugin-card, .appearance-preview, .pane) {
+  border: 1px solid transparent;
+  background-clip: padding-box;
+  outline: 1px solid var(--skin-soft-stroke);
+  outline-offset: -1px;
+}
+:root[data-appearance-style='gamer'] .composer {
+  border: 2px solid transparent;
+  background: linear-gradient(var(--card), var(--card)) padding-box,
+    linear-gradient(90deg, #50ffa4, #15defd, #d346ff, #50ffa4) border-box;
+  box-shadow: 0 0 28px #00ebff27, 0 0 38px #bf3fff14;
+}
+:root[data-appearance-style='gamer'] #chatSend:not(:disabled) {
+  border-radius: 8px;
+  background: linear-gradient(135deg, #4fff92, #00d8fa 65%, #ad58fc);
+  color: #061420;
+}
+:root[data-appearance-style='gamer'] :is(.user-message-text, .said.is-user) { border-left: 3px solid #15eaff; }
+:root[data-appearance-style='gamer'] .sidebar-session-label { color: var(--skin-secondary); text-transform: uppercase; letter-spacing: .09em; }
+:root[data-appearance-style='gamer'] .work-dock-tab.is-active { box-shadow: inset 0 -3px #ed51fa, 0 3px 16px #fa34ca24; }
+:root[data-appearance-style='gamer'] .appearance-preset[data-preset='gamer'][aria-pressed='true'] { border-color: #00e4ff; }
+
+/* FUTURISTIC: arctic blue/fluorescent white HUD with translucent orbital glass. */
+:root[data-appearance-style='futuristic'] {
+  --skin-secondary: #dcffff;
+  --skin-tertiary: #377bff;
+  --skin-ambient: #23dfff28;
+  --skin-shine: #b3ecff31;
+  --skin-stroke: color-mix(in srgb, #53dfff 60%, var(--edge));
+  --skin-soft-stroke: color-mix(in srgb, #8acaff 33%, var(--line));
+  --skin-gradient: linear-gradient(120deg, #1199ff, #5aeaff 56%, #c3ffff);
+  --skin-glow: 0 8px 34px #04bafa26, inset 0 1px #ffffff37;
+  --skin-glow-active: 0 0 0 1px #a0ffff, 0 0 30px #49d8ff64;
+  --skin-page-art: radial-gradient(ellipse at 92% 0%, #00baff36, transparent 51%),
+    radial-gradient(ellipse at 4% 90%, #005dff1d, transparent 59%),
+    linear-gradient(130deg, #7bcbff0b, transparent 72%);
+  --skin-sidebar-art: linear-gradient(165deg, #66dcff29, #4ea4ff0c 45%, transparent);
+  --skin-card-art: linear-gradient(135deg, #e5ffff22, #60cbff06 62%, #5e99f610);
+  --skin-letter: .065em;
+  --r-xs: 10px; --r-sm: 16px; --r-md: 20px; --r-lg: 27px; --r-xl: 34px; --pill: 999px;
+}
+:root[data-appearance-style='futuristic'] :is(.sidebar, .app-topbar, .settings-surface, .plugin-card, .pane, .appearance-preview) {
+  border-color: var(--skin-stroke);
+  box-shadow: inset 0 1px #ffffff29, 0 10px 36px #008fff14;
+}
+:root[data-appearance-style='futuristic'] :is(.settings-page-head, .plugin-page-head, .appearance-page-head) {
+  padding: 15px 22px;
+  border: 1px solid var(--skin-soft-stroke);
+  border-radius: 24px;
+  background: linear-gradient(105deg, #8bdbff2f, #edffff0a 65%);
+  box-shadow: inset 0 1px #ffffff46, 0 12px 28px #0389ce18;
+}
+:root[data-appearance-style='futuristic'] :is(.settings-page-head h1, .plugin-page-head h1, .sidebar-brand strong) {
+  font-weight: 450;
+  text-transform: uppercase;
+  text-shadow: 0 0 24px #63d9ff75;
+}
+:root[data-appearance-style='futuristic'] .sidebar-brand .mark { filter: drop-shadow(0 0 14px #7aefff); }
+:root[data-appearance-style='futuristic'] .composer {
+  border: 1px solid #7deaff90;
+  background: linear-gradient(105deg, #63bcff16, #efffff16 40%, #16a8ff10), var(--card);
+  box-shadow: inset 0 1px #ffffff60, 0 0 34px #30baff26, 0 14px 40px #0050bc14;
+}
+:root[data-appearance-style='futuristic'] :is(.sidebar .new-chat, .sidebar-primary-link, .work-dock-quick, .appearance-preset) { border-radius: 15px; }
+:root[data-appearance-style='futuristic'] #chatSend:not(:disabled) {
+  background: linear-gradient(130deg, #25a6fd, #bafcff);
+  color: #02172d;
+  box-shadow: 0 0 24px #42dfff6b;
+}
+:root[data-appearance-style='futuristic'] :is(.user-message-text, .said.is-user) {
+  border: 1px solid #6fddff70;
+  box-shadow: inset 0 1px #ffffff35, 0 0 18px #00b2ff17;
+}
+:root[data-appearance-style='futuristic'] .work-dock-tab.is-active { box-shadow: inset 0 -2px #86fcff, 0 4px 14px #00b9ff3b; }
+
+/* CYBERPUNK: high-contrast magenta/cyan industrial panels and edge cuts. */
+:root[data-appearance-style='cyberpunk'] {
+  --skin-secondary: #22f2f5;
+  --skin-tertiary: #e8f952;
+  --skin-ambient: #ff38c824;
+  --skin-shine: #fa37c521;
+  --skin-stroke: color-mix(in srgb, #22e6ef 56%, var(--edge));
+  --skin-soft-stroke: color-mix(in srgb, #fc45ca 33%, var(--line));
+  --skin-gradient: linear-gradient(115deg, #ff38c8, #d22dff 47%, #24e8ed);
+  --skin-glow: 0 0 0 1px #f43ddc45, 0 0 30px #ff28d02f;
+  --skin-glow-active: 0 0 0 1px #14f3fc, 0 0 25px #f43dc974, 0 0 35px #20ecff2a;
+  --skin-page-art: radial-gradient(ellipse at 86% 0%, #ff2baf26, transparent 50%),
+    radial-gradient(ellipse at 5% 90%, #0ff9ff1b, transparent 50%),
+    repeating-linear-gradient(0deg, #fb37c609 0 1px, transparent 1px 46px),
+    repeating-linear-gradient(90deg, #00ffff08 0 1px, transparent 1px 46px);
+  --skin-sidebar-art: linear-gradient(155deg, #f92dcb1e, transparent 40%, #00f6ff11);
+  --skin-card-art: linear-gradient(142deg, #ff45d516, transparent 42%, #1feefa09);
+  --skin-letter: .085em;
+}
+:root[data-appearance-style='cyberpunk'] :is(.settings-page-head, .plugin-page-head, .appearance-page-head) {
+  padding: 13px 20px;
+  border-left: 4px solid #ff39cb;
+  border-top: 1px solid #21e7ef88;
+  background: linear-gradient(90deg, #ff1ebc20, transparent 55%);
+}
+:root[data-appearance-style='cyberpunk'] :is(.settings-page-head h1, .plugin-page-head h1, .sidebar-brand strong) {
+  text-transform: uppercase;
+  font-weight: 700;
+  text-shadow: 0 0 17px #ff2ed060;
+}
+:root[data-appearance-style='cyberpunk'] .sidebar { border-right: 2px solid #25ddea; }
+:root[data-appearance-style='cyberpunk'] .app-topbar { border-bottom: 2px solid #ff38c8; }
+:root[data-appearance-style='cyberpunk'] :is(.composer, .settings-surface, .plugin-card, .appearance-preview, .pane) {
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+}
+:root[data-appearance-style='cyberpunk'] #chatSend:not(:disabled) {
+  background: linear-gradient(125deg, #ff38c8, #ff68d7 42%, #25e6e9);
+  color: #170822;
+  border-radius: 4px;
+}
+:root[data-appearance-style='cyberpunk'] :is(.user-message-text, .said.is-user) { border-left: 3px solid #21eefa; }
+
+/* WIN95: authentic gray hardware bevels, cobalt titlebars, squared widgets. */
+:root[data-appearance-style='win95'] {
+  --skin-secondary: #008c8c;
+  --skin-ambient: #ffffff16;
+  --skin-stroke: #777777;
+  --skin-soft-stroke: #909090;
+  --skin-shine: #ffffff0c;
+  --skin-gradient: linear-gradient(90deg, #000080, #1688a8);
+  --skin-glow: 2px 2px 0 #505050;
+  --skin-glow-active: inset 2px 2px #777, inset -1px -1px #fff;
+  --skin-page-art: none;
+  --skin-sidebar-art: none;
+  --skin-card-art: none;
+  --skin-letter: 0;
+  --r-xs: 0px; --r-sm: 0px; --r-md: 0px; --r-lg: 0px; --r-xl: 0px; --pill: 0px;
+}
+:root[data-appearance-style='win95'] body { font-family: Tahoma, "MS Sans Serif", Arial, sans-serif; }
+:root[data-appearance-style='win95'] .app-topbar {
+  border-bottom: 2px solid #2c2c7f;
+  background: linear-gradient(90deg, #000080, #1679a8);
+  color: #fff;
+}
+:root[data-appearance-style='win95'] .app-topbar :is(button, .btn, .ico) { color: #fff; }
+:root[data-appearance-style='win95'] .app-topbar .btn:hover { background: #ffffff25; }
+:root[data-appearance-style='win95'] .sidebar,
+:root[data-appearance-style='win95'] :is(.settings-surface, .plugin-card, .pane, .appearance-preview, .composer, .plugin-dialog, input, select, textarea) {
+  border-radius: 0;
+  border: 2px solid;
+  border-color: #ffffff #606060 #606060 #ffffff;
+  box-shadow: inset 1px 1px #dcdcdc, 1px 1px #777;
+}
+:root[data-appearance-style='win95'] :is(.sidebar .new-chat, .sidebar-primary-link, .sess, .btn, .btn-solid, .send-button, .row-menu-item) {
+  border-radius: 0;
+}
+:root[data-appearance-style='win95'] :is(.btn, .btn-solid, .send-button) {
+  border: 2px solid;
+  border-color: #fefefe #707070 #707070 #fefefe;
+  box-shadow: inset -1px -1px #777, inset 1px 1px #fff;
+}
+:root[data-appearance-style='win95'] :is(.btn, .btn-solid, .send-button):active:not(:disabled) {
+  border-color: #777 #fff #fff #777;
+  box-shadow: inset 2px 2px #777;
+}
+:root[data-appearance-style='win95'] :is(.btn-solid, .btn.is-primary, .send-button:not(:disabled)) {
+  background: var(--card); color: var(--ink);
+}
+:root[data-appearance-style='win95'] :is(.settings-page-head, .plugin-page-head, .appearance-page-head) {
+  background: linear-gradient(90deg, #000080, #1665ab);
+  padding: 9px 13px;
+  border: 2px solid #fff;
+  border-right-color: #777;
+  border-bottom-color: #777;
+}
+:root[data-appearance-style='win95'] :is(.settings-page-head h1, .settings-page-head p, .plugin-page-head h1, .plugin-page-head p, .appearance-page-head h1) {
+  color: #fff;
+  text-shadow: none;
+  font-weight: 700;
+}
+:root[data-appearance-style='win95'] .composer { border-radius: 0; box-shadow: 2px 2px 0 #777; }
+:root[data-appearance-style='win95'] .composer textarea { border: 1px solid #777; border-radius: 0; padding: 6px; }
+:root[data-appearance-style='win95'] .sidebar-brand strong { font-weight: 700; }
+:root[data-appearance-style='win95'] :is(.user-message-text, .said.is-user) { border-radius: 0; border: 1px solid #777; box-shadow: 2px 2px #8886; }
+
+/* TERMINAL: phosphor-on-CRT, rectangular command line, low-intensity scanlines. */
+:root[data-appearance-style='terminal'] {
+  --skin-secondary: #a2ff92;
+  --skin-tertiary: #b9f9af;
+  --skin-ambient: #44ff7914;
+  --skin-stroke: color-mix(in srgb, #4ff487 48%, var(--edge));
+  --skin-soft-stroke: color-mix(in srgb, #4bea78 25%, var(--line));
+  --skin-shine: #3fff6920;
+  --skin-gradient: linear-gradient(90deg, #37b75f, #65ed80);
+  --skin-page-art: repeating-linear-gradient(to bottom, transparent 0 3px, #00e23806 3px 4px),
+    radial-gradient(ellipse at 50% 40%, #54ff7916, transparent 70%);
+  --skin-sidebar-art: repeating-linear-gradient(to bottom, transparent 0 5px, #38df6307 5px 6px);
+  --skin-card-art: linear-gradient(90deg, #44ff7310, transparent);
+  --skin-glow: inset 0 0 14px #2cf46716, 0 0 13px #45f07c16;
+  --skin-glow-active: 0 0 0 1px #61ff9b, 0 0 20px #48f4774c;
+  --skin-letter: .025em;
+  --r-xs: 0px; --r-sm: 1px; --r-md: 2px; --r-lg: 3px; --r-xl: 4px; --pill: 2px;
+}
+:root[data-appearance-style='terminal'] :is(.sidebar-brand strong, .settings-page-head h1, .plugin-page-head h1, .appearance-page-head h1, .sidebar-session-label, .sidebar-primary-link, .work-dock-tab) {
+  font-family: var(--mono);
+  text-transform: uppercase;
+  text-shadow: 0 0 12px #3cff7550;
+}
+:root[data-appearance-style='terminal'] :is(.settings-page-head, .plugin-page-head, .appearance-page-head) {
+  padding: 12px;
+  border: 1px dashed var(--skin-stroke);
+  background: #31e96b0c;
+}
+:root[data-appearance-style='terminal'] :is(.composer, .settings-surface, .plugin-card, .pane, .appearance-preview, .plugin-dialog, .user-message-text) {
+  border: 1px solid var(--skin-stroke);
+  border-radius: 2px;
+  box-shadow: var(--skin-glow);
+}
+:root[data-appearance-style='terminal'] .composer textarea::placeholder { color: var(--accent); opacity: .7; }
+:root[data-appearance-style='terminal'] #chatSend:not(:disabled) { border-radius: 2px; color: #04150a; }
+:root[data-appearance-style='terminal'] :is(.user-message-text, .said.is-user) { border-left: 3px solid #5bf58d; }
+:root[data-appearance-style='terminal'] #timelineEmpty { font-family: var(--mono); font-size: clamp(18px, 2vw, 24px); }
+
+/* SYNTHWAVE: electric dusk, horizon grid, hot pink and sunset orange. */
+:root[data-appearance-style='synthwave'] {
+  --skin-secondary: #29eaff;
+  --skin-tertiary: #ffae55;
+  --skin-ambient: #c34cff2b;
+  --skin-stroke: color-mix(in srgb, #f359d8 52%, var(--edge));
+  --skin-soft-stroke: color-mix(in srgb, #b071ff 31%, var(--line));
+  --skin-shine: #ff4bdc1d;
+  --skin-gradient: linear-gradient(115deg, #924eff, #fb4cb5 62%, #ffad59);
+  --skin-glow: 0 0 26px #ff5abe29, 0 12px 36px #4d1c9544;
+  --skin-glow-active: 0 0 0 1px #ff71dd, 0 0 28px #fd59cf65;
+  --skin-page-art: radial-gradient(ellipse at 52% -12%, #f8997b30, transparent 48%),
+    radial-gradient(ellipse at 85% 84%, #7a35e949, transparent 60%),
+    linear-gradient(160deg, #9c55ff0c, transparent 70%);
+  --skin-sidebar-art: linear-gradient(160deg, #fb54b727, #8c5cff1b 58%, transparent);
+  --skin-card-art: linear-gradient(150deg, #e957e321, transparent 52%, #7248ee12);
+  --skin-letter: .04em;
+  --r-xs: 8px; --r-sm: 13px; --r-md: 19px; --r-lg: 25px; --r-xl: 29px;
+}
+:root[data-appearance-style='synthwave'] :is(.settings-page-head, .plugin-page-head, .appearance-page-head) {
+  padding: 18px 20px;
+  border-bottom: 3px solid #ff78bb;
+  background: linear-gradient(105deg, #9c4efd23, #ff5abc1b, transparent);
+}
+:root[data-appearance-style='synthwave'] :is(.settings-page-head h1, .plugin-page-head h1, .sidebar-brand strong, #timelineEmpty) {
+  font-weight: 750;
+  text-shadow: 0 0 22px #f45ec068;
+}
+:root[data-appearance-style='synthwave'] .app-topbar { border-bottom: 2px solid #fa6bdc; box-shadow: 0 2px 26px #9a4dfd3f; }
+:root[data-appearance-style='synthwave'] .sidebar { border-right: 2px solid #874cfa; }
+:root[data-appearance-style='synthwave'] .composer { border: 1px solid #fc74dca2; box-shadow: 0 0 32px #fd52c32a, 0 10px 32px #793dff24; }
+:root[data-appearance-style='synthwave'] #chatSend:not(:disabled) { background: linear-gradient(115deg, #ad59ff, #ff65b2); color: #18092b; box-shadow: 0 0 24px #ff67be83; }
+:root[data-appearance-style='synthwave'] :is(.user-message-text, .said.is-user) { border: 1px solid #ff73d56b; background: linear-gradient(120deg, #ff63bb1b, #8c4ffb15), var(--card); }
+
+/* MIDNIGHT OLED: true black, minimal floating islands and controlled violet light. */
+:root[data-appearance-style='midnight'] {
+  --skin-secondary: #7f7dff;
+  --skin-tertiary: #b2a0ff;
+  --skin-ambient: #6551fd19;
+  --skin-stroke: color-mix(in srgb, #a493fc 35%, var(--edge));
+  --skin-soft-stroke: color-mix(in srgb, #a493fc 16%, var(--line));
+  --skin-shine: #998fff0c;
+  --skin-gradient: linear-gradient(120deg, #7c6aff, #a58ffb);
+  --skin-glow: 0 0 0 1px #6c64c233;
+  --skin-glow-active: 0 0 0 1px #ada2ff, 0 0 22px #7c64fb44;
+  --skin-page-art: radial-gradient(ellipse at 50% -15%, #5543ff14, transparent 50%);
+  --skin-sidebar-art: linear-gradient(165deg, #5042ff0e, transparent 68%);
+  --skin-card-art: linear-gradient(135deg, #a190fa0a, transparent 56%);
+  --skin-letter: .01em;
+  --r-xs: 8px; --r-sm: 12px; --r-md: 15px; --r-lg: 20px; --r-xl: 24px;
+}
+:root[data-appearance-style='midnight'][data-theme='dark'] { --skin-page-art: radial-gradient(ellipse at 50% 0%, #6050ff15, transparent 45%); }
+:root[data-appearance-style='midnight'] .sidebar { border-right: 1px solid #4d428d66; }
+:root[data-appearance-style='midnight'] .app-topbar { border-bottom: 1px solid #7064ad4a; }
+:root[data-appearance-style='midnight'] :is(.settings-page-head, .plugin-page-head, .appearance-page-head) {
+  padding: 16px 0; border-bottom: 1px solid var(--skin-soft-stroke);
+}
+:root[data-appearance-style='midnight'] :is(.sidebar-brand strong, .settings-page-head h1, .plugin-page-head h1) { font-weight: 520; letter-spacing: -.03em; }
+:root[data-appearance-style='midnight'] :is(.composer, .settings-surface, .plugin-card, .pane) { box-shadow: 0 0 0 1px var(--skin-soft-stroke); }
+:root[data-appearance-style='midnight'] .composer:focus-within { box-shadow: 0 0 0 1px var(--accent), 0 0 32px #7e6cfd32; }
+:root[data-appearance-style='midnight'] #chatSend:not(:disabled) { color: #fff; box-shadow: 0 0 18px #7362db42; }
+
+/* SOLAR: warm editorial paper, amber illuminated margins, subtle texture. */
+:root[data-appearance-style='solar'] {
+  --skin-secondary: #df9a47;
+  --skin-tertiary: #b96c46;
+  --skin-ambient: #e4a44a24;
+  --skin-stroke: color-mix(in srgb, #c58c4c 40%, var(--edge));
+  --skin-soft-stroke: color-mix(in srgb, #cda16c 26%, var(--line));
+  --skin-shine: #e5aa5421;
+  --skin-gradient: linear-gradient(115deg, #bf8441, #f3b967);
+  --skin-glow: 0 6px 20px #76451320;
+  --skin-glow-active: 0 0 0 1px #deac65, 0 9px 26px #90601c34;
+  --skin-page-art: radial-gradient(ellipse at 90% 0%, #f0b95027, transparent 58%),
+    repeating-linear-gradient(0deg, #bd8a3e04 0 1px, transparent 1px 6px);
+  --skin-sidebar-art: linear-gradient(160deg, #e4b06d20, #a66c2c04 80%);
+  --skin-card-art: linear-gradient(150deg, #f5c58117, transparent 65%);
+  --skin-letter: -.015em;
+  --r-xs: 7px; --r-sm: 10px; --r-md: 13px; --r-lg: 18px; --r-xl: 23px;
+}
+:root[data-appearance-style='solar'] :is(.settings-page-head, .plugin-page-head, .appearance-page-head) {
+  padding: 17px 20px;
+  border-left: 5px solid #c48d42;
+  background: linear-gradient(90deg, #f5bc6630, transparent 66%);
+}
+:root[data-appearance-style='solar'] :is(.settings-page-head h1, .plugin-page-head h1, .sidebar-brand strong, #timelineEmpty) {
+  font-family: Georgia, "Palatino Linotype", serif;
+  font-weight: 550;
+  letter-spacing: -.03em;
+}
+:root[data-appearance-style='solar'] :is(.settings-surface, .plugin-card, .pane, .appearance-preview, .composer) { box-shadow: 0 5px 22px #774f1d17; }
+:root[data-appearance-style='solar'] .composer { border: 1px solid #b98c5470; }
+:root[data-appearance-style='solar'] #chatSend:not(:disabled) { background: #ad7133; color: #fff; box-shadow: 0 5px 16px #9b662733; }
+:root[data-appearance-style='solar'] :is(.user-message-text, .said.is-user) { border-left: 3px solid #b78643; }
+
+/* Animating RGB is opt-in to normal motion, never relevant to the controls. */
+@media (prefers-reduced-motion: no-preference) {
+  :root[data-appearance-style='gamer'] .app-topbar { background-size: 300% 100%; animation: gamer-rgb-shift 12s ease-in-out infinite alternate; }
+  :root[data-appearance-style='gamer'] .composer { background-size: 100% 100%, 240% 100%; animation: gamer-rgb-shift 9s ease-in-out infinite alternate; }
+  :root[data-appearance-style='gamer'] #chatSend:not(:disabled) { background-size: 220% 100%; animation: gamer-rgb-shift 7s linear infinite alternate; }
+}
+@keyframes gamer-rgb-shift { from { background-position: 0% 50%; } to { background-position: 100% 50%; } }
+@media (prefers-reduced-motion: reduce) {
+  :root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.btn, .btn-solid, .plugin-entry, .plugin-catalog-card, .settings-surface, .appearance-preset, .plugin-card, .sidebar .new-chat, .sidebar-primary-link, .sess, .nav > button, .work-dock-quick, .row-menu-item) {
+    transition: none;
+  }
+}

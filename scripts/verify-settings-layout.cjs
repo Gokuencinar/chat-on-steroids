@@ -197,7 +197,7 @@ app.whenReady().then(async () => {
         }
       }
     }
-    assert.deepEqual(failures, []);
+    assert.deepEqual(failures, [], 'Unexpected horizontal overflow: '+JSON.stringify(failures));
     // Agents & automation shares the chat host. Exercise real dock layout classes,
     // including expanded/narrow/closing states, without starting a terminal process.
     for (const width of [760, 1440]) {

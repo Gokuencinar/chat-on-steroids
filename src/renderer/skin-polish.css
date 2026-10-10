@@ -1,0 +1,409 @@
+/*
+ * Appearance polish pass: distinctive full-window details and better visual
+ * hierarchy. Pure CSS; no new assets, scripting, observers, permissions or
+ * persisted preferences. Classic retains upstream styling.
+ *
+ * Gradients are static unless a short, user-triggered hover transition is
+ * active. Reduced motion stays fully static. Keep titlebar drag regions and
+ * overlay hit targets untouched.
+ */
+
+/* Decorative tokens enhance existing semantic CSS; custom user colors win. */
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .chat-head {
+  border-bottom: 1px solid var(--skin-soft-stroke);
+  background: linear-gradient(90deg, var(--skin-ambient), transparent 38%);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .sidebar-brand {
+  position: relative;
+  padding-bottom: 28px;
+  border-bottom: 1px solid var(--skin-soft-stroke);
+  margin-bottom: 16px;
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .sidebar-brand::after {
+  content: '';
+  position: absolute;
+  left: 8px;
+  bottom: -1px;
+  width: 46px;
+  height: 2px;
+  border-radius: var(--r-xs);
+  background: var(--skin-gradient);
+  box-shadow: 0 0 12px var(--skin-ambient);
+  pointer-events: none;
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .sidebar-primary :is(.new-chat, .sidebar-primary-link) .ico {
+  --ico: 19px;
+  color: var(--accent);
+  filter: drop-shadow(0 0 5px var(--skin-shine));
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .sidebar .sidebar-primary-link {
+  border-radius: var(--r-sm);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.sidebar-session-label, .sidebar-sessions h2) {
+  letter-spacing: .055em;
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .sidebar-bottom {
+  border-color: var(--skin-soft-stroke);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.sidebar-bottom > .btn, .sidebar-connection) {
+  border-radius: var(--r-sm);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .sidebar-session-heading:hover {
+  color: var(--accent);
+}
+
+/* Better clarity for selected, keyboard-operated, and disabled elements. */
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.sidebar-primary-link, .sidebar .new-chat, .sess):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .sidebar :is(.sidebar-primary-link.is-sel, .sess.is-sel) .ico {
+  color: var(--accent);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.settings-page-head, .plugin-page-head, .appearance-page-head) {
+  position: relative;
+  isolation: isolate;
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.settings-surface, .plugin-card, .appearance-preview, .plugin-connection) {
+  background-color: var(--card);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.settings-surface, .plugin-card, .appearance-preview, .composer) {
+  outline-offset: -1px;
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.setting, .connector, .plugin-catalog-card) {
+  border-color: var(--skin-soft-stroke);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .setting:focus-within {
+  background: color-mix(in srgb, var(--accent-fill) 5%, transparent);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.plugin-card:hover, .plugin-card:focus-within) {
+  border-color: var(--skin-stroke);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.work-dock-bar, .terminal-bar) {
+  background: linear-gradient(90deg, var(--skin-ambient), transparent 62%), var(--card);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.work-dock-tab.is-selected, .terminal-tab.is-selected) {
+  color: var(--accent);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.composer-popover, .work-dock-menu, .plugin-menu-actions, .row-menu) {
+  border-color: var(--skin-stroke);
+  box-shadow: 0 18px 44px #0005, inset 0 1px var(--skin-shine);
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .composer:focus-within::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: max(15px, 4%);
+  width: min(100px, 35%);
+  height: 2px;
+  background: var(--skin-gradient);
+  box-shadow: 0 0 15px var(--skin-shine);
+  border-radius: 999px;
+  pointer-events: none;
+}
+
+/* Empty-chat mark, title, and content are already owned by the upstream
+   layout; only attach ambient art to the icon itself, never the timeline. */
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .welcome-mark {
+  position: relative;
+  filter: drop-shadow(0 0 12px var(--skin-shine));
+}
+:root[data-appearance-style]:where(:not([data-appearance-style='classic'])) #timelineEmpty {
+  text-wrap: balance;
+}
+
+/* RGB Gaming: powered-up rails, tactical corner cuts and arcade HUD highlights. */
+:root[data-appearance-style='gamer'] .sidebar-primary :is(.new-chat, .sidebar-primary-link) {
+  margin-block: 3px;
+  border: 1px solid color-mix(in srgb, #4dffa2 36%, transparent);
+  background: linear-gradient(110deg, #37ffa808, transparent 85%);
+  box-shadow: inset 3px 0 #48ff9970, 0 2px 9px #0002;
+}
+:root[data-appearance-style='gamer'] .sidebar-primary :is(.new-chat, .sidebar-primary-link):hover {
+  border-color: #46eaff80;
+  box-shadow: inset 3px 0 #45ff91, 0 0 13px #20eeff29;
+}
+:root[data-appearance-style='gamer'] .sidebar-brand::after {
+  width: 85px;
+  background: linear-gradient(90deg, #b6ff26, #00dfff 55%, #ff38cb);
+  box-shadow: 0 0 12px #23fcba84;
+}
+:root[data-appearance-style='gamer'] :is(.sidebar-session-label, .sidebar-sessions h2) {
+  color: #28e5fc;
+  font-weight: 750;
+}
+:root[data-appearance-style='gamer'][data-theme='light'] :is(.sidebar-session-label, .sidebar-sessions h2) {
+  /* Cyan is decorative in light mode; labels need semantic 4.5:1 contrast. */
+  color: var(--accent);
+}
+:root[data-appearance-style='gamer'] .app-topbar {
+  background-image: linear-gradient(110deg, #0af5ae20, transparent 48%, #c52eff1b);
+  border-top: 2px solid #b6ff26;
+}
+:root[data-appearance-style='gamer'] .chat-head {
+  color: var(--ink);
+  border-left: 3px solid #b6ff26;
+  background: linear-gradient(90deg, #b6ff2614, transparent 48%);
+}
+:root[data-appearance-style='gamer'] :is(.settings-surface, .plugin-card, .plugin-connection) {
+  box-shadow: inset 0 2px #b6ff2636, 0 10px 26px #0002;
+}
+:root[data-appearance-style='gamer'] :is(.settings-page-head, .plugin-page-head, .appearance-page-head) {
+  border-bottom: 1px solid #20eeff88;
+}
+:root[data-appearance-style='gamer'] .welcome-mark { color: #b6ff26; filter: drop-shadow(0 0 13px #b6ff269a); }
+:root[data-appearance-style='gamer'] :is(.composer, .plugin-search):focus-within {
+  outline: 1px solid #b6ff26a8;
+  outline-offset: 1px;
+}
+:root[data-appearance-style='gamer'] .send-button:not(:disabled) {
+  color: #061324;
+  background: linear-gradient(135deg, #b6ff26, #32effb 65%, #ff4edb);
+  border-radius: 9px;
+}
+:root[data-appearance-style='gamer'] .sidebar-bottom > .btn:hover { box-shadow: inset 0 -2px #b6ff26; }
+
+/* Futuristic: ice-sculpted glass with hairline instrumentation and air. */
+:root[data-appearance-style='futuristic'] .sidebar-primary :is(.new-chat, .sidebar-primary-link) {
+  margin-block: 4px;
+  border: 1px solid #9aeaff32;
+  border-radius: 16px;
+  background: linear-gradient(120deg, #daffff0c, #12aaff07 70%);
+  box-shadow: inset 0 1px #ffffff15, 0 7px 19px #0a5fb01c;
+}
+:root[data-appearance-style='futuristic'] .sidebar-primary :is(.new-chat, .sidebar-primary-link):hover {
+  border-color: #a6ffff9a;
+  box-shadow: inset 0 1px #ffffff52, 0 0 21px #51dfff40;
+}
+:root[data-appearance-style='futuristic'] .sidebar-brand::after {
+  width: 98px;
+  height: 2px;
+  background: linear-gradient(90deg, #75d7ff, #f6ffff 46%, transparent);
+  box-shadow: 0 0 14px #a9ffff;
+}
+:root[data-appearance-style='futuristic'] .app-topbar {
+  border-top: 1px solid #bbffffac;
+  background-image: linear-gradient(90deg, #b8f4ff26, #117bd50e 57%, #efffff16);
+}
+:root[data-appearance-style='futuristic'] .chat-head {
+  border-left: 2px solid #a7ffffb9;
+  background: linear-gradient(90deg, #78e8ff1e, transparent 50%);
+}
+:root[data-appearance-style='futuristic'] :is(.settings-surface, .plugin-card, .appearance-preview) {
+  box-shadow: inset 0 1px #ffffff31, 0 15px 42px #0079bc20;
+}
+:root[data-appearance-style='futuristic'] :is(.settings-page-head, .plugin-page-head, .appearance-page-head)::after {
+  content: '';
+  position: absolute;
+  top: 13px;
+  right: 20px;
+  width: 66px;
+  height: 3px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, transparent, #89e9ff, #f6ffff);
+  box-shadow: 0 0 14px #abffff7a;
+  pointer-events: none;
+}
+:root[data-appearance-style='futuristic'] .welcome-mark {
+  filter: drop-shadow(0 0 17px #a1ffffb1);
+}
+:root[data-appearance-style='futuristic'] .send-button:not(:disabled) {
+  color: #02172d;
+  background: linear-gradient(130deg, #278cfc, #75e9ff 63%, #f3ffff);
+  box-shadow: 0 0 25px #5cdfff71;
+}
+
+/* Cyberpunk: danger-tape segments, sharply labelled panels, magenta neon. */
+:root[data-appearance-style='cyberpunk'] .sidebar-primary :is(.new-chat, .sidebar-primary-link) {
+  border: 1px solid #f542bd31;
+  border-radius: 4px;
+  background: linear-gradient(110deg, #ff41c914, transparent 62%);
+  box-shadow: inset 2px 0 #fa3bc969;
+}
+:root[data-appearance-style='cyberpunk'] .sidebar-primary :is(.new-chat, .sidebar-primary-link):hover {
+  border-color: #2feffd9c;
+  box-shadow: inset 3px 0 #34eeff, 0 0 12px #fa48c635;
+}
+:root[data-appearance-style='cyberpunk'] .sidebar-brand::after {
+  width: 80px;
+  height: 3px;
+  background: repeating-linear-gradient(110deg, #fc39c9 0 12px, #2decf4 12px 15px);
+}
+:root[data-appearance-style='cyberpunk'] .app-topbar { border-top: 1px solid #f334ca; }
+:root[data-appearance-style='cyberpunk'] .chat-head { border-left: 3px solid #24ebf0; }
+:root[data-appearance-style='cyberpunk'] :is(.settings-surface, .plugin-card) {
+  border-left: 2px solid color-mix(in srgb, #f63ac6 45%, var(--skin-soft-stroke));
+}
+:root[data-appearance-style='cyberpunk'] .sidebar-session-label { color: var(--accent); }
+:root[data-appearance-style='cyberpunk'] .send-button:not(:disabled) { border-radius: 3px; }
+
+/* Windows 95: authentic taskbar dividers, recessed controls and double lines. */
+:root[data-appearance-style='win95'] .sidebar-brand {
+  padding: 3px 8px 12px;
+  border-bottom: 2px solid;
+  border-bottom-color: #696969;
+  margin-bottom: 13px;
+}
+:root[data-appearance-style='win95'] .sidebar-brand::after { display: none; }
+:root[data-appearance-style='win95'] .sidebar-primary :is(.new-chat, .sidebar-primary-link) {
+  border: 2px solid;
+  border-color: #fff #777 #777 #fff;
+  border-radius: 0;
+  background: #c0c0c0;
+  color: #141414;
+  box-shadow: inset 1px 1px #ededed, inset -1px -1px #888;
+}
+:root[data-appearance-style='win95'] .sidebar-primary :is(.new-chat, .sidebar-primary-link):active {
+  border-color: #777 #fff #fff #777;
+  box-shadow: inset 2px 2px #777;
+}
+:root[data-appearance-style='win95'] .sidebar-primary :is(.new-chat, .sidebar-primary-link) .ico {
+  color: #000080;
+  filter: none;
+}
+:root[data-appearance-style='win95'] .chat-head { border: 0; background: transparent; }
+:root[data-appearance-style='win95'] :is(.work-dock-bar, .terminal-bar, .sidebar-bottom) {
+  border-top: 2px solid #fff;
+  border-bottom: 1px solid #666;
+  background: #c0c0c0;
+}
+:root[data-appearance-style='win95'] :is(.sidebar-bottom > .btn, .sidebar-bottom .sidebar-connection) {
+  color: #141414;
+  background-color: transparent;
+}
+:root[data-appearance-style='win95'] :is(.sidebar-bottom > .btn, .sidebar-bottom .sidebar-connection):is(:hover, :focus-visible, .is-sel, [aria-expanded='true']) {
+  color: #141414;
+  background-color: #d7d7d7;
+}
+:root[data-appearance-style='win95'] .composer:focus-within::before { display: none; }
+:root[data-appearance-style='win95'] .settings-surface:focus-within { box-shadow: 1px 1px #606060; }
+:root[data-appearance-style='win95'] :is(.plugin-card:hover, .plugin-card:focus-within) { box-shadow: inset 2px 2px #fff, inset -2px -2px #777; }
+:root[data-appearance-style='win95'] .welcome-mark { filter: none; }
+
+/* Terminal: phosphor separators, stack trace cards and shell prompt accents. */
+:root[data-appearance-style='terminal'] .sidebar-brand {
+  border-bottom: 1px dashed var(--accent-edge);
+}
+:root[data-appearance-style='terminal'] .sidebar-brand::after {
+  width: 76px;
+  background: repeating-linear-gradient(90deg, #60fa8d 0 7px, transparent 7px 11px);
+  box-shadow: 0 0 12px #4dfa7a6b;
+}
+:root[data-appearance-style='terminal'] .sidebar-primary :is(.new-chat, .sidebar-primary-link) {
+  border: 1px solid #5bff8738;
+  border-radius: 0;
+  background: linear-gradient(90deg, #66ff8412, transparent);
+  font-family: var(--mono);
+}
+:root[data-appearance-style='terminal'] .sidebar-primary :is(.new-chat, .sidebar-primary-link):hover { border-color: #61ff8887; }
+:root[data-appearance-style='terminal'] .chat-head { border-bottom: 1px dashed var(--skin-stroke); }
+:root[data-appearance-style='terminal'] :is(.work-dock-bar, .terminal-bar) {
+  border-bottom: 1px dashed var(--skin-stroke);
+  font-family: var(--mono);
+}
+:root[data-appearance-style='terminal'] :is(.settings-surface, .plugin-card, .appearance-preview) {
+  border-style: dashed;
+}
+:root[data-appearance-style='terminal'] .composer textarea { caret-color: #76ff9b; }
+:root[data-appearance-style='terminal'] .send-button:not(:disabled) { color: #001a08; border-radius: 2px; }
+
+/* Synthwave: sunset-lit navigation and a glowing horizon line. */
+:root[data-appearance-style='synthwave'] .sidebar-brand::after {
+  width: 95px;
+  background: linear-gradient(90deg, #ffb264, #ff6fd7 54%, #9955ff);
+  box-shadow: 0 0 15px #ff6cd56b;
+}
+:root[data-appearance-style='synthwave'] .sidebar-primary :is(.new-chat, .sidebar-primary-link) {
+  border: 1px solid #ff74d12d;
+  border-radius: 13px;
+  background: linear-gradient(95deg, #ff72be16, #9955ff0d 85%);
+  box-shadow: inset 2px 0 #ff79d864;
+}
+:root[data-appearance-style='synthwave'] .sidebar-primary :is(.new-chat, .sidebar-primary-link):hover {
+  border-color: #ff7cda8c;
+  box-shadow: inset 3px 0 #fd74d2, 0 0 17px #ed5ac04a;
+}
+:root[data-appearance-style='synthwave'] .app-topbar {
+  border-top: 2px solid #fa8d93;
+  background-image: linear-gradient(90deg, #d74dd638, #763dd821 58%, #ff67b729);
+}
+:root[data-appearance-style='synthwave'] .chat-head {
+  border-left: 3px solid #ffb25c;
+  background: linear-gradient(90deg, #fa6ca52a, transparent 55%);
+}
+:root[data-appearance-style='synthwave'] :is(.settings-surface, .plugin-card) {
+  box-shadow: inset 0 1px #f6a4f92a, 0 12px 28px #45077e22;
+}
+:root[data-appearance-style='synthwave'] .welcome-mark { filter: drop-shadow(0 0 19px #ff79d6bf); }
+
+/* Midnight OLED: near-invisible focus rails and floating ink, no white bloom. */
+:root[data-appearance-style='midnight'] .sidebar-primary :is(.new-chat, .sidebar-primary-link) {
+  border: 1px solid #8e78ff22;
+  background: #8071e706;
+  border-radius: 12px;
+  box-shadow: inset 1px 0 #9c82f84c;
+}
+:root[data-appearance-style='midnight'] .sidebar-brand { border-bottom-color: #8174c338; }
+:root[data-appearance-style='midnight'] .sidebar-brand::after {
+  width: 48px;
+  height: 1px;
+  background: #b5a2ff;
+  box-shadow: 0 0 5px #7265bc44;
+}
+:root[data-appearance-style='midnight'] .chat-head { border-bottom: 1px solid #a290fd29; }
+:root[data-appearance-style='midnight'] :is(.settings-surface, .plugin-card, .appearance-preview) { box-shadow: inset 0 1px #c4b7ff0e; }
+:root[data-appearance-style='midnight'] .composer:focus-within::before { height: 1px; }
+:root[data-appearance-style='midnight'] .send-button:not(:disabled) { background: #9e86f8; color: #080711; box-shadow: 0 0 12px #8d7fe640; }
+:root[data-appearance-style='midnight'] .welcome-mark { filter: drop-shadow(0 0 7px #9781ff3c); }
+
+/* Solar: paper chapter dividers, warm gold controls and refined editorial type. */
+:root[data-appearance-style='solar'] .sidebar-brand {
+  border-bottom-color: #af875c55;
+}
+:root[data-appearance-style='solar'] .sidebar-brand::after {
+  width: 75px;
+  height: 2px;
+  background: linear-gradient(90deg, #b77b35, #e9b66a, transparent);
+}
+:root[data-appearance-style='solar'] .sidebar-primary :is(.new-chat, .sidebar-primary-link) {
+  border: 1px solid #bf95513d;
+  background: linear-gradient(100deg, #e0aa5e17, transparent);
+  border-radius: 10px;
+  box-shadow: inset 2px 0 #c59b5980;
+}
+:root[data-appearance-style='solar'] .sidebar-primary :is(.new-chat, .sidebar-primary-link):hover {
+  border-color: #bd8b51a1;
+  box-shadow: inset 3px 0 #b27933, 0 4px 18px #a97c311c;
+}
+:root[data-appearance-style='solar'] .chat-head {
+  border-bottom: 1px solid #b8956454;
+  background: linear-gradient(90deg, #eac28527, transparent 50%);
+}
+:root[data-appearance-style='solar'] :is(.settings-surface, .plugin-card, .appearance-preview) {
+  box-shadow: 0 8px 28px #7c51271c;
+}
+:root[data-appearance-style='solar'] .welcome-mark { filter: drop-shadow(0 4px 6px #ad804940); }
+:root[data-appearance-style='solar'] :is(.settings-page-head, .plugin-page-head, .appearance-page-head) {
+  border-bottom: 1px solid #c9a67489;
+}
+:root[data-appearance-style='solar'] .send-button:not(:disabled) {
+  background: #af7639;
+  color: #fff;
+  box-shadow: 0 5px 14px #9a662b35;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  :root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .sidebar-primary :is(.new-chat, .sidebar-primary-link) {
+    transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+  }
+  :root[data-appearance-style]:where(:not([data-appearance-style='classic'])) .plugin-card:hover {
+    transform: translateY(-1px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-appearance-style]:where(:not([data-appearance-style='classic'])) :is(.sidebar-primary .new-chat, .sidebar-primary-link, .plugin-card) {
+    transition: none;
+    animation: none;
+    transform: none;
+  }
+}

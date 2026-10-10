@@ -66,6 +66,41 @@ describe('custom appearance', () => {
     expect(presetAppearance('classic')).toEqual(defaultAppearance());
   });
 
+  it('keeps every style legible on its page, sidebar and translucent glass in both themes', () => {
+    for (const style of APPEARANCE_STYLES) {
+      const appearance = presetAppearance(style);
+      for (const theme of ['light', 'dark'] as const) {
+        const palette = appearance[theme];
+        const glass = mixColor(palette.sidebar, palette.background, .13);
+        for (const surface of [palette.background, palette.sidebar, glass]) {
+          const tokens = paletteTokens(surface, palette.accent, palette.contrast);
+          expect(contrastRatio(tokens['--ink']!, surface), `${style}/${theme} body`).toBeGreaterThanOrEqual(7);
+          expect(contrastRatio(tokens['--accent']!, surface), `${style}/${theme} accent`).toBeGreaterThanOrEqual(4.5);
+          expect(contrastRatio(tokens['--blue']!, surface), `${style}/${theme} link`).toBeGreaterThanOrEqual(4.5);
+          for (const text of ['--soft', '--faint', '--green', '--red'] as const) {
+            expect(contrastRatio(tokens[text]!, tokens['--card']!), `${style}/${theme} ${text}`).toBeGreaterThanOrEqual(4.5);
+          }
+          expect(contrastRatio(tokens['--on-accent']!, palette.accent), `${style}/${theme} button`).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+    }
+  });
+
+  it('gives Gamer vivid RGB and Futuristic fluorescent blue-white without losing contrast', () => {
+    const gamer = presetAppearance('gamer').dark;
+    const futuristic = presetAppearance('futuristic').dark;
+    const cyberpunk = presetAppearance('cyberpunk').dark;
+    expect(gamer.accent).toBe('#b6ff26');
+    expect(futuristic.accent).toBe('#9af4ff');
+    expect(gamer.background).not.toBe(futuristic.background);
+    expect(cyberpunk.background).not.toBe(gamer.background);
+    expect(contrastRatio(gamer.accent, gamer.background)).toBeGreaterThan(12);
+    expect(contrastRatio(futuristic.accent, futuristic.background)).toBeGreaterThan(12);
+    expect(contrastRatio(cyberpunk.accent, cyberpunk.background)).toBeGreaterThan(6);
+    expect(presetAppearance('midnight').dark.background).toBe('#000000');
+    expect(presetAppearance('win95').light.accent).toBe('#000080');
+  });
+
   it('keeps cyberpunkAppearance compatible while applying both neon palettes and typography', () => {
     const original = defaultAppearance();
     original.font = 'serif';
@@ -74,10 +109,10 @@ describe('custom appearance', () => {
     const cyberpunk = cyberpunkAppearance(original);
     expect(cyberpunk).toEqual(presetAppearance('cyberpunk'));
     expect(cyberpunk.light).toEqual({
-      background: '#fff0fa', sidebar: '#e7dcfc', accent: '#a00091', contrast: 75
+      background: '#fff0fb', sidebar: '#f3d9fd', accent: '#a00086', contrast: 82
     });
     expect(cyberpunk.dark).toEqual({
-      background: '#100b21', sidebar: '#1c1030', accent: '#ff38c8', contrast: 90
+      background: '#090516', sidebar: '#210d35', accent: '#ff35cb', contrast: 95
     });
     expect(cyberpunk).toMatchObject({ style: 'cyberpunk', font: 'mono', fontSize: 14, translucentSidebar: false });
     expect(original).toMatchObject({ style: 'classic', font: 'serif', fontSize: 18 });
