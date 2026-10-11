@@ -172,6 +172,20 @@ app.whenReady().then(async () => {
     assert.deepEqual(await js('window.openedLinks'), ['https://github.com/Gokuencinar/chat-on-steroids/releases/tag/v2.1.40']);
     await shot('whats-new-appearance-2.1.40.png');
 
+    // The candidate also retains the localized microphone update after merging official changes.
+    await open('seen=2.1.40&version=2.1.41');
+    await until(`document.getElementById('whatsNewDialog').open`);
+    const candidate = await js(`(() => ({
+      version: document.getElementById('whatsNewVersion').textContent,
+      lead: document.getElementById('whatsNewLead').textContent,
+      titles: [...document.querySelectorAll('#whatsNewList b')].map(node => node.textContent)
+    }))()`);
+    assert.equal(candidate.version, 'Version 2.1.41');
+    assert.match(candidate.lead, /Microphone dictation/);
+    assert.ok(candidate.titles.includes('Speak your message'));
+    await js(`document.getElementById('whatsNewNotes').click()`);
+    assert.deepEqual(await js('window.openedLinks'), ['https://github.com/Gokuencinar/chat-on-steroids/releases/tag/v2.1.41']);
+
     console.log('PASS: What\'s New opens once after an update, centred with centred icons in both themes, opens the exact release notes, closes by button and Escape, fits a short window, and stays away on the same version or one without highlights');
   } finally {
     win?.destroy(); await server.close(); app.quit();

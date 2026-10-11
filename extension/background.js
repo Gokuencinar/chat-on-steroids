@@ -299,6 +299,31 @@ async function rememberOwnCoreApp(value) {
   try { await chrome.storage.local.set({ ownCoreApp: next }); } catch { /* Kept in memory for this worker. */ }
 }
 
+/**
+ * This install's connector apps as the app proved them from its own served requests
+ * (connector-identity.ts): ChatGPT keeps an app's id across a rename, so pages recognize a renamed
+ * connector by these ids. At most four per surface, ids exact, names one short line.
+ */
+let connectorApps = null;
+function cleanConnectorApps(value) {
+  if (!value || typeof value !== 'object') return null;
+  const out = {};
+  for (const surface of ['core', 'desktop', 'plugins']) {
+    out[surface] = (Array.isArray(value[surface]) ? value[surface] : []).slice(0, 4)
+      .filter(app => app && typeof app.appId === 'string' && /^asdk_app_[A-Za-z0-9_-]{1,160}$/.test(app.appId))
+      .map(app => ({ appId: app.appId,
+        linkId: typeof app.linkId === 'string' && /^link_[A-Za-z0-9_-]{1,160}$/.test(app.linkId) ? app.linkId : null,
+        name: typeof app.name === 'string' && app.name ? app.name.slice(0, 64) : null }));
+  }
+  return out;
+}
+async function rememberConnectorApps(value) {
+  const apps = cleanConnectorApps(value);
+  if (!apps || JSON.stringify(apps) === JSON.stringify(connectorApps)) return;
+  connectorApps = apps;
+  try { await chrome.storage.local.set({ connectorApps: apps }); } catch { /* Kept in memory for this worker. */ }
+}
+
 async function rememberConnectorNames(value) {
   const names = cleanConnectorNames(value);
   if (!names || JSON.stringify(names) === JSON.stringify(connectorNames)) return;
@@ -320,10 +345,11 @@ function load() {
 }
 
 async function loadOnce() {
-  const stored = await chrome.storage.local.get(['port', 'token', 'disconnected', 'deferredRevivals', 'commandAckOutbox', 'inputOpenings', 'desktopInputTabs', 'stopOpenings', 'browserId', 'connectorNames', 'ownCoreApp']);
+  const stored = await chrome.storage.local.get(['port', 'token', 'disconnected', 'deferredRevivals', 'commandAckOutbox', 'inputOpenings', 'desktopInputTabs', 'stopOpenings', 'browserId', 'connectorNames', 'ownCoreApp', 'connectorApps']);
   port = typeof stored.port === 'number' ? stored.port : null;
   connectorNames = cleanConnectorNames(stored.connectorNames);
   ownCoreApp = cleanOwnCoreApp(stored.ownCoreApp);
+  connectorApps = cleanConnectorApps(stored.connectorApps);
   // Tells this browser apart from another one paired with the same app, so a new chat is opened
   // and sent in one browser only. Random, local, and never tied to the profile or the user.
   browserId = typeof stored.browserId === 'string' && /^[a-z0-9]{16,64}$/.test(stored.browserId) ? stored.browserId : '';
@@ -1454,12 +1480,17 @@ async function retireFailedCommandTab(entry) {
   if (!ownsDocument(source)) return;
   try {
     const tab = await chrome.tabs.get(source.tab);
-    if (!tab || tab.pinned || tab.pendingUrl || conversationFromUrl(tab.url) || !ownsDocument(source)) return;
+    if (!tab || tab.pinned || tab.pendingUrl || !ownsDocument(source)) return;
+    // The only chat a failed command's tab may show is the source the app opened to follow its
+    // Project link (?clf=<id>&clf_project=1); a failed Project entry left that tab open every time.
+    const conversation = conversationFromUrl(tab.url) || null;
+    const marked = new URL(tab.url);
+    if (conversation && !(marked.searchParams.get('clf') === entry.id && marked.searchParams.get('clf_project') === '1')) return;
     const url = tab.url;
-    const proof = await tabReply(source.tab, { type: 'clf-tab-close-check', conversationId: null,
+    const proof = await tabReply(source.tab, { type: 'clf-tab-close-check', conversationId: conversation,
       failedCommand: { id: entry.id, client: entry.client } }, { documentId: source.documentId });
     const latest = await chrome.tabs.get(source.tab);
-    if (proof?.safe === true && proof.conversationId === null && proof.navigationEpoch === source.navigationEpoch &&
+    if (proof?.safe === true && proof.conversationId === conversation && proof.navigationEpoch === source.navigationEpoch &&
         latest && !latest.pinned && !latest.pendingUrl && latest.url === url && ownsDocument(source)) await chrome.tabs.remove(source.tab);
   } catch { /* A busy, edited, replaced or unreadable page stays open. */ }
 }
@@ -1862,11 +1893,39 @@ function inBackgroundWindow(work) {
   backgroundWindowFlight = flight;
   return flight.finally(() => { if (backgroundWindowFlight === flight) backgroundWindowFlight = null; });
 }
+/**
+ * The app's Background chats window. Session storage loses it whenever the extension reloads,
+ * which every self-update does, so it is mirrored to local storage. Window ids are only valid
+ * for one browser session: onStartup drops the mirror, and the mirror is adopted only while
+ * that window still holds nothing but ChatGPT tabs, never one of the user's own windows.
+ */
+const BACKGROUND_WINDOW_MIRROR = 'chatBackgroundWindowMirror';
+async function rememberBackgroundWindow(id) {
+  await chrome.storage.session.set({ chatBackgroundWindow: id });
+  await chrome.storage.local.set({ [BACKGROUND_WINDOW_MIRROR]: id });
+}
+async function forgetBackgroundWindow() {
+  await chrome.storage.session.remove('chatBackgroundWindow');
+  await chrome.storage.local.remove(BACKGROUND_WINDOW_MIRROR);
+}
 async function storedBackgroundWindow() {
-  const { chatBackgroundWindow: id } = await chrome.storage.session.get('chatBackgroundWindow');
+  const { chatBackgroundWindow: current } = await chrome.storage.session.get('chatBackgroundWindow');
+  const mirrored = Number.isInteger(current) ? null : (await chrome.storage.local.get(BACKGROUND_WINDOW_MIRROR))[BACKGROUND_WINDOW_MIRROR];
+  const id = Number.isInteger(current) ? current : mirrored;
   if (!Number.isInteger(id)) return null;
-  try { return await chrome.windows.get(id); }
-  catch { await chrome.storage.session.remove('chatBackgroundWindow'); return null; }
+  try {
+    const window = await chrome.windows.get(id, { populate: !Number.isInteger(current) });
+    if (!Number.isInteger(current)) {
+      const tabs = Array.isArray(window?.tabs) ? window.tabs : [];
+      if (window?.type !== 'normal' || !tabs.length || tabs.some(tab => !isChatGptUrl(tab.pendingUrl || tab.url || ''))) {
+        await chrome.storage.local.remove(BACKGROUND_WINDOW_MIRROR);
+        return null;
+      }
+      await chrome.storage.session.set({ chatBackgroundWindow: id });
+    }
+    return window;
+  }
+  catch { await forgetBackgroundWindow(); return null; }
 }
 /** Reconstruct ownership from the app's existing tab policy after extension reload or
  * OS browser startup. A cached window id alone never survives a browser restart. */
@@ -1897,7 +1956,7 @@ async function reconcileBackgroundWindow(policy) {
       for (const id of ids) {
         if (tabs.some(tab => tab.windowId === id && !owns(tab))) continue;
         try { window = await chrome.windows.get(id); } catch { continue; }
-        await chrome.storage.session.set({ chatBackgroundWindow: id });
+        await rememberBackgroundWindow(id);
         break;
       }
     }
@@ -1927,7 +1986,7 @@ async function createChatTab(url, background = false, active = !background) {
     // unfocused restore size first, then minimize only this newly owned window.
     const window = await chrome.windows.create({ url, type: 'normal', ...backgroundWindowBounds, focused: false });
     if (!Number.isInteger(window?.id) || !window.tabs?.[0]) throw new Error('background_window_not_ready');
-    await chrome.storage.session.set({ chatBackgroundWindow: window.id });
+    await rememberBackgroundWindow(window.id);
     await chrome.windows.update(window.id, { state: 'minimized', focused: false });
     return window.tabs[0];
   });
@@ -2903,6 +2962,7 @@ async function maintainOnce() {
   }
   inspectRequestedModels(reply.data.modelCatalogRequest);
   await rememberConnectorNames(reply.data.connectorNames);
+  await rememberConnectorApps(reply.data.connectorApps);
   inspectRequestedPluginRefresh(reply.data.pluginRefreshRequests, reply.data.background === true, reply.data.browserOnly === true);
   const repairConversations = new Set(repairs.map(entry => entry.conversationId));
   // Reloading the same document races its final input offer. Repair it now; the
@@ -3355,16 +3415,18 @@ const tabOperationQueues = new Map();
 const COMPACT_CHECKPOINT_FLAGS = [
   'sourceAttempt',
   'sourceDispatch',
+  'sourceUndelivered',
   'sourceLost',
   'destinationAttempt',
   'destinationDispatch',
   'destinationLost'
 ];
-const COMPACT_CHECKPOINT_TEXT = ['summary', 'sourceMessageId', 'destinationMessageId', 'sourceError'];
+const COMPACT_CHECKPOINT_TEXT = ['summary', 'sourceMessageId', 'destinationMessageId', 'sourceError', 'before', 'newestUserMessage'];
 // Not a checkpoint of its own: it qualifies `sourceMessageId` by saying how far that exact
 // marked response has grown. Sent only alongside the field it describes, so a bare count can
-// never move a deadline by itself.
-const COMPACT_CHECKPOINT_COUNTS = { sourceProgress: 'sourceMessageId' };
+// never move a deadline by itself. `documentSince` likewise only qualifies the newest message a
+// document reports for `sourceUndelivered`.
+const COMPACT_CHECKPOINT_COUNTS = { sourceProgress: 'sourceMessageId', documentSince: 'newestUserMessage' };
 
 function compactCheckpointFields(message) {
   if (!message || typeof message.token !== 'string') return {};
@@ -3627,6 +3689,7 @@ const HANDLERS = {
       paired: token !== null,
       disconnected,
       connectorNames,
+      connectorApps,
       ownCoreApp,
       pending: journal.length,
       pendingCommandAcks: commandAckOutbox.length,
@@ -5014,6 +5077,8 @@ chrome.runtime.onInstalled.addListener(() => {
 
 if (chrome.runtime.onStartup && typeof chrome.runtime.onStartup.addListener === 'function') {
   chrome.runtime.onStartup.addListener(() => {
+    // A new browser session numbers its windows afresh; an old background window id means nothing.
+    void chrome.storage.local.remove(BACKGROUND_WINDOW_MIRROR).catch(() => undefined);
     void load()
       .then(() => drainCommandAcks())
       .then(() => drain())

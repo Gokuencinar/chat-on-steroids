@@ -21,7 +21,7 @@ changed lines before applying an older patch. Document the work and its actual v
 the code currently does it. Known implementation gaps are collected in §21 instead of being
 mixed into the happy path as features.
 
-Source alignment: **2026-10-10**, official stable 2.1.30–2.1.33 integrated into the fork's Windows **2.1.41 release candidate**. App/extension **2.1.41**,
+Source alignment: **2026-10-11**, official stable 2.1.30–2.1.34 and upstream connector app-ID attribution through 1d23ecdb integrated into the fork's Windows **2.1.41 release candidate**. App/extension **2.1.41**,
 bridge protocol **14** in the checked declarations (`package.json`, `src/main/version.ts`,
 `extension/manifest.json`). This does not prove release, installation or live Chrome behavior.
 
@@ -565,6 +565,11 @@ QuickJS runs in a disposable Node Worker with no ambient Node, filesystem or net
 Children reuse the same registrar, validation, handler and dispatcher, inherit exact caller proof
 and recheck live permissions/roots. Each child records fresh evidence; only the outer response
 owns input, agent inbox and automatic terminal-result delivery. Finish signals remain direct.
+A script that calls `tools.<name>` for a name this surface does not offer (a feature check such
+as `typeof tools.x` does not count) gets one extra `UNKNOWN_TOOL_NAMES` text item at the end of
+its result. It names the connector that owns the tool and, when two connectors share a Secure
+Tunnel ID, says that ChatGPT can then send a script to the wrong connector (#1287). It changes
+neither `isError` nor what the script ran.
 
 Only explicitly emitted text/images enter the result, except Windows Desktop's `sky.get_window_state`
 adapter automatically forwards its native MCP image blocks. Its returned value contains only
@@ -900,7 +905,10 @@ Every successful launch also returns a session id when it finishes immediately. 
 structured results keep `session_id` for running work and use `completed_session_id` for
 finished work, so existing polling loops still stop. Either id is the `write_stdin` input.
 On every OS, structured `output_replayed` marks a retained reread and `benign_exit` marks a
-proven expected non-zero result; raw exit codes remain intact.
+proven expected non-zero result; raw exit codes remain intact. ChatGPT gives the model the
+structured result rather than the text, so `exec_command`'s advisory `Note:` lines (batch
+exit codes, benign exits, recovery hints, a still-running identical command) are also carried
+in structured `supplemental_context`; delivery appends its own app context there after them.
 nonempty input to a completed process is refused and never restarts work. The same manager
 retains the latest 64 completed results for this app lifetime, with 256 KiB of raw head/tail
 output each (and delimiter-free batch presentation). Completed rereads have no unread debt,
@@ -2931,8 +2939,27 @@ visible candidate. The link alone is not readiness: the source editor must be mo
 idle and attachment-free before the one click. Source readiness has a bounded 60-second phase;
 the native transition then gets its own bounded 12-second phase. Destination proof requires the
 exact Project home, a connected ready editor and no displayed source turns. User interaction,
-cancellation or a foreign route revokes the attempt; no extra tab or second click compensates
-for a missing result.
+cancellation or a foreign route revokes the attempt; no extra tab compensates for a missing result.
+One exception, measured: a replacement tab opens the source at `/c/<id>` and ChatGPT rewrites that
+route twice (`/g/<project>/c/<id>`, then with the Project's name). A click between the two is
+taken and then dropped by the second rewrite (8 of 14 handoffs in a Project timed out on
+2026-10-10). The source route changing under the click is that drop, so the same single link is
+clicked again, at most twice (`PROJECT_RECLICKS`); a 250 ms watch sees `replaceState`, which
+mutates no DOM. On a failed entry the worker retires that source tab (`?clf=<id>&clf_project=1`)
+after the page proves it idle and empty (`retireFailedCommandTab`, `failedEntry` in content.js).
+
+The source half's `dispatched-unresolved` fence is never replayed on doubt. A click that never
+reached ChatGPT has no marker to end it, so the dispatch records the chat's newest user message
+before the click (`sourceSend.before`, `dispatchedAt`): a document loaded after the click, idle,
+15 s or more later, that still shows that same message as the newest proves ChatGPT never received
+it. That proof is read only from the pickup's ready view (an editable composer, nothing running,
+the pre-click question shown), because a transcript can hydrate in steps, and it is read again 3 s
+later with the same verdict. Then `releaseUndeliveredSourceDispatchNow` hands the fence back to `attempted-unresolved` (the
+app re-checks every condition) for one new Send. ChatGPT restores an unsent draft on every load,
+so an earlier attempt's own handoff request can stay in the box; in its text the marker runs
+straight into the instruction (`]]Chat On Steroids…`). `handoffMarked` recognizes it: the repair
+check does not hold on it, and the attempt replaces it only when it is exactly the instruction
+under another token (`handoffResidue`); edited text stays the person's draft (#134).
 
 The brief includes the original task, accepted steering, current result, remaining checks and
 relevant durable ids. Linked project instructions and current executor settings still apply.
@@ -3997,6 +4024,23 @@ tunnel keeps it across restarts because ChatGPT's plugin names the tunnel id, no
 run hands tunnel-client its own local URL, per-start token included. ChatGPT's complete plugins
 list (`mode=plugins`) without this install's Core takes the proof back (POST `/core-plugin`
 `{ missing: true }`); other lists without Core say nothing.
+Connector identity (`connector-identity.ts`): ChatGPT keeps a connector's `asdk_app_…`/`link_…`
+ids across a rename. The kernel notes each served request id per surface (memory only, 4096,
+24 h); the page reports `app_sightings` (request id, app id, link id, app name from result rows);
+only a served request id teaches that surface's app (at most 4 per surface, durable). `/status`
+publishes `connectorApps`. Model-facing text uses `liveConnectorName` (proven name, else the
+configured one); protected-resource `resource_name` and the Setup card's Name row stay on
+`configuredConnectorName`. `SurfaceStatus.chatgptName` carries a proven different name for the
+card's "In ChatGPT: …" line.
+A chat keeps the app name it began with, so a learned name changes only to one seen in a chat
+created no earlier (`conversationCreatedAt`: ChatGPT conversation ids start with the creation second
+in hex); shell turns also find this turn's result rows by request id across the native mapping.
+Page side: fiber.js decides ownership once (`ownResult`, `ownRequestPath`, `ownServerName`):
+proven app id, then proven link, then the configured/proven name, except that a name match on a
+surface with a proven app but a different id is foreign. Rows carry `own`; content.js trusts it.
+Turns carry `sightings` for every connector's result rows, emitted once per request id as
+`app_sightings`. The Core @-mention, plugin refresh (`ownSnapshot`, installed-row names) and the
+Plugins catalog limit use proven ids first.
 An explicit successful Plugin Restart may rearm matching unclaimed, non-manual, unfinished
 refresh debt with a fresh request ID. The existing serialized ledger publishes that ID before
 waking browser work; ordinary status polling and a closed helper do not grant another attempt.
