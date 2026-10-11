@@ -17,7 +17,8 @@ app.whenReady().then(async () => {
     const params = new URLSearchParams(location.search);
     const seen = params.get('seen');
     // Every page states its language, so a failed earlier run cannot leave the next one in German.
-    if (params.get('lang')) localStorage.setItem('cos.ui.language', params.get('lang')); else localStorage.removeItem('cos.ui.language');
+    // Keep the English visual fixture deterministic on machines whose OS language is not English.
+    localStorage.setItem('cos.ui.language', params.get('lang') || 'en');
     const config = fixtureConfig({
       roots:[{name:'fixture',path:'C:/fixture'}], readOnly:true, capabilities:{read:true,browse:true},
       tunnel:{kind:'openai',tunnelId:'',desktopTunnelId:'',binaryPath:''},
