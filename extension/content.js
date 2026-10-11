@@ -3007,7 +3007,9 @@
             )
           }
         : result;
-      finishGeneration(ended, bounded, false);
+      // Steered: ChatGPT carries this answer on past the message, under the same request id. The
+      // app files later calls of that request under the next turn only past an end marked so (#1301).
+      finishGeneration(ended, steering ? { ...bounded, continued: true } : bounded, false);
     }
 
     // A turn is opened by a send, and by nothing else.
@@ -4080,7 +4082,9 @@
       activities: keptActivities,
       thoughtNotifications: keptThoughtNotifications,
       images: keptImages,
-      trace
+      trace,
+      // #1301: the user message that opened this page turn; files its outline under the right turn.
+      ...(cap(raw.question, 200) ? { question: cap(raw.question, 200) } : {})
     };
   }
 
@@ -5142,7 +5146,7 @@
         if (tracesReported.get(localOwner) !== signature) {
           tracesReported.delete(localOwner);
           tracesReported.set(localOwner, signature);
-          emit({ kind: 'turn_trace', turnId: localOwner, trace: turn.trace });
+          emit({ kind: 'turn_trace', turnId: localOwner, trace: turn.trace, ...(turn.question ? { question: turn.question } : {}) });
         }
       }
     }
