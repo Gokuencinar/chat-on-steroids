@@ -630,7 +630,21 @@ Content requires the matching route and document epoch, retaining one-shot strea
 temporary ACK failures for at most 15 minutes using the existing observer/backoff. Missing stream
 metadata retains the Fiber path. Fetch reattachment at DOM readiness captures each downstream
 wrapper separately and deduplicates responses to avoid recursion through page instrumentation.
-The native `f/conversation/resume` stream uses the same complete-event reader. Observer version 2
+**A chat deleted in ChatGPT** answers its history request and a send into it with HTTP 404 and
+`detail.code: "conversation_deleted"` (measured 2026-10-11; the page then shows a localized notice,
+or moves a reopened tab to its home page). The same wrapper reads that bounded (16 KiB) JSON answer
+for the history route and for a POST `(f/)conversation` whose own request body names the chat, and
+projects only `cos-conversation-deleted` with the exact conversation id (replayed once on request).
+Content accepts it only for its route, its recorded chat or the chat the document was loaded for,
+then: its turn ends `failed` with a non-recoverable `chat_error`, also when the send's answer
+arrives before the page shows the question that opens the turn (2.8 s earlier, measured); a claimed
+message's failure says the chat was deleted instead of the check it then failed; and
+`conversation_deleted` asks the app (`POST /conversation-deleted`) to fail every `queued`/`browser`
+message for that chat with `CONVERSATION_DELETED` (`src/shared/chat-error.ts`), so none waits or
+reopens it. Such a turn is not a stopped chat: the bridge ends its activity watch, with no reload,
+no "send a message here" note and no stopped-chat notification. Sent messages and recordings are
+untouched; the renderer names it "Chat deleted in ChatGPT".
+The native `f/conversation/resume` stream uses the same complete-event reader. The observer
 has an explicit refresh/disposal handle, also reached by existing MAIN-helper restoration.
 The same fetch wrapper observes exact same-origin POST `f/conversation/resume` HTTP 404s.
 Only `conversation_id` leaves a string JSON request body (bounded to 16 KiB); unsupported or
