@@ -21,7 +21,7 @@ changed lines before applying an older patch. Document the work and its actual v
 the code currently does it. Known implementation gaps are collected in §21 instead of being
 mixed into the happy path as features.
 
-Source alignment: **2026-10-11**, official stable 2.1.30–2.1.34 and upstream connector app-ID attribution through 1d23ecdb integrated into the fork's Windows **2.1.41 release candidate**. App/extension **2.1.41**,
+Source alignment: **2026-10-12**, official stable 2.1.30–2.1.34 and upstream connector app-ID attribution through 1d23ecdb plus selectively integrated fixes #1304, #1306, #1307, #1311 and #1315 in the fork's Windows **2.1.41 release candidate**. App/extension **2.1.41**,
 bridge protocol **14** in the checked declarations (`package.json`, `src/main/version.ts`,
 `extension/manifest.json`). This does not prove release, installation or live Chrome behavior.
 

@@ -13,6 +13,7 @@ import vm from 'node:vm';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 const { APP_VERSION, BRIDGE_PROTOCOL } = await import('../src/main/version.js');
+const { BROWSER_BRIDGE_AUTO_PORTS } = await import('../src/shared/browser-bridge.js');
 
 let domSource = '';
 let backgroundSource = '';
@@ -26,6 +27,19 @@ beforeAll(async () => {
 });
 
 describe('extension release metadata', () => {
+  it('scans exactly the same loopback ports that the native Auto bridge can bind', async () => {
+    const declaration = /const PORTS = (\[[^\]]+\]);/.exec(backgroundSource);
+    expect(declaration).not.toBeNull();
+    const workerPorts = JSON.parse(declaration![1]!) as number[];
+    const manifest = JSON.parse(
+      await fs.readFile(path.join(process.cwd(), 'extension', 'manifest.json'), 'utf8')
+    ) as { host_permissions: string[] };
+    expect(workerPorts).toEqual(BROWSER_BRIDGE_AUTO_PORTS);
+    for (const port of BROWSER_BRIDGE_AUTO_PORTS) {
+      expect(manifest.host_permissions).toContain(`http://127.0.0.1:${port}/*`);
+    }
+  });
+
   it('keeps the app package, bundled extension and bridge protocol on the same release', async () => {
     const pkg = JSON.parse(await fs.readFile(path.join(process.cwd(), 'package.json'), 'utf8')) as { version: string };
     const lock = JSON.parse(await fs.readFile(path.join(process.cwd(), 'package-lock.json'), 'utf8')) as {
