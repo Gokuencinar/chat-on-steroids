@@ -61,7 +61,12 @@ app.whenReady().then(async () => {
     win=new BrowserWindow({show:false,width:1180,height:760,webPreferences:{offscreen:true,sandbox:true}});
     const js=e=>win.webContents.executeJavaScript(e);
     const pause=ms=>new Promise(r=>setTimeout(r,ms));
-    const until=async(expression,ms=6000)=>{const end=Date.now()+ms;while(Date.now()<end){if(await js(expression))return;await pause(40);}throw new Error('Timeout: '+expression);};
+    const until=async(expression,ms=6000)=>{const end=Date.now()+ms;while(Date.now()<end){if(await js(expression))return;await pause(40);}
+      const detail=await js(`({ready:window.fixtureReady===true,seenCalls:window.seenCalls,
+        dialogs:[...document.querySelectorAll('dialog')].map(d=>({id:d.id,open:d.open})),
+        version:document.getElementById('whatsNewVersion')?.textContent,
+        location:location.href})`);
+      throw new Error('Timeout: '+expression+' '+JSON.stringify(detail));};
     const open=async query=>{
       await win.loadURL(server.resolvedUrls.local[0]+'fixture.html?'+query);
       await until('window.fixtureReady===true');
@@ -158,8 +163,9 @@ app.whenReady().then(async () => {
     assert.equal(await js(`document.getElementById('whatsNewDialog').open`),false,'No highlights: no dialog');
     assert.equal(await js('window.seenCalls'),1,'No highlights: the version is still recorded');
 
-    // The Appearance release uses existing translated labels in the same modal.
-    await open('seen=2.1.41&version=2.1.40');
+    // Exercise the older Appearance release as a genuine upgrade, not as a downgrade.
+    // whatsNewAction intentionally records a downgrade without opening its modal.
+    await open('seen=2.1.39&version=2.1.40');
     await until(`document.getElementById('whatsNewDialog').open`);
     const appearance = await js(`(() => ({
       version: document.getElementById('whatsNewVersion').textContent,
