@@ -9,6 +9,7 @@ import { browserControl } from './browser-control.js';
 import type { BrowserResult } from '../shared/browser-control.js';
 import { goalErrorKey, goalErrorMessage } from '../shared/goal-errors.js';
 import { MAX_CHATGPT_MESSAGE_CHARS, userPromptText } from '../shared/user-prompt.js';
+import { CONVERSATION_DELETED } from '../shared/chat-error.js';
 import { prepareSessionPrompt } from './session/prompt.js';
 import { pendingChatModelRequest, observeChatModels, requestChatModels } from './chat-models.js';
 import { isDeliberateEffort, isProModel } from '../shared/chat-models.js';
@@ -28,7 +29,7 @@ export { setBrowserWorkArea } from './browser-window-layout.js';
 import { pendingBrowserPreferenceRequest, acknowledgeBrowserPreferences } from './browser-preferences.js';
 import { sessionFinishHeld, releaseSessionFinish, getSessionFinishDraft, sessionFinishWaiting } from './session/finish.js';
 import { observeUsage } from './session/usage.js';
-import { pendingBrowserInputs, claimBrowserInput, acknowledgeBrowserInput, bindBrowserInputProject, failBrowserInput, completeBrowserDecision, listInputs, fileSilenceInput, fileRecoveryInput, advanceRecoveryInput, hasQueuedAfterTurnInput, inputBeforeGoal, pendingQueuedPickups, recordQueuedPickupAttemptNow, syncQueuedPickupRecoveryNow, deferSilenceInput, revokeSilenceInputs, endRecoveryInput, retryUnclaimedInput } from './session/input.js';
+import { pendingBrowserInputs, claimBrowserInput, acknowledgeBrowserInput, bindBrowserInputProject, failBrowserInput, completeBrowserDecision, listInputs, fileSilenceInput, fileRecoveryInput, advanceRecoveryInput, hasQueuedAfterTurnInput, inputBeforeGoal, pendingQueuedPickups, recordQueuedPickupAttemptNow, syncQueuedPickupRecoveryNow, deferSilenceInput, revokeSilenceInputs, endRecoveryInput, retryUnclaimedInput, failInputsForDeletedConversation } from './session/input.js';
 /**
  * The local bridge between the Chrome extension and this app.
  *
@@ -1578,6 +1579,8 @@ function parseObservations(input: unknown): ChatObservation[] {
       const trace = turnTrace(item['trace']);
       if (!trace || !observation.turnId) continue;
       observation.trace = trace;
+      // The user message that opened the page turn the outline was read from (#1301).
+      if (typeof item['question'] === 'string' && /^[A-Za-z0-9_:.-]{1,200}$/.test(item['question'])) observation.question = item['question'];
     }
     if (typeof item['renderedHtml'] === 'string') {
       // Keep the whole compact rendering of a stable final through /events.
@@ -1607,6 +1610,7 @@ function parseObservations(input: unknown): ChatObservation[] {
       observation.goalEligible = true;
     }
     if (typeof item['detail'] === 'string') observation.detail = item['detail'].slice(0, 500);
+    if (kind === 'turn_end' && item['continued'] === true) observation.continued = true;
     if (typeof item['recoverable'] === 'boolean') observation.recoverable = item['recoverable'];
     if (item['blocking'] === true) observation.blocking = true;
     if (kind === 'chat_error' && item['blocking'] === true && typeof item['retryAt'] === 'number' &&
@@ -2597,6 +2601,17 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     }
     notePluginInstalled('core');
     return json(res, 200, { ok: true }, origin);
+  }
+
+  // ChatGPT answered `conversation_deleted` for this exact chat (read by usage.js from its own
+  // response): the messages still waiting for it end with that reason. See failInputsForDeletedConversation.
+  if (route === '/conversation-deleted' && req.method === 'POST') {
+    const raw = await readBody(req);
+    const id = raw && typeof raw === 'object' ? conversationId((raw as Record<string, unknown>)['conversationId']) : null;
+    if (!id) return json(res, 400, { error: 'invalid_request' }, origin);
+    const ended = await failInputsForDeletedConversation(id);
+    logWarn(`bridge: ChatGPT says chat ${id} was deleted${ended ? `; ${ended} waiting message(s) ended` : ''}`);
+    return json(res, 200, { ok: true, ended }, origin);
   }
 
   if (route === '/usage' && req.method === 'POST') {
@@ -8061,6 +8076,10 @@ async function noteRecoveryObservations(
     if (proTerminal) endActivity(conversationId);
     else if (lastEnd === 'unknown' && terminalGrant?.model === 'unknown' && terminalGrant.sessionId === sessionId) {
       // Loss of browser completion evidence does not change the last meaningful-work clock.
+    } else if (lastEnd === 'failed' && ended?.detail === CONVERSATION_DELETED) {
+      // ChatGPT deleted this chat. Its own notice says so; a reload, a "send a message here" note
+      // or a stopped-chat notification would all point at a chat that no longer exists.
+      endActivity(conversationId);
     } else if ((lastEnd === 'failed' || lastEnd === 'stalled') && sessionId) {
       // Without the mark a `stalled` turn took the `endActivity` branch below instead — it left
       // the silence watch entirely, so nothing reached finishSilentChats, and nothing was said.

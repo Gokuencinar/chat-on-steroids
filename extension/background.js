@@ -8,7 +8,7 @@
  * https://chatgpt.com origin), and there is no message that makes the app touch a
  * file, run a command or change a permission.
  *
- * Discovery is a scan of five fixed loopback ports for a /hello that identifies the
+ * Discovery is a scan of fixed loopback ports for a /hello that identifies the
  * app. Nothing is broadcast and nothing listens.
  *
  * This worker also owns the observation journal. A content script lives only as long as
@@ -27,7 +27,8 @@ import './i18n.js';
 
 const activeTabs = globalThis.chrome?.debugger ? createActiveTabs(chrome) : null;
 
-const PORTS = [8765, 8766, 8767, 8768, 8769];
+// Primary range plus two Windows-reservation fallbacks; same Auto order as the native bridge.
+const PORTS = [8765, 8766, 8767, 8768, 8769, 18765, 18766, 18767, 18768, 18769, 38765, 38766, 38767, 38768, 38769];
 const HELLO_TIMEOUT_MS = 1200;
 const REQUEST_TIMEOUT_MS = 10_000;
 /** A journal receipt follows durable session writes, which can outlast an ordinary read. */
@@ -1363,7 +1364,10 @@ async function redeemCommand(id, client, conversationId = null, projectEntry = f
     retryable: result.status === 0 || result.status === 429 || result.status >= 500
   };
   const command = result.data && result.data.command ? result.data.command : null;
-  return { ok: true, command };
+  // A tab the app opened runs its command before its first status reply. Without this install's
+  // names it would take the plain "Chat On Steroids Core" for its own, which on a computer with a
+  // suffix is the other computer's, and mention that Core in the bootstrap.
+  return { ok: true, command, ...(command ? { identity: { connectorNames, connectorApps, ownCoreApp } } : {}) };
 }
 
 function commandAckPayload(id, status, error, conversationId, agent, client, turnId, detail) {
@@ -3540,6 +3544,12 @@ const HANDLERS = {
     if (connectorNames?.core) await rememberOwnCoreApp({ appId: message.appId, name: connectorNames.core });
     return call('/core-plugin', { method: 'POST', body: JSON.stringify({ appId: message.appId }) });
   },
+  // A page read ChatGPT's own `conversation_deleted` answer for this chat (usage.js).
+  async conversation_deleted(message, _sender, source) {
+    const conversationId = String(message.conversationId || '').toLowerCase();
+    if (!ownsDocument(source) || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(conversationId)) return { ok: false };
+    return call('/conversation-deleted', { method: 'POST', body: JSON.stringify({ conversationId }) });
+  },
   async usage_observation(message, _sender, source) {
     if (!ownsDocument(source) || !Array.isArray(message.rows) || message.rows.length > 80) return { ok: false };
     const body = JSON.stringify({ rows: message.rows, observedAt: message.observedAt });
@@ -4384,6 +4394,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     'plugin_refresh',
     'core_plugin',
     'load_failure',
+    'conversation_deleted',
     'usage_observation',
     'events',
     'bind',
