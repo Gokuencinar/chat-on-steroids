@@ -1,6 +1,5 @@
-/* Dictation lives entirely in the existing composer; Appearance supplies the colors. */
-/* New Phosphor glyph: keep the global curated icons.css registry untouched. */
-.composer-dictation-button .ph.ph-microphone::before { content: '\e326'; }
+/* Dictation lives entirely in the existing composer and uses its theme tokens. */
+.composer-dictation-button[hidden] { display: none; }
 .composer-dictation-button {
   position: relative;
   display: inline-grid;

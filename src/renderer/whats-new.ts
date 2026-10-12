@@ -44,6 +44,16 @@ const RELEASES: Readonly<Record<string, Release>> = {
       { icon: 'i-panel-right', title: () => t('Panels in the title bar'), text: () => t('The panel buttons moved to the title bar, and the right panel now runs the full height of the window.') }
     ]
   },
+  '2.1.35': {
+    lead: () => t('ChatGPT Projects for your projects, workers in their own Git copy, and steadier long runs.'),
+    highlights: [
+      { icon: 'i-folder', title: () => t('Projects in ChatGPT'), text: () => t('New projects get their own ChatGPT Project, and their new chats open inside it.') },
+      { icon: 'i-browser', title: () => t('Background chats in a tab group'), text: () => t('Background chats can stay in one collapsed tab group in your browser window instead of their own window.') },
+      { icon: 'i-git-diff', title: () => t('Workers in their own Git copy'), text: () => t('When you turn it on, each new worker gets its own Git worktree and branch, away from your checkout.') },
+      { icon: 'i-chat', title: () => t('Dictation on Windows'), text: () => t('The microphone button turns your speech into text in the message box, and you send it when you\'re ready.') },
+      { icon: 'i-plug', title: () => t('Rename your connectors'), text: () => t('Chat On Steroids apps you rename in ChatGPT keep working.') }
+    ]
+  },
   '2.1.34': {
     lead: () => t('Goal on every plan, Compact & Resume in Projects, and a background window that stays.'),
     highlights: [

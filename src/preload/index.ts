@@ -35,6 +35,8 @@ import type {
   SessionEvent,
   SessionSummary,
   ClearAgentResult,
+  WorkerWorktreeCleanupOffer,
+  WorkerWorktreeCleanupResult,
   SwarmState,
   TokenPressure
 } from '../shared/session.js';
@@ -95,6 +97,8 @@ export interface SessionDetail {
 }
 
 const api = {
+  /** System.Speech is available only through Windows PowerShell. */
+  dictationSupported: process.platform === 'win32',
   /** Start microphone access only on explicit user action; audio stays in Windows recognizer. */
   startDictation: () => call<{ status: 'starting' }>('dictation:start'),
   stopDictation: () => call<void>('dictation:stop'),
@@ -248,6 +252,7 @@ const api = {
     call<SessionList>('sessions:list', options ?? {}),
   listProjects: () => call<LocalProject[]>('projects:list'),
   addProject: () => call<LocalProject | null>('projects:add'),
+  retryChatgptProject: (id: string) => call<LocalProject | null>('projects:chatgpt-retry', { id }),
   removeProject: (id: string) => call<LocalProject>('projects:remove', { id }),
   setProjectColor: (id: string, color: ProjectColor | null) => call<LocalProject>('projects:color', { id, color }),
   listProjectFiles: (projectId: string, directory = '') => call<ProjectDirectoryListing>('projectFiles:list', { projectId, directory }),
@@ -357,6 +362,11 @@ const api = {
   // Clearing the prime ends the run; clearing a worker frees that slot. Which of the two
   // happened comes back in the result — the renderer does not decide it.
   clearAgent: (id: string, runId?: string) => call<ClearAgentResult>('swarm:clearAgent', { id, runId }),
+  /** Review only. Scans retained broker-owned checkouts on demand, never at app startup. */
+  listWorktreeCleanupOffers: () => call<WorkerWorktreeCleanupOffer[]>('swarm:worktreeCleanupList'),
+  /** Main process asks the user for explicit approval before discarding checkout files. */
+  removeWorktreeCleanupOffer: (runId: string, agentId: string) =>
+    call<WorkerWorktreeCleanupResult>('swarm:worktreeCleanupRemove', { runId, agentId }),
 
   onStateChanged: (listener: (state: AppState) => void): (() => void) => {
     const wrapped = (_event: unknown, state: AppState): void => listener(state);

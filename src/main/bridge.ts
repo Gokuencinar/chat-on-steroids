@@ -22,6 +22,7 @@ import { publishBrowserDecision, authorizeBrowserInput, sessionInputPolicy, coll
 import { pluginRefreshPublications, coreConnectorPresence, pendingPluginRefreshes, claimPluginRefresh, requireManualPluginRefresh, completePluginRefresh, failPluginRefresh } from './plugin-refresh.js';
 import { attachBrowserWake, wakeBrowserWork } from './browser-wake.js';
 import { tunnelRouteSettling } from './tunnel/route-settle.js';
+import { armProjectCreate, claimProjectCreate, completeProjectCreate, failProjectCreate, getProject, markProjectGone, pendingProjectCreates } from './projects.js';
 import { wakeBrowserUrl } from './browser-startup.js';
 let browserWake: ReturnType<typeof attachBrowserWake> | null = null;
 import { browserWindowBounds, currentBrowserWorkArea } from './browser-window-layout.js';
@@ -174,6 +175,7 @@ import { ownCoreHint,
   pendingWorkerSpawns,
   primeConversationGone,
   primeConversation,
+  workerBootstrapWorktreeIdentity,
   requestWorkerRevivals,
   rollbackWorkerRevivalClaim,
   releaseQuiescentRun,
@@ -195,6 +197,7 @@ import { ownCoreHint,
   workerRevivalDeliveredSince,
   type WorkerRevival
 } from './agents.js';
+import { lookupWorkerWorkspace, validateWorkerWorkspaceLease } from './worktrees/index.js';
 import {
   abortContinuation,
   abortContinuationNow,
@@ -766,7 +769,8 @@ const FOLLOW_TTL_MS = 10_000;
 let pendingFollow: { conversationId: string; at: number } | null = null;
 
 export function followChatInBackground(conversationId: string): void {
-  if (getConfig().ui.backgroundChats !== true || !browserWakeConnected() || !revealCapable()) return;
+  if (getConfig().ui.backgroundChats !== true || getConfig().ui.backgroundPlacement === 'group' ||
+      !browserWakeConnected() || !revealCapable()) return;
   pendingFollow = { conversationId, at: Date.now() };
   wakeBrowserWork();
 }
@@ -774,7 +778,8 @@ export function followChatInBackground(conversationId: string): void {
 function takeFollow(browser: string | null): string | null {
   const entry = pendingFollow;
   if (!entry || !browser) return null;
-  if (Date.now() - entry.at > FOLLOW_TTL_MS || getConfig().ui.backgroundChats !== true) { pendingFollow = null; return null; }
+  if (Date.now() - entry.at > FOLLOW_TTL_MS || getConfig().ui.backgroundChats !== true ||
+      getConfig().ui.backgroundPlacement === 'group') { pendingFollow = null; return null; }
   if (!chatHolders(entry.conversationId).includes(browser)) return null;
   pendingFollow = null;
   return entry.conversationId;
@@ -2431,6 +2436,35 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     if (ok) changed();
     return json(res, ok ? 200 : 409, { ok }, origin);
   }
+  // A new CoS project's native ChatGPT Project, created by one page through ChatGPT's own dialog.
+  // `client` is that page's per-document id: one page claims, arms before its click and reports
+  // the id the new Project's page shows. See `projects.ts` for what each state allows.
+  if (route === '/project-create' && req.method === 'POST') {
+    const raw = await readBody(req);
+    const body = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+    if (body.action === 'pending') return json(res, 200, { requests: await pendingProjectCreates() }, origin);
+    // A new chat's tab for a linked Project landed on ChatGPT's home: that Project is gone.
+    if (body.action === 'gone') {
+      const entry = typeof body.inputId === 'string' ? (await listInputs()).find(row => row.id === body.inputId) : undefined;
+      const ok = !!entry?.projectId && typeof body.chatgptId === 'string' && await markProjectGone(entry.projectId, body.chatgptId);
+      if (ok) logWarn('bridge: ChatGPT no longer opens a linked native Project; its project shows Retry');
+      return json(res, ok ? 200 : 409, { ok }, origin);
+    }
+    if (typeof body.id !== 'string' || !/^[a-f0-9-]{36}$/i.test(body.id) ||
+        typeof body.client !== 'string' || !body.client || body.client.length > 64) return json(res, 400, { error: 'invalid_request' }, origin);
+    const client = body.client;
+    let ok = false;
+    if (body.action === 'claim') ok = await claimProjectCreate(body.id, client);
+    else if (body.action === 'arm') ok = await armProjectCreate(body.id, client);
+    else if (body.action === 'done' && typeof body.chatgptId === 'string') ok = await completeProjectCreate(body.id, client, body.chatgptId);
+    else if (body.action === 'fail' && typeof body.error === 'string') ok = await failProjectCreate(body.id, client, body.error.slice(0, 500));
+    if (ok) {
+      if (body.action === 'done') logInfo(`bridge: created the native ChatGPT Project for a new CoS project`);
+      if (body.action === 'fail') logWarn(`bridge: native ChatGPT Project creation failed — ${String(body.error).slice(0, 200)}`);
+      changed();
+    }
+    return json(res, ok ? 200 : 409, { ok }, origin);
+  }
   if (route === '/browser/preferences' && req.method === 'POST') {
     const accepted = acknowledgeBrowserPreferences(await readBody(req));
     return json(res, accepted ? 200 : 409, { ok: accepted }, origin);
@@ -2536,6 +2570,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
           [surface, apps.map(({ appId, linkId, name }) => ({ appId, linkId, name }))])),
         pluginRefreshRequests: getConfig().ui.autoRefreshPlugins === true ? pluginRefreshPublications().map(({ surface, schemaId, connectorName }) => ({ surface, schemaId, connectorName })) : [],
         browserPreferenceRequest: pendingBrowserPreferenceRequest(),
+        projectCreateRequests: await pendingProjectCreates(),
         inputOpeningIds: inputRows.filter(row => !['sent', 'failed', 'cancelled'].includes(row.state)).map(row => row.id),
         // A message for the running turn goes in while a call runs: ChatGPT keeps that call's result (#1231).
         // An existing chat waits out a new tunnel-client's takeover, or its next call waits ~2 min (#1220).
@@ -2548,6 +2583,8 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
             .map(row => ({ id: row.id, owner: row.owner, lifetime: row.lifetime, close: true,
               retire: true, ...(row.conversationId ? { conversationId: row.conversationId } : {}) }))],
         background: getConfig().ui.backgroundChats === true,
+        // #128: where the companion puts background tabs. Unknown or absent means the window.
+        backgroundPlacement: getConfig().ui.backgroundPlacement === 'group' ? 'group' : 'window',
         browserOnly: getConfig().ui.browserOnly === true,
         browserWorkArea: currentBrowserWorkArea(),
         browserWindowBounds: browserWindowBounds(),
@@ -2704,6 +2741,13 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     if (target && tunnelRouteSettling()) return json(res, 200, { input: null }, origin);
     if (staleCompanion(req)) return json(res, 200, { input: null }, origin);
     if (!target && openingHeldElsewhere(body.id, browserOf(req))) return json(res, 200, { input: null }, origin);
+    // A new chat of a project with a native ChatGPT Project is claimed only from that Project's
+    // own page, which the page names; the root or another Project is never its destination.
+    if (!target) {
+      const entry = (await listInputs()).find(row => row.id === body.id);
+      const link = entry?.projectId && entry.purpose !== 'decision' && !entry.lifetime ? (await getProject(entry.projectId))?.chatgpt : undefined;
+      if (link && (link.state !== 'linked' || body.project !== link.id)) return json(res, 200, { input: null }, origin);
+    }
     const input = await claimBrowserInput(body.id, body.owner, target, body.requiresAuthorization === true);
     return json(res, 200, { input }, origin);
   }
@@ -4514,13 +4558,38 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       }
     }
     const described = describe(command, client, claimedSummary);
-    if (described.text && command.spec.type === 'worker') {
-      // A newly spawned worker gets setup once. Revival and Compact & Resume
-      // carry their own continuation text without repeating executor setup.
-      const sourceConversation = primeConversation(command.spec.runId);
-      const source = sourceConversation ? await findSessionByConversation(sourceConversation, { requireUnique: true }) : null;
-      const sessionId = source?.conversationId === sourceConversation ? source?.id : undefined;
-      described.text = await prepareSessionPrompt(described.text, { sessionId });
+    if (described.text && (command.spec.type === 'worker' || command.spec.type === 'revive')) {
+      // The broker knows whether this *exact* worker was allocated an isolated checkout.
+      // Its allocation id survives a restart or a new active run incarnation, unlike the
+      // current run id or the display-only worker slot name.
+      let allocation: { runId: string; agentId: string } | null;
+      try {
+        allocation = workerBootstrapWorktreeIdentity(command.spec.runId, command.spec.agent);
+      } catch {
+        return json(res, 409, { error: 'worker_identity_changed' }, origin);
+      }
+      let workingDirectory: string | undefined;
+      if (allocation) {
+        const lease = lookupWorkerWorkspace(allocation);
+        if (!lease) return json(res, 409, { error: 'worker_worktree_unavailable' }, origin);
+        try {
+          workingDirectory = (await validateWorkerWorkspaceLease(lease, getConfig().roots)).workspace.virtual;
+        } catch {
+          return json(res, 409, { error: 'worker_worktree_unavailable' }, origin);
+        }
+      }
+      if (command.spec.type === 'worker') {
+        // New workers read the source project's AGENTS.md, but when a worktree is allocated
+        // only that verified checkout may be presented as their working directory.
+        const sourceConversation = primeConversation(command.spec.runId);
+        const source = sourceConversation ? await findSessionByConversation(sourceConversation, { requireUnique: true }) : null;
+        const sessionId = source?.conversationId === sourceConversation ? source?.id : undefined;
+        described.text = await prepareSessionPrompt(described.text, { sessionId, workingDirectory });
+      } else if (workingDirectory) {
+        // Revivals carry the prime's latest user-authored message, without repeating Core or
+        // source AGENTS. Reassert the same checkout after a restart or worker reuse.
+        described.text += `\n\n(Chat On Steroids worker working directory: ${workingDirectory}. Keep worker task changes in this allocated Git worktree; the source project only supplies instructions.)`;
+      }
     }
     if (!commands.includes(command) || command.owner !== client) return json(res, 409, { error: 'command_taken' }, origin);
     const liveResume = command.spec.type === 'resume' ? continuationByToken(command.spec.token) : null;
@@ -8851,6 +8920,15 @@ async function inspectOwedCompactions(now: number): Promise<boolean> {
     }
     const schedule = COMPACTION_PICKUPS[phase];
     if (now < watch.nextAt) continue;
+    // The handoff request is sent when the source turn has finished. While that turn still works,
+    // a pickup only reloads a busy page and spends the budget: on 2026-10-12 an automatic ticket
+    // filed mid-turn spent all ten pickups on a generating page, wrote "Trying to reload chat to
+    // recover a handoff request that has not been sent" each time, and gave up (handoff_never_sent)
+    // just after the turn finally ended. Wait for the turn instead, without counting.
+    if (phase === 'asking' && session && sessionInputActivity(session).exact) {
+      watch.nextAt = now + schedule.every;
+      continue;
+    }
     if (watch.attempts >= schedule.attempts) {
       if (phase === 'writing' && !watch.told) {
         // The sent request stays protected and gets no fourth reload, but the person reading
