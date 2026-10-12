@@ -265,7 +265,11 @@
 }
 :root[data-appearance-style='cyberpunk'] .sidebar { border-right: 2px solid #25ddea; }
 :root[data-appearance-style='cyberpunk'] .app-topbar { border-bottom: 2px solid #ff38c8; }
-:root[data-appearance-style='cyberpunk'] :is(.composer, .settings-surface, .plugin-card, .appearance-preview, .pane) {
+/* Never clip the composer: its absolute attachment/mode popovers extend above
+   the form. The polygon mask hides their upper actions even at z-index: 30.
+   Keep the corner cuts on the static Cyberpunk panels; the composer retains
+   its neon border, focus rails and rounded corners from cyberpunk.css. */
+:root[data-appearance-style='cyberpunk'] :is(.settings-surface, .plugin-card, .appearance-preview, .pane) {
   clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
 }
 :root[data-appearance-style='cyberpunk'] #chatSend:not(:disabled) {

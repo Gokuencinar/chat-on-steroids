@@ -425,6 +425,33 @@ app.whenReady().then(async () => {
       }
       await screenshot('skin-'+preset+'-settings.png');
       await js(`document.getElementById('backToChat').click()`);
+      // The real attachment popover escapes above the composer. A theme that
+      // clips the composer can leave only its bottom Skills row hit-testable,
+      // even though all four options remain in the DOM and have high z-index.
+      const attachments = await js(`(async () => {
+        const menu=document.getElementById('attachmentMenu');
+        menu.open=true;
+        await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+        const composer=document.getElementById('composer');
+        const popover=menu.querySelector('.composer-popover');
+        const bounds=popover.getBoundingClientRect();
+        const options=['attachImages','composerFolder','composerSkills','composerAddSkill']
+          .map(id=>{
+            const button=document.getElementById(id),rect=button.getBoundingClientRect();
+            const x=rect.left+rect.width/2,y=rect.top+rect.height/2;
+            return {id,visible:rect.width>0&&rect.height>0&&x>=0&&x<innerWidth&&y>=0&&y<innerHeight,
+              hit:button.contains(document.elementFromPoint(x,y))};
+          });
+        return {clip:getComputedStyle(composer).clipPath,top:bounds.top,bottom:bounds.bottom,
+          viewport:innerHeight,options};
+      })()`);
+      assert.ok(attachments.top>=0 && attachments.bottom<=attachments.viewport,
+        preset+' attachment popover extends outside the viewport: '+JSON.stringify(attachments));
+      assert.ok(attachments.options.every(button=>button.visible&&button.hit),
+        preset+' attachment options are visually clipped or unclickable: '+JSON.stringify(attachments));
+      if(['cyberpunk','terminal','classic'].includes(preset))
+        await screenshot('skin-'+preset+'-attachment-menu.png');
+      await js(`document.getElementById('attachmentMenu').open=false`);
       const currentSkin = await skinSnapshot();
       const decorated = assertGlobalSkin(preset,currentSkin,['win95','solar'].includes(preset)?classicLight:classicDark);
       const deepChat = await deepChatSnapshot();
