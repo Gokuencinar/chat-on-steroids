@@ -3428,6 +3428,13 @@ renderer; Linux/macOS retain their existing full click-through visual-surface co
 Projects, workers, plans, model choice, usage and plugins have focused modules (§4). The renderer
 calls a fixed `preload/index.ts` allowlist into validated `ipc.ts`/`plugins-ipc.ts` handlers.
 No arbitrary IPC invocation, Node access, filesystem path opening or renderer-side secret store.
+Windows-only microphone dictation uses the fixed preload API and a validated
+`shared/dictation.ts` event contract; recognized text stays in the owning draft
+until manually sent. The native `main/dictation.ts` PowerShell child watches its
+original app PID every second and exits if the parent disappears, including a crash
+or forced termination. On graceful app `before-quit`, main kills the child immediately;
+only an explicit user Stop waits up to 1.5 seconds for final recognition results.
+The exit and orphan-path tests use a synthetic parent without opening a microphone.
 Changing the selected session synchronously retires prior data/control ownership and handoff.
 Keep the last painted transcript and images inert while the destination detail loads, then
 replace them directly; queue/status repaints must not flash the New Chat welcome screen.
