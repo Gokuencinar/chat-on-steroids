@@ -140,6 +140,8 @@ export interface UiPrefs {
   /** Maintenance may reuse existing tabs but cannot open helpers or missing chats. */
   browserOnly?: boolean;
   backgroundChats?: boolean;
+  /** Where background tabs go: the app's minimized window, or a collapsed tab group in the user's window (#128). */
+  backgroundPlacement?: 'window' | 'group';
   browserBridgePort?: import('./browser-bridge.js').BrowserBridgePort;
   /** Opt-in browser automation for changed connector tool schemas. */
   autoRefreshPlugins?: boolean;
@@ -347,6 +349,11 @@ export interface MultiAgentSettings {
    * context that is about to change. Off by default; a chat with no workers is never held.
    */
   waitForSubAgents?: boolean;
+  /**
+   * Opt into an isolated Git worktree and branch for each newly spawned worker.
+   * Defaults to Off. Existing managed workers keep their exact workspace if toggled Off.
+   */
+  autoWorktrees?: boolean;
   /**
    * Reclaim only terminal processes owned by an exactly identified worker that has remained
    * sleeping beyond the runtime-retention threshold. Off by default; durable worker/chat

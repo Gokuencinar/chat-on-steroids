@@ -19,7 +19,7 @@ beforeAll(async () => {
       <p id="dictationStatus" role="status" hidden></p></form>
   </body></html>`, { url: 'https://local.test/' });
   dom.window.HTMLCanvasElement.prototype.getContext = (() => null) as typeof dom.window.HTMLCanvasElement.prototype.getContext;
-  const api = { startDictation: start, stopDictation: stop,
+  const api = { dictationSupported: true, startDictation: start, stopDictation: stop,
     onDictationEvent: (listener: (event: DictationEvent) => void) => { emit = listener; return unsubscribe; } };
   Object.defineProperty(dom.window, 'api', { value: api });
   Object.assign(globalThis, { window: dom.window, document: dom.window.document,
@@ -40,11 +40,12 @@ describe('renderer microphone draft ownership', () => {
   it('ships a real accessible composer control and its bundled icon mapping', async () => {
     const [html, css] = await Promise.all([
       readFile('src/renderer/index.html', 'utf8'),
-      readFile('src/renderer/dictation.css', 'utf8')
+      readFile('src/renderer/icons.css', 'utf8')
     ]);
     const page = new JSDOM(html);
     const mic = page.window.document.getElementById('dictationButton') as HTMLButtonElement;
     expect(mic.type).toBe('button');
+    expect(mic.hidden).toBe(true);
     expect(mic.getAttribute('aria-pressed')).toBe('false');
     expect(mic.getAttribute('aria-describedby')).toBe('dictationStatus');
     expect(mic.closest('.composer-primary-controls')).not.toBeNull();
@@ -57,6 +58,7 @@ describe('renderer microphone draft ownership', () => {
     expect(start).not.toHaveBeenCalled();
     expect(stop).not.toHaveBeenCalled();
     expect(button.disabled).toBe(false);
+    expect(button.hidden).toBe(false);
     expect(button.type).toBe('button');
     expect(button.getAttribute('aria-label')).toBe('Start dictation');
     expect(button.getAttribute('aria-pressed')).toBe('false');
