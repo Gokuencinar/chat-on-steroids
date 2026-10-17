@@ -151,6 +151,31 @@ function Start-AppIfNeeded([string]$exe) {
   }
 }
 
+# Included in the published updater, not only the local source-build CMD.
+# The installer ships vetted ECC files and the importer as ordinary resources.
+# Existing personal Skills always win; this never changes the selected appearance.
+function Offer-EccSkills([string]$installDir, [string]$version) {
+  $targetVersion = As-Version $version
+  if (!$targetVersion -or $targetVersion -lt [version]'2.1.45') { return }
+  $folder = Join-Path $installDir 'resources\ecc\v2.2.3'
+  $importer = Join-Path $installDir 'resources\ecc\import-ecc-pack.ps1'
+  if (!(Test-Path -LiteralPath (Join-Path $folder 'install-manifest.json') -PathType Leaf) -or
+      !(Test-Path -LiteralPath $importer -PathType Leaf)) {
+    throw 'El paquete ECC no esta completo en el instalador. No se importaran Skills.'
+  }
+  Write-Step 'Skills ECC adicionales'
+  & $importer -PackageRoot $folder
+  $answer = Read-Host 'Importar las Skills ECC que falten y /ecc-all sin sobrescribir las actuales? [S/N]'
+  if ($answer -match '^[sSyY]$') {
+    if ((Get-AppProcesses).Count -gt 0) {
+      Write-Host 'Cierra primero CoS desde la bandeja y ejecuta el actualizador otra vez para importar Skills.' -ForegroundColor Yellow
+      return
+    }
+    & $importer -PackageRoot $folder -ConfirmInstall
+  }
+  Write-Host 'Los nueve estilos ya estan incluidos; elige uno en Ajustes > Apariencia.'
+}
+
 try {
   Write-Host 'Chat On Steroids - actualizador App + Extension' -ForegroundColor White
   Write-Host 'Repositorio: Gokuencinar/chat-on-steroids'
@@ -182,15 +207,23 @@ try {
     Wait-ForCleanQuit
     $installer = Download-VerifiedInstaller $release.tag_name $latestText
     Write-Step "Instalando $latestText"
-    $process = Start-Process -FilePath $installer -ArgumentList '/S','--updated','--force-run' -Wait -PassThru
+    # Do not auto-relaunch until the opt-in ECC import has had a chance to run
+    # with CoS completely stopped. The updater starts CoS after that step.
+    $process = Start-Process -FilePath $installer -ArgumentList '/S','--updated' -Wait -PassThru
     if ($process.ExitCode -ne 0) {
       throw "El instalador termino con codigo $($process.ExitCode)"
     }
     Start-Sleep -Seconds 2
     $installed = Get-InstalledApp
     Write-Host "App actualizada a $($installed.Version)." -ForegroundColor Green
+    Offer-EccSkills $installed.InstallDir $installed.Version
   } else {
     Write-Host 'La app ya esta actualizada; no se descarga el instalador.' -ForegroundColor Green
+    if ((Get-AppProcesses).Count -eq 0) {
+      Offer-EccSkills $installed.InstallDir $installed.Version
+    } else {
+      Write-Host 'Para anadir Skills ECC, cierra CoS desde la bandeja y vuelve a ejecutar este CMD.' -ForegroundColor Yellow
+    }
     Start-AppIfNeeded $installed.Exe
   }
 

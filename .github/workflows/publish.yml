@@ -8,6 +8,11 @@ name: Publish release
 # pipeline in that tag's own tree.
 on:
   workflow_dispatch:
+  # Publish this reviewed fork release automatically after the matching tag
+  # is pushed. The existing strict tag/version/checksum preflight still runs.
+  push:
+    tags:
+      - v2.1.45
 
 permissions:
   contents: read

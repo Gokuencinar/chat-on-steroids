@@ -6,6 +6,7 @@ import { requestSessionFinishGoal, setFinishNotifier } from './session/finish.js
  */
 
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { app, Notification, BrowserWindow, Menu, Tray, nativeImage, nativeTheme, powerMonitor, screen, session } from 'electron';
 import { getConfig, initConfigPath, loadConfig } from './config.js';
 import { initConnectorProofPath, loadConnectorProof, notePluginInstalled } from './connector-proof.js';
@@ -576,8 +577,25 @@ void app.whenReady().then(async () => {
     });
   });
 
-  // Deny every permission request; the UI needs none of them.
-  session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
+  // The opt-in OpenAI dictation provider captures microphone audio in our own
+  // sandboxed renderer. The previous blanket deny blocked getUserMedia entirely.
+  // Admit microphone-only requests from the current first-party app window;
+  // never grant camera/video, location, clipboard, notifications or third-party
+  // frames/windows. Audio is uploaded only after the user's dictation action.
+  const trustedMicrophoneOwner = (contents: Electron.WebContents | null): boolean =>
+    !!contents && !!window && !window.isDestroyed() &&
+    window.webContents === contents && !contents.isDestroyed() &&
+    (process.env.ELECTRON_RENDERER_URL
+      ? contents.getURL().startsWith(process.env.ELECTRON_RENDERER_URL)
+      : contents.getURL().split(/[?#]/, 1)[0] === pathToFileURL(path.join(__dirname, '../renderer/index.html')).href);
+  session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => {
+    callback(permission === 'media' && trustedMicrophoneOwner(contents) &&
+      'mediaTypes' in details && Array.isArray(details.mediaTypes) &&
+      details.mediaTypes.length === 1 && details.mediaTypes[0] === 'audio');
+  });
+  session.defaultSession.setPermissionCheckHandler((contents, permission, _origin, details) =>
+    permission === 'media' && trustedMicrophoneOwner(contents) &&
+    details.mediaType === 'audio');
 
   // From here on a second launch may safely focus/recreate the window: renderer security policy
   // is installed and the renderer's fixed IPC methods already have handlers before it can load.

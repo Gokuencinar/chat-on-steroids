@@ -3534,18 +3534,25 @@ of appearance controls.
 
 ### Renderer and IPC
 
-The Windows composer dictation control uses `preload/index.ts`'s fixed
-`dictationSupported`, `startDictation`, `stopDictation` and
-`onDictationEvent` methods. `main/dictation.ts` alone owns a Windows
-`System.Speech.Recognition` child process and sends validated
-`shared/dictation.ts` events (`status`, `partial`, `final`, `error`) to
-its originating `webContents`. Only an explicit microphone click starts it;
-the renderer owns the current composer draft, stops on manual edits/navigation,
-and never sends recognized text automatically. A normal Stop grants 650ms for
-final recognition; app `before-quit` kills the child synchronously, and the
-PowerShell event loop checks the owning app's PID each second so a crashed/killed
-app cannot leave an orphan recording. No audio enters IPC or storage;
-macOS/Linux hide this Windows-only control.
+The Windows composer microphone defaults to offline `System.Speech.Recognition`
+through the fixed `dictationSupported`/`startDictation`/`stopDictation`/
+`onDictationEvent` preload API. `main/dictation.ts` owns its PowerShell child
+and validates the `shared/dictation.ts` `status`/`partial`/`final`/`error`
+events. A user-selectable **OpenAI cloud** mode instead records audio on a
+microphone click with `MediaRecorder` (at most 45 seconds / 8 MiB), then uses
+the narrowly exposed `dictationOpenAIKeyStatus`/`transcribeDictationAudio`/
+`cancelDictationTranscription` API. Only main reads the encrypted Setup API key
+for the active profile and calls the official OpenAI transcription endpoint;
+ChatGPT subscription tokens/private endpoints are never substitutes. Cloud
+audio crosses the fixed validated IPC on explicit Stop but is never persisted
+by this feature. Electron permits audio capture only for the trusted CoS
+renderer, never camera or arbitrary web origins. Windows remains the default;
+the cloud provider requires an independent API key and may incur charges.
+Neither provider submits the prompt automatically: final text can update only
+the owning unchanged draft, while edits/navigation/cancel discard late results.
+For offline mode a user Stop grants up to 1.5 seconds for final recognition;
+app `before-quit` kills the helper immediately, and its loop checks the owning
+app PID each second to avoid orphan recording. See `docs/dictation-openai.md`.
 
 Interface icons use one system: the bundled Phosphor font (`renderer/icons.css`, built from
 `@phosphor-icons/web`). Code names an icon by meaning (`icon('i-retry')`) and `dom.ts` `ICONS`
@@ -3583,13 +3590,9 @@ renderer; Linux/macOS retain their existing full click-through visual-surface co
 Projects, workers, plans, model choice, usage and plugins have focused modules (§4). The renderer
 calls a fixed `preload/index.ts` allowlist into validated `ipc.ts`/`plugins-ipc.ts` handlers.
 No arbitrary IPC invocation, Node access, filesystem path opening or renderer-side secret store.
-Windows-only microphone dictation uses the fixed preload API and a validated
-`shared/dictation.ts` event contract; recognized text stays in the owning draft
-until manually sent. The native `main/dictation.ts` PowerShell child watches its
-original app PID every second and exits if the parent disappears, including a crash
-or forced termination. On graceful app `before-quit`, main kills the child immediately;
-only an explicit user Stop waits up to 1.5 seconds for final recognition results.
-The exit and orphan-path tests use a synthetic parent without opening a microphone.
+Dictation's offline child-parent lifetime is tested with a synthetic parent
+without opening a microphone; OpenAI file transcription uses mocked network
+and recorder tests, not a claim of live microphone/API validation.
 Changing the selected session synchronously retires prior data/control ownership and handoff.
 Keep the last painted transcript and images inert while the destination detail loads, then
 replace them directly; queue/status repaints must not flash the New Chat welcome screen.
@@ -4149,6 +4152,26 @@ through Reveal or Attach without a fabricated preview. Delete uses the OS Trash 
 The renderer retains at most eight unsaved project drafts during project navigation. Async dialog,
 preview, watcher and save results recheck their original view generation. File attachment staging
 captures the existing ComposerDraftOwner before the await, so a later chat cannot receive it.
+
+ECC v2.2.3-inspired native learning belongs to an **explicitly selected and
+approved local project**, not a guessed cwd or every ChatGPT transcript.
+The renderer exposes a separate ECC sidebar library page with tabs for learning,
+project memory, security and reviewed ECC Skills. Local project picker entries
+come from `projects:list`, not the approved sandbox roots; an empty catalog
+offers `Add project folder` through the existing authorized `projects:add` flow.
+`main/ecc-learning-bridge.ts` classifies only tool type, outcome and hashed
+same-run receipts from durably attributed recorder events, without persisting
+chat messages, code, commands, tool arguments/results or credentials. Learning
+is off until separate project opt-in. `main/ecc-learning.ts` owns the bounded
+`.ecc/learning/` state, immediate 20-observation analysis and an unref'd native
+five-minute timer for three pending events; permission/realpath checks repeat
+before writes. Only observed high-confidence instincts reviewed and approved
+by the user may reach a bounded lower-priority project prompt via
+`session/prompt.ts`; skill/command drafts and cross-project promotion remain
+inert review/export operations, never automatic installations. Renderer project
+selection and ECC IPC must fail closed when the project/root proof disappears.
+Read `docs/ecc-continuous-learning.md` for limits, timer cleanup, and deliberate
+non-parity with Claude-specific upstream hooks/Haiku.
 
 ### Plugins: installation, execution and connector refresh
 

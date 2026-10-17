@@ -20,6 +20,7 @@ import { CHATGPT_SESSION_COOKIE, cosBrowserSignedIn, setCosBrowserSignedIn, isGo
 import { cosSignInTransfer, SignInTransferError, type SignInCookie } from './sign-in-transfer.js';
 import { EXTERNAL_BROWSER_LABELS, installedSignInBrowsers, openBrowserSignIn, type ExternalChatBrowser } from '../browser.js';
 import { opensInCosBrowser } from '../../shared/cos-browser-sites.js';
+import { chatGptAudioPermission } from './microphone-permission.js';
 import { TabModel, WINDOW_ID_NONE, type ModelEvent, type WindowState } from './tab-model.js';
 
 const PARTITION = 'persist:cos-browser';
@@ -274,8 +275,22 @@ export class CosBrowser {
     this.configured = ses;
     app.once('before-quit', () => { this.quitting = true; });
     ses.setUserAgent(chromiumUserAgent(app.userAgentFallback));
-    ses.setPermissionRequestHandler((_contents, permission, callback) => callback(ALLOWED_PERMISSIONS.has(permission)));
-    ses.setPermissionCheckHandler((_contents, permission) => ALLOWED_PERMISSIONS.has(permission));
+    // ChatGPT's *own* web composer can request audio after its microphone click.
+    // Do not authorize camera capture, a different origin, or media in the
+    // default (app) session. This partition is used only by CoS browser tabs.
+    ses.setPermissionRequestHandler((contents, permission, callback, details) => callback(
+      ALLOWED_PERMISSIONS.has(permission) || (details.isMainFrame &&
+        chatGptAudioPermission(contents.getURL(), permission, ['audio']) &&
+        chatGptAudioPermission(details.requestingUrl, permission,
+          'mediaTypes' in details && Array.isArray(details.mediaTypes) ? details.mediaTypes : []) &&
+        (!('securityOrigin' in details) || !details.securityOrigin ||
+          chatGptAudioPermission(details.securityOrigin, permission, ['audio'])))));
+    ses.setPermissionCheckHandler((contents, permission, requestingOrigin, details) =>
+      ALLOWED_PERMISSIONS.has(permission) || (details.isMainFrame &&
+        chatGptAudioPermission(contents?.getURL() ?? '', permission, ['audio']) &&
+        chatGptAudioPermission(details.requestingUrl ?? '', permission, ['audio']) &&
+        chatGptAudioPermission(details.securityOrigin ?? requestingOrigin, permission,
+          details.mediaType ? [details.mediaType] : [])));
     ses.registerPreloadScript({ type: 'service-worker', filePath: path.join(this.assets.preloadDir, 'cos-browser-worker.js') });
     // Signing in or out of ChatGPT, read again from the jar rather than from the one event: the
     // session cookie comes in numbered chunks, and replacing one removes it before setting it.

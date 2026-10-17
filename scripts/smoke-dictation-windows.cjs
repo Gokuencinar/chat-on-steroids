@@ -16,9 +16,12 @@ const embedded = source.match(/const SCRIPT = (\[[\s\S]*?\])\.join\('\\r\\n'\)/)
 if (!embedded) throw new Error('Recognizer script missing');
 const lines = vm.runInNewContext(embedded[1], Object.create(null));
 const original = lines.join('\r\n');
-const script = original.replace('$recognizer.SetInputToDefaultAudioDevice()',
+const script = original.replace('__COS_PARENT_PID__', String(process.pid)).replace(
+  '$recognizer.SetInputToDefaultAudioDevice()',
   "$recognizer.SetInputToWaveFile('" + wave.replace(/'/g, "''") + "')");
-if (script === original) throw new Error('Synthetic WAV was not substituted');
+if (script === original || script.includes('__COS_PARENT_PID__') ||
+    !script.includes('$recognizer.SetInputToWaveFile('))
+  throw new Error('Synthetic WAV or live parent PID was not substituted');
 const child = spawn('powershell.exe', [
   '-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand',
   Buffer.from(script, 'utf16le').toString('base64')

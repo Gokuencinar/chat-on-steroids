@@ -627,6 +627,54 @@ export function importSkillPackage(sourcePath: string, origin?: GitHubSkillOrigi
   });
 }
 
+/** Batch installation under the same serialized library owner as single imports.
+ * Preflight all sources, name collisions and capacity before publishing anything.
+ * Existing valid Skills (including user customizations) are never replaced.
+ * Each package is published with the normal identity-checked importer; an
+ * unexpected filesystem failure may leave an installed prefix, which a retry
+ * resumes without removing or rewriting any pre-existing content. */
+export function importSkillPackages(
+  sources: readonly { sourcePath: string; sha256: string }[]
+): Promise<ManagedSkill[]> {
+  return serial(async () => {
+    const candidateRoot = requiredRoot();
+    const records = await scan(candidateRoot);
+    const validIds = new Set(records.map(record => record.summary.id.toLowerCase()));
+    const diskNames = new Set((await directoryNames(candidateRoot)).map(name => name.toLowerCase()));
+    const sourcesById = new Map<string, { sourcePath: string; bytes: Buffer; revision: string; id: string }>();
+    for (const source of sources) {
+      const document = await packageDocument(source.sourcePath);
+      const key = document.id.toLowerCase();
+      if (sourcesById.has(key)) throw new Error(`Duplicate Skill in pack: ${document.id}`);
+      if (!/^[a-f0-9]{64}$/.test(source.sha256) || source.sha256 !== document.revision)
+        throw new Error(`Skill pack source changed or is not verified: ${document.id}`);
+      sourcesById.set(key, { sourcePath: source.sourcePath, ...document });
+    }
+    const missing = [...sourcesById.entries()].filter(([id]) => !validIds.has(id));
+    if (records.length + missing.length > MAX_SKILLS)
+      throw new Error(`Not enough room for the ECC pack in the Skills library (${records.length} installed, ${missing.length} needed, limit ${MAX_SKILLS})`);
+    for (const [id, entry] of missing) {
+      if (diskNames.has(id)) throw new Error(`Cannot install ECC pack: the folder ${entry.id} already exists`);
+    }
+    for (const [, entry] of missing) {
+      const { publishSkillPackage } = await import('./skill-package.js');
+      await publishSkillPackage(entry.sourcePath, candidateRoot, entry.id, entry.bytes);
+      const after = await scan(candidateRoot);
+      const imported = after.find(record => record.summary.id === entry.id);
+      if (!imported || imported.revision !== entry.revision)
+        throw new Error(`Skill pack publication could not be verified: ${entry.id}`);
+      publish(after);
+    }
+    const final = await scan(candidateRoot);
+    const result: ManagedSkill[] = [];
+    for (const record of final)
+      result.push({ ...record.summary, origin: await originAt(candidateRoot, record.summary.id) });
+    await assertManagedRoot(candidateRoot);
+    publish(final);
+    return result;
+  });
+}
+
 /** Replace exactly one GitHub-owned package; old contents remain recoverable in OS Trash. */
 export function updateSkillPackage(
   id: string,

@@ -234,3 +234,63 @@ it('shows recommended skill descriptions in the interface language and finds the
     await vi.waitFor(() => expect([...w.document.querySelectorAll<HTMLElement>('[data-recommended-skill-id]')].map(item => item.dataset.recommendedSkillId)).toEqual(['code-review']));
   } finally { setLanguage('en'); }
 });
+
+it('offers both ECC install modes in one card, requires confirmation for 33 Skills, and preserves the existing 8-workflow action', async () => {
+  dom = new JSDOM(`<!doctype html><body>
+    <input id="skillsSearch"><button id="skillsRefresh"></button>
+    <button id="skillsImportFolder"></button><button id="skillsImportFile"></button><button id="skillsImportGithub"></button>
+    <dialog id="skillGithubDialog"><h2 id="skillGithubTitle"></h2><p id="skillGithubDescription"></p><button id="skillGithubClose"></button><form id="skillGithubForm"><input id="skillGithubUrl"><p id="skillGithubError" hidden></p><button id="skillGithubCancel"></button><button id="skillGithubSubmit"></button></form></dialog>
+    <span id="skillsCount"></span><div id="skillsInstalled"></div>
+    <section id="skillsRecommendedSection"><span id="skillsRecommendedCount"></span><div id="skillsRecommended"></div></section>
+    <section id="eccRecommendedSection" hidden><div id="eccRecommended"></div></section>
+  </body>`, { url: 'https://skills.test/' });
+  const w = dom.window;
+  for (const [key, value] of Object.entries({ window: w, document: w.document, HTMLElement: w.HTMLElement, HTMLButtonElement: w.HTMLButtonElement, HTMLDialogElement: w.HTMLDialogElement })) vi.stubGlobal(key, value);
+  w.HTMLDialogElement.prototype.showModal = function () { this.open = true; };
+  w.HTMLDialogElement.prototype.close = function () { this.open = false; this.dispatchEvent(new w.Event('close')); };
+  const { ECC_SKILLS, ECC_PACK, ECC_COMPLETE_PACK } = await import('../src/shared/ecc-skills.js');
+  const { ECC_CATALOG } = await import('../src/shared/ecc-catalog.js');
+  const fullIds = [...ECC_SKILLS, ...ECC_CATALOG].map(item => item.id);
+  let skills: ManagedSkill[] = [];
+  const listRecommendedSkills = vi.fn(async () => ({ ok: true as const, data: [
+    { ...ECC_PACK, installed: false, members: ECC_SKILLS.map(item => item.id) },
+    { ...ECC_COMPLETE_PACK, installed: false, members: fullIds }
+  ] }));
+  const installRecommendedSkill = vi.fn(async (id: string) => {
+    const additions = id === ECC_PACK.id ? ECC_SKILLS.map(skill => skill.id) : fullIds;
+    const have = new Set(skills.map(item => item.id));
+    skills = [...skills, ...additions.filter(skill => !have.has(skill)).map(skill => ({
+      id: skill, name: skill, description: 'ECC', path: `/skills/${skill}/SKILL.md`, origin: null
+    }))];
+    return { ok: true as const, data: skills };
+  });
+  const api = { listManagedSkills: vi.fn(async () => ({ ok: true as const, data: skills })),
+    listRecommendedSkills, installRecommendedSkill, skillsCheckGithub: vi.fn(async () => ({ ok: true as const, data: [] })) };
+  const { initSkillsLibrary } = await import('../src/renderer/skills-library.js');
+  initSkillsLibrary(api as never)();
+  await vi.waitFor(() => expect(w.document.querySelectorAll('#eccRecommended .skill-library-card')).toHaveLength(1));
+  const card = w.document.querySelector('#eccRecommended .skill-library-card')!;
+  expect(card.textContent).toContain('ECC All Workflows');
+  const actions = [...card.querySelectorAll<HTMLButtonElement>('button')];
+  expect(actions.map(item => item.textContent)).toEqual(['Install 8 workflows', 'Install complete ECC pack (33 Skills)']);
+  actions[1]!.click();
+  expect(installRecommendedSkill).not.toHaveBeenCalled();
+  let dialog = w.document.getElementById('eccCompleteInstallDialog') as HTMLDialogElement;
+  expect(dialog.open).toBe(true);
+  expect(dialog.textContent).toContain('33 new Skills');
+  (dialog.querySelector('.pet-delete-actions .btn') as HTMLButtonElement).click();
+  expect(installRecommendedSkill).not.toHaveBeenCalled();
+  actions[0]!.click();
+  await vi.waitFor(() => expect(skills).toHaveLength(8));
+  expect(installRecommendedSkill).toHaveBeenCalledWith('ecc-core-pack');
+  await vi.waitFor(() => expect([...w.document.querySelectorAll<HTMLButtonElement>('#eccRecommended .skill-library-card button')]
+    .map(button => button.textContent)).toEqual(['Install complete ECC pack (33 Skills)']));
+  const singleCard = w.document.querySelector('#eccRecommended .skill-library-card')!;
+  (singleCard.querySelector('button') as HTMLButtonElement).click();
+  dialog = w.document.getElementById('eccCompleteInstallDialog') as HTMLDialogElement;
+  expect(dialog.textContent).toContain('25 new Skills');
+  (dialog.querySelector('.pet-delete-actions .btn-solid') as HTMLButtonElement).click();
+  await vi.waitFor(() => expect(skills).toHaveLength(33));
+  expect(installRecommendedSkill).toHaveBeenCalledWith('ecc-complete-pack');
+  await vi.waitFor(() => expect(w.document.getElementById('eccRecommendedSection')!.hidden).toBe(true));
+});

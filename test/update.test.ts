@@ -53,6 +53,7 @@ const {
   releaseVersion,
   resetUpdateForTests,
   stagedArtifact,
+  startUpdateChecks,
   updateStatus
 } = await import('../src/main/update.js');
 
@@ -565,5 +566,43 @@ describe('staged executable authority across later events', () => {
       repeat!(); await checkForUpdates();
       expect(next.asked).toEqual(['latest']);
     } finally { interval.mockRestore(); }
+  });
+});
+
+describe('update checks and downloads on unreliable connections', () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('retries a startup check after a minute and leaves the retry schedule after success', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
+    const offline = github({ fail: 'release' });
+    startUpdateChecks();
+    await vi.waitFor(() => expect(updateStatus().stage).toBe('failed'));
+    expect(offline.asked).toEqual(['latest']);
+    const online = github({ version: APP_VERSION });
+    await vi.advanceTimersByTimeAsync(59_000);
+    expect(online.asked).toEqual([]);
+    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.waitFor(() => expect(updateStatus().checkedAt).not.toBeNull());
+    expect(updateStatus().error).toBeNull();
+    const count = online.asked.length;
+    await vi.advanceTimersByTimeAsync(60 * 60_000);
+    expect(online.asked).toHaveLength(count);
+  });
+
+  it('aborts a stalled download after a minute without data', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
+    const stalled = new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(new TextEncoder().encode('first')); } });
+    const { fetch } = github({ body: 'installer bytes' });
+    const original = fetch.getMockImplementation()!;
+    fetch.mockImplementation(async (input: string | URL) => String(input).endsWith(WINDOWS_ASSET) ? new Response(stalled, { status: 200 }) : original(input));
+    let done = false;
+    const task = asPlatform('win32', undefined, () => checkForUpdates()).then(() => { done = true; });
+    await vi.waitFor(() => expect(updateStatus().stage).toBe('downloading'));
+    await vi.advanceTimersByTimeAsync(59_000);
+    expect(done).toBe(false);
+    await vi.advanceTimersByTimeAsync(2_000);
+    await task;
+    expect(updateStatus()).toMatchObject({ stage: 'failed', latest: NEXT });
+    expect(updateStatus().error).toContain('no data for 60 seconds');
   });
 });

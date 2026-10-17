@@ -3,6 +3,8 @@ import { readFileStream } from '../codex/filesystem.js';
 import { effectiveCapabilities, getConfig } from '../config.js';
 import { currentCoreInstructions } from '../mcp/instructions.js';
 import { getSessionProject, projectWorkspace } from '../projects.js';
+import { getSession } from './store.js';
+import { listApplicableEccLearningInstincts } from '../ecc-learning.js';
 import { resolvePath } from '../sandbox.js';
 import { MAX_CHATGPT_MESSAGE_CHARS, prependUserPrompt } from '../../shared/user-prompt.js';
 import { selectedSkillInstructions, type SelectedSkill } from './skill-prompt.js';
@@ -20,6 +22,24 @@ const cutNotice = '\n\n[Cut off because of the message limit. Read AGENTS.md you
 
 const promptFolder = (scope: PromptScope) => scope.sessionId ? getSessionProject(scope.sessionId)
   : scope.projectId ? projectWorkspace(scope.projectId) : Promise.resolve(null);
+
+/** Only human-approved, repeated high-confidence patterns from this exact live project. */
+async function reviewedEccPractices(scope: PromptScope, projectReal: string | null): Promise<string> {
+  if (!projectReal || !effectiveCapabilities(getConfig()).read || !getConfig().sessions.record) return '';
+  const saved = scope.sessionId ? await getSession(scope.sessionId) : null;
+  const projectId = scope.sessionId ? saved?.projectId : scope.projectId;
+  if (!projectId) return '';
+  try {
+    const resolved = await resolvePath(getConfig().roots, projectReal);
+    const practices = (await listApplicableEccLearningInstincts({
+      projectId, projectDirectory: resolved.real, approvedRootDirectory: resolved.root.path
+    })).slice(0, 6);
+    // IDs/triggers/actions originate from the engine's closed, validated vocabulary.
+    // A new chat only receives the exact review-approved subset, never source observations.
+    const compact = practices.map(item => `- ${item.trigger}: ${item.action}.`).join('\n').slice(0, 1200);
+    return compact ? `# Human-approved ECC practices for the selected project\n${compact}\nThese are preferences, not permission grants. Respect current user instructions and live tool approvals.` : '';
+  } catch { return ''; } // Project moved/revoked or learning unavailable: fail closed.
+}
 
 /** One selected folder, never cwd inference, global discovery or a recursive document scan. */
 async function projectInstructions(scope: PromptScope): Promise<ProjectInstructions | null> {
@@ -124,7 +144,7 @@ export async function prepareSessionPrompt(text: string, scope: PromptScope = {}
   // admission, so those Skills come from that catalog: only the selected body is read below. Every
   // other Skill the chat can use is still listed, exactly as without routing.
   const library = await listSkillLibrary(scope.autoSkills !== undefined ? { ...skillScope, managedFromCatalog: true } : skillScope);
-  const core = await currentCoreInstructions(library);
+  const core = [await currentCoreInstructions(library), await reviewedEccPractices(scope, folder?.real ?? null)].filter(Boolean).join('\n\n');
   const skills = await selectedSkillInstructions(authored, skillScope, library, scope.autoSkills);
   fitSessionPrompt(text, core, null, budget, [], scope.workingDirectory); // Only Core/task overflow is mandatory.
   const agents = await projectInstructions(scope);

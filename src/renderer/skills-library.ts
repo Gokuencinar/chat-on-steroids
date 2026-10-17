@@ -1,7 +1,9 @@
 import type { AppApi } from '../preload/index.js';
+import { ECC_CATALOG } from '../shared/ecc-catalog.js';
 import { parseGitHubSkillUrl, type GitHubSkillUpdateCheck, type ManagedSkill } from '../shared/skills.js';
 import { $, el, icon, initCardMenuDismissal, run, toast } from './dom.js';
 import { t, ui } from './i18n.js';
+import { initEccWorkspace } from './ecc-workspace.js';
 
 /** The managed CoS library only; project and user-discovered skills stay in composer discovery. */
 export function initSkillsLibrary(api: AppApi): () => void {
@@ -12,6 +14,7 @@ export function initSkillsLibrary(api: AppApi): () => void {
   const checking = new Set<string>();
   let linkTarget: ManagedSkill | null = null;
   const checkAgeMs = 15 * 60_000;
+  let eccCatalogLimit = 18;
   let checkPass: Promise<void> | null = null;
   const installedRevision = (skill: ManagedSkill): string =>
     skill.origin ? `${skill.origin.ref} @ ${skill.origin.commit.slice(0, 12)}` : '';
@@ -50,44 +53,114 @@ export function initSkillsLibrary(api: AppApi): () => void {
       : `${skill.origin.url}\n${revision}`;
   };
 
-  let recommended: Array<{ id: string; name: string; description: string }> = [];
+  let recommended: Array<{ id: string; name: string; description: string; installed: boolean; members?: string[] }> = [];
   const renderRecommended = (): void => {
     const section = document.getElementById('skillsRecommendedSection');
     if (!section) return;
     const installed = new Set(skills.map(skill => skill.id));
     const query = $<HTMLInputElement>('skillsSearch').value.trim().toLocaleLowerCase();
-    const available = recommended.filter(entry => !installed.has(entry.id) &&
+    const pending = recommended.filter(entry => !(entry.members
+      ? entry.members.every(id => installed.has(id)) : installed.has(entry.id)));
+    // ECC has its own workspace. Keep the optional engineering pack with the other ECC Skills.
+    const available = pending.filter(entry => entry.id !== 'ecc-core-pack' && entry.id !== 'ecc-complete-pack' &&
       `${entry.id} ${entry.name} ${entry.description} ${t(entry.description)}`.toLocaleLowerCase().includes(query));
     section.hidden = available.length === 0;
     ui($('skillsRecommendedCount'), 'textContent', () => t(available.length === 1 ? '{0} skill' : '{0} skills', [available.length]));
     const host = $('skillsRecommended');
     host.replaceChildren();
-    for (const entry of available) {
+    const eccSection = document.getElementById('eccRecommendedSection');
+    const eccHost = document.getElementById('eccRecommended');
+    const eccBasic = pending.find(entry => entry.id === 'ecc-core-pack');
+    const eccComplete = pending.find(entry => entry.id === 'ecc-complete-pack');
+    const eccPack = eccBasic ?? eccComplete;
+    if (eccSection && eccHost) { eccSection.hidden = !eccPack; eccHost.replaceChildren(); }
+    for (const entry of [...available, ...(eccSection && eccHost && eccPack ? [eccPack] : [])]) {
+      const isEccPack = entry.id === 'ecc-core-pack' || entry.id === 'ecc-complete-pack';
+      const target = isEccPack && eccHost ? eccHost : host;
       const card = el('article', 'plugin-card pet-library-card skill-library-card');
-      card.dataset.recommendedSkillId = entry.id;
+      card.dataset.recommendedSkillId = isEccPack ? 'ecc-core-pack' : entry.id;
       const body = el('div', 'plugin-entry pet-library-entry');
       const artwork = el('div', 'skill-library-icon'); artwork.append(icon('i-skill'));
       const title = el('div', 'plugin-card-title');
-      title.append(el('h2', '', entry.name), el('p', 'muted', () => t(entry.description)));
+      title.append(el('h2', '', isEccPack ? () => t('ECC All Workflows') : entry.name),
+        el('p', 'muted', isEccPack ? () => t('Choose 8 CoS workflows only, or install all 8 workflows and 25 verified ECC Skills.') : () => t(entry.description)));
       const foot = el('div', 'plugin-card-foot');
-      foot.append(el('span', 'skill-library-id', `/${entry.id}`));
+      foot.append(el('span', 'skill-library-id', isEccPack ? '8 + 25 ECC' : `/${entry.id}`));
+      if (isEccPack) {
+        if (eccBasic) {
+          const basic = el('button', 'btn skill-recommended-install', () => t('Install 8 workflows')) as HTMLButtonElement;
+          basic.type = 'button';
+          basic.addEventListener('click', () => void (async () => {
+            basic.disabled = true;
+            try { if (await update(api.installRecommendedSkill('ecc-core-pack'))) toast(t('Skill added to your library')); }
+            finally { if (basic.isConnected) basic.disabled = false; }
+          })());
+          foot.append(basic);
+        }
+        if (eccComplete) {
+          const complete = el('button', 'btn btn-solid skill-recommended-install', () => t('Install complete ECC pack (33 Skills)')) as HTMLButtonElement;
+          complete.type = 'button';
+          complete.addEventListener('click', () => confirmCompleteEccPack(eccComplete));
+          foot.append(complete);
+        }
+        title.append(foot); body.append(artwork, title); card.append(body); target.append(card);
+        continue;
+      }
       const install = el('button', 'btn skill-recommended-install', () => t('Install')) as HTMLButtonElement;
       install.type = 'button';
       install.addEventListener('click', () => void (async () => {
         install.disabled = true;
-        try { if (await update(api.installRecommendedSkill(entry.id))) toast(t('Skill added to your library')); }
+        try {
+          if (await update(api.installRecommendedSkill(entry.id))) {
+            toast(t('Skill added to your library'));
+          }
+        }
         finally { if (install.isConnected) install.disabled = false; }
       })());
       foot.append(install);
       title.append(foot);
       body.append(artwork, title);
       card.append(body);
-      host.append(card);
+      target.append(card);
     }
+  };
+
+  const renderEccCatalog = (): void => {
+    // Older embedded Skills screens and isolated renderer tests may omit this optional section.
+    if (!document.getElementById('eccCatalog')) return;
+    const host = $('eccCatalog');
+    const query = (document.getElementById('eccCatalogSearch') as HTMLInputElement | null)?.value.trim().toLocaleLowerCase() ?? '';
+    const installed = new Set(skills.map(skill => skill.id));
+    const entries = ECC_CATALOG.filter(entry => !installed.has(entry.id) &&
+      `${entry.id} ${entry.name} ${entry.description}`.toLocaleLowerCase().includes(query));
+    ui($('eccCatalogCount'), 'textContent', () => t(entries.length === 1 ? '{0} skill' : '{0} skills', [entries.length]));
+    host.replaceChildren();
+    for (const entry of entries.slice(0, eccCatalogLimit)) {
+      const card = el('article', 'plugin-card pet-library-card skill-library-card');
+      const content = el('div', 'plugin-entry pet-library-entry');
+      const artwork = el('div', 'skill-library-icon'); artwork.append(icon('i-skill'));
+      const heading = el('div', 'plugin-card-title');
+      heading.append(el('h2', '', entry.name), el('p', 'muted', entry.description));
+      heading.append(el('p', 'muted', 'Reviewed for CoS compatibility'));
+      const actions = el('div', 'plugin-card-foot');
+      actions.append(el('span', 'skill-library-id', `/${entry.id}`));
+      const install = el('button', 'btn skill-recommended-install', () => t('Install')) as HTMLButtonElement;
+      install.type = 'button';
+      install.addEventListener('click', () => void (async () => {
+        install.disabled = true;
+        try {
+          if (await update(api.eccInstallSkill(entry.id))) toast(t('Skill added to your library'));
+        } finally { if (install.isConnected) install.disabled = false; }
+      })());
+      actions.append(install); heading.append(actions); content.append(artwork, heading); card.append(content); host.append(card);
+    }
+    const more = $<HTMLButtonElement>('eccCatalogMore');
+    more.hidden = entries.length <= eccCatalogLimit;
   };
 
   const render = (): void => {
     renderRecommended();
+    renderEccCatalog();
     const host = $('skillsInstalled');
     const query = $<HTMLInputElement>('skillsSearch').value.trim().toLocaleLowerCase();
     const visible = skills.filter(skill => `${skill.id} ${skill.name} ${skill.description}`.toLocaleLowerCase().includes(query));
@@ -148,6 +221,46 @@ export function initSkillsLibrary(api: AppApi): () => void {
     const next = await run(request);
     if (!next || own !== epoch) return false;
     setSkills(next); return true;
+  };
+
+  const confirmCompleteEccPack = (pack: { members?: string[] }): void => {
+    document.getElementById('eccCompleteInstallDialog')?.remove();
+    const missing = (pack.members ?? []).filter(id => !skills.some(skill => skill.id === id)).length;
+    const free = 64 - skills.length;
+    const dialog = document.createElement('dialog');
+    dialog.id = 'eccCompleteInstallDialog'; dialog.className = 'plugin-dialog pet-delete-dialog';
+    const head = el('div', 'plugin-dialog-head');
+    const heading = el('h2', '', () => t('Install complete ECC pack?'));
+    heading.id = 'eccCompleteInstallTitle'; dialog.setAttribute('aria-labelledby', heading.id);
+    const close = el('button', 'btn', () => t('Close')) as HTMLButtonElement;
+    close.type = 'button'; close.addEventListener('click', () => dialog.close()); head.append(heading, close);
+    const body = el('div', 'plugin-dialog-body');
+    body.append(el('p', '', () => t('Includes 8 CoS workflows and 25 source-verified ECC Skills. Existing and customized Skills will not be overwritten. No new hooks or permissions are installed.')));
+    body.append(el('p', 'muted', () => t('{0} new Skills to install · {1} free library slots (64 maximum)', [missing, free])));
+    if (missing > free) body.append(el('p', 'muted', () => t('Not enough room for the complete ECC pack. Remove unused Skills first.')));
+    const actions = el('div', 'pet-delete-actions');
+    const cancel = el('button', 'btn', () => t('Cancel')) as HTMLButtonElement;
+    cancel.type = 'button'; cancel.addEventListener('click', () => dialog.close());
+    const submit = el('button', 'btn btn-solid', () => t('Install {0} missing Skills', [missing])) as HTMLButtonElement;
+    submit.type = 'button'; submit.disabled = missing > free;
+    submit.addEventListener('click', () => void (async () => {
+      submit.disabled = close.disabled = cancel.disabled = true;
+      dialog.setAttribute('aria-busy', 'true');
+      try {
+        if (await update(api.installRecommendedSkill('ecc-complete-pack'))) {
+          dialog.close(); toast(t('Complete ECC pack installed'));
+        }
+      } finally {
+        if (submit.isConnected) {
+          submit.disabled = missing > free; close.disabled = cancel.disabled = false;
+          dialog.removeAttribute('aria-busy');
+        }
+      }
+    })());
+    actions.append(cancel, submit); body.append(actions); dialog.append(head, body);
+    dialog.addEventListener('click', event => { if (event.target === dialog && !dialog.hasAttribute('aria-busy')) dialog.close(); });
+    dialog.addEventListener('cancel', event => { if (dialog.hasAttribute('aria-busy')) event.preventDefault(); });
+    dialog.addEventListener('close', () => dialog.remove()); document.body.append(dialog); dialog.showModal(); cancel.focus();
   };
 
   const checkUpdates = (force: boolean): Promise<void> => {
@@ -272,7 +385,9 @@ export function initSkillsLibrary(api: AppApi): () => void {
     dialog.addEventListener('close', () => dialog.remove()); document.body.append(dialog); dialog.showModal(); cancel.focus();
   };
 
-  $('skillsSearch').addEventListener('input', render);
+  $('skillsSearch').addEventListener('input', () => { eccCatalogLimit = 18; render(); });
+  document.getElementById('eccCatalogSearch')?.addEventListener('input', () => { eccCatalogLimit = 18; renderEccCatalog(); });
+  document.getElementById('eccCatalogMore')?.addEventListener('click', () => { eccCatalogLimit += 24; renderEccCatalog(); });
   const refresh = (force: boolean): void => {
     void (async () => { if (await update(api.listManagedSkills())) await checkUpdates(force); })();
   };
@@ -348,5 +463,6 @@ export function initSkillsLibrary(api: AppApi): () => void {
   })());
   void update(api.listManagedSkills());
   if (typeof api.listRecommendedSkills === 'function') void run(api.listRecommendedSkills()).then(list => { if (list) { recommended = list; renderRecommended(); } });
-  return () => refresh(false);
+  const refreshEccWorkspace = initEccWorkspace(api);
+  return () => { refresh(false); refreshEccWorkspace(); };
 }

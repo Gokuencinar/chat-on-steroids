@@ -189,10 +189,41 @@ function placePermissions(tab: string): void {
   if (permissionSurface.parentElement !== target) target.append(permissionSurface);
 }
 
+/** Independent ECC workspace navigation. The project choice persists between its sections. */
+function activateEccView(name: string, focus = false): void {
+  const tabs = document.querySelectorAll<HTMLButtonElement>('#eccViewTabs [data-ecc-view]');
+  for (const tab of tabs) {
+    const selected = tab.dataset.eccView === name;
+    tab.classList.toggle('is-selected', selected);
+    tab.setAttribute('aria-selected', String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+    if (selected && focus) tab.focus();
+  }
+  for (const pane of document.querySelectorAll<HTMLElement>('[data-ecc-view-panel]')) {
+    pane.hidden = pane.dataset.eccViewPanel !== name;
+  }
+}
+
+$('eccViewTabs').addEventListener('click', event => {
+  const tab = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-ecc-view]');
+  if (tab?.dataset.eccView) activateEccView(tab.dataset.eccView);
+});
+$('eccViewTabs').addEventListener('keydown', event => {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+  const tabs = [...document.querySelectorAll<HTMLButtonElement>('#eccViewTabs [data-ecc-view]')];
+  const current = tabs.findIndex(tab => tab.getAttribute('aria-selected') === 'true');
+  const index = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1
+    : (current + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+  if (tabs[index]?.dataset.eccView) {
+    event.preventDefault();
+    activateEccView(tabs[index].dataset.eccView!, true);
+  }
+});
+
 function showTab(name: string): void {
-  if (name === 'skills') openSkillsLibrary();
+  if (name === 'skills' || name === 'ecc') openSkillsLibrary();
   placePermissions(name);
-  const library = name === 'plugins' || name === 'skills' || name === 'pets';
+  const library = name === 'plugins' || name === 'skills' || name === 'ecc' || name === 'pets';
   const settings = name !== 'chat' && !library;
   // Opening Settings asks whether "Up to date" is still true (the check itself waits ten minutes).
   if (settings && document.querySelector<HTMLElement>('.app')!.dataset.screen !== 'settings') void api.refreshUpdate();
@@ -303,6 +334,7 @@ $('newChat').addEventListener('click', () => showTab('chat'));
 $('sidebarPlugins').addEventListener('click', () => showTab('plugins'));
 $('sidebarPets').addEventListener('click', () => showTab('pets'));
 $('sidebarSkills').addEventListener('click', () => showTab('skills'));
+$('sidebarECC').addEventListener('click', () => showTab('ecc'));
 api.onPetOverlayOpenOwner(screen => showTab(screen));
 $('addProject').addEventListener('click', () => showTab('chat'));
 $('composerFolder').addEventListener('click', () => $('addProject').click());

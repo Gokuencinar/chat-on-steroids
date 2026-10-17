@@ -12,6 +12,16 @@ import { importSkillFile, importSkillPackage, listManagedSkills, listSkills, rem
 import { checkGitHubSkillUpdates, importGitHubSkill, linkGitHubSkill, updateGitHubSkill } from './skill-github.js';
 import { SKILL_ID_PATTERN } from '../shared/skills.js';
 import { listSkillLibrary } from './skill-library.js';
+import { saveEccMemory, listEccMemories, readEccMemory, searchEccMemories } from './ecc-memory.js';
+import { auditEccProjectSecurity } from './ecc-security.js';
+import {
+  getEccLearningStatus, configureEccLearning, listEccLearningInstincts,
+  reviewEccLearningProposals, exportEccLearning, importEccLearning,
+  resetEccLearning, rollbackEccLearning, approveEccLearningInstinct,
+  listEccLearningPromotionCandidates, observeEccLearning
+} from './ecc-learning.js';
+import { ECC_MEMORY_KINDS, ECC_MEMORY_LIMITS } from '../shared/ecc-memory.js';
+import { importBundledEccSkill } from './ecc-catalog.js';
 import { installRecommendedSkill, listRecommendedSkills } from './recommended-skills.js';
 import { noteChatOrigin } from './session/recorder.js';
 import { committedResumeAncestorsFromSummary, REASONING_EFFORTS, type SessionChange } from '../shared/session.js';
@@ -80,7 +90,7 @@ import type { WorkerWorktreeCleanupOffer } from '../shared/session.js';
 import { unifiedExecManager } from './codex/manager.js';
 import { inFlightToolCalls } from './mcp/call-context.js';
 import { RESERVED_ROOT_NAMES, uniqueRootName, validateNewRoot, SandboxError, resolvePath } from './sandbox.js';
-import { addProject, expireArmedProjectCreates, getSessionProject, listProjects, onProjectLinkChange, projectWorkspace, removeProject, retryProjectCreate, setProjectColor } from './projects.js';
+import { addProject, assignSessionProject, expireArmedProjectCreates, getSessionProject, listProjects, onProjectLinkChange, projectWorkspace, removeProject, retryProjectCreate, setProjectColor } from './projects.js';
 import { createProjectEntry, listProjectDirectory, previewProjectFile, projectFileTarget, renameProjectEntry, revalidateProjectFileTarget, saveProjectTextFile } from './project-files.js';
 import { ProjectFileWatchSet } from './project-file-watcher.js';
 import { ProjectGitWatchSet, readProjectGitDiff, readProjectGitSnapshot } from './project-git.js';
@@ -763,6 +773,29 @@ export function registerIpc(getWindow: () => BrowserWindow | null, quitToInstall
   });
 
   handle('projects:list', () => listProjects());
+  /** Explicit local grouping only. Never moves a ChatGPT conversation to a native
+   * ChatGPT Project and never changes the folder of an already-bound session.
+   */
+  handle('sessions:addToProject', async payload => {
+    const { id, projectId, expectedConversationId } = z.object({
+      id: z.string().min(8).max(64).regex(/^[0-9a-z-]+$/i),
+      projectId: z.string().uuid(),
+      expectedConversationId: z.string().min(8).max(64).regex(/^[0-9a-z-]+$/i)
+    }).strict().parse(payload);
+    if (deletingSessionIds.has(id)) throw new Error('This chat is being deleted');
+    const session = await getSession(id);
+    if (!session || session.conversationId !== expectedConversationId)
+      throw new Error('Chat changed while choosing a project');
+    if (session.origin?.kind === 'worker' || session.origin?.kind === 'helper')
+      throw new Error('Worker and helper projects are inherited from their owning chat');
+    if (session.projectId) throw new Error('This chat already belongs to a local project');
+    const target = (await listProjects()).find(project => project.id === projectId && !project.ungrouped);
+    if (!target) throw new Error('Project not found in the active local catalog');
+    if (deletingSessionIds.has(id)) throw new Error('This chat is being deleted');
+    await assignSessionProject(id, projectId, expectedConversationId);
+    notifyChanged(id);
+    return true;
+  });
   handle('ui:language', async payload => {
     // The renderer owns the choice; the main process keeps it for the browser extension.
     const language = z.enum(UI_LANGUAGES).parse(payload);
@@ -817,8 +850,114 @@ export function registerIpc(getWindow: () => BrowserWindow | null, quitToInstall
   handle('skills:list', () => listSkills());
   handle('skills:managed', () => listManagedSkills());
   handle('skills:recommended', () => listRecommendedSkills());
+  handle('ecc:installSkill', async payload => {
+    const { id } = z.object({ id: z.string().regex(SKILL_ID_PATTERN) }).strict().parse(payload);
+    if (!effectiveCapabilities(getConfig()).create || getConfig().readOnly) throw new Error('Installing a Skill requires create permission');
+    return importBundledEccSkill(id);
+  });
+  // ECC knowledge always belongs to an explicitly selected and currently approved CoS project.
+  const eccScope = z.object({ projectId: z.string().uuid() }).strict();
+  const eccKind = z.enum(ECC_MEMORY_KINDS);
+  const eccProject = async (projectId: string) => {
+    if (!effectiveCapabilities(getConfig()).read) throw new Error('File reading is disabled');
+    const project = await projectWorkspace(projectId);
+    const resolved = await resolvePath(getConfig().roots, project.real);
+    return { projectDirectory: project.real, approvedRootDirectory: resolved.root.path };
+  };
+  handle('ecc:memories', async payload => {
+    const { projectId, kind } = eccScope.extend({ kind: eccKind.optional() }).parse(payload);
+    return listEccMemories(await eccProject(projectId), { kind });
+  });
+  handle('ecc:memorySearch', async payload => {
+    const { projectId, query } = eccScope.extend({ query: z.string().trim().min(1).max(ECC_MEMORY_LIMITS.maxQueryChars) }).parse(payload);
+    return searchEccMemories(await eccProject(projectId), { query });
+  });
+  handle('ecc:memoryRead', async payload => {
+    const { projectId, kind, id } = eccScope.extend({ kind: eccKind, id: z.string().regex(/^mem_[a-f0-9]{32}$/) }).parse(payload);
+    return readEccMemory(await eccProject(projectId), { kind, id });
+  });
+  handle('ecc:memorySave', async payload => {
+    const { projectId, kind, title, body, tags } = eccScope.extend({
+      kind: eccKind,
+      title: z.string().min(1).max(ECC_MEMORY_LIMITS.maxTitleChars),
+      body: z.string().min(1).max(ECC_MEMORY_LIMITS.maxBodyBytes),
+      tags: z.array(z.string().min(1).max(32)).max(ECC_MEMORY_LIMITS.maxTags).optional()
+    }).parse(payload);
+    if (!effectiveCapabilities(getConfig()).create || getConfig().readOnly) throw new Error('Creating project knowledge is disabled');
+    return saveEccMemory(await eccProject(projectId), { kind, title, body, tags });
+  });
+  handle('ecc:securityAudit', async payload => {
+    const { projectId } = eccScope.parse(payload);
+    if (!effectiveCapabilities(getConfig()).read) throw new Error('File reading is disabled');
+    const project = await projectWorkspace(projectId);
+    return auditEccProjectSecurity(project.real);
+  });
+  const eccLearningAccess = async (projectId: string) => ({ projectId, ...await eccProject(projectId) });
+  const requireEccLearningWrite = () => {
+    const live = getConfig();
+    if (live.readOnly || !effectiveCapabilities(live).create || !live.sessions.record)
+      throw new Error('ECC learning changes require project write permission and session recording');
+  };
+  handle('ecc:learningStatus', async payload => {
+    const { projectId } = eccScope.parse(payload);
+    return getEccLearningStatus(await eccLearningAccess(projectId));
+  });
+  handle('ecc:learningInstincts', async payload => {
+    const { projectId } = eccScope.parse(payload);
+    return listEccLearningInstincts(await eccLearningAccess(projectId));
+  });
+  handle('ecc:learningProposals', async payload => {
+    const { projectId } = eccScope.parse(payload);
+    return reviewEccLearningProposals(await eccLearningAccess(projectId));
+  });
+  handle('ecc:learningConfigure', async payload => {
+    const { projectId, enabled } = eccScope.extend({ enabled: z.boolean() }).parse(payload);
+    requireEccLearningWrite();
+    return configureEccLearning(await eccLearningAccess(projectId), { enabled }, { confirm: true });
+  });
+  handle('ecc:learningApprove', async payload => {
+    const { projectId, instinctId, approved } = eccScope.extend({ instinctId: z.string().min(5).max(100), approved: z.boolean() }).parse(payload);
+    requireEccLearningWrite();
+    return approveEccLearningInstinct(await eccLearningAccess(projectId), instinctId, { approved, confirm: true });
+  });
+  handle('ecc:learningCorrection', async payload => {
+    const { projectId, preference } = eccScope.extend({ preference: z.enum([
+      'search-before-edit', 'read-before-edit', 'test-after-edit',
+      'test-before-fix', 'confirm-before-delete', 'bounded-retries'
+    ]) }).parse(payload);
+    requireEccLearningWrite();
+    return observeEccLearning(await eccLearningAccess(projectId), {
+      type: 'correction', preference, eventId: randomUUID()
+    });
+  });
+  handle('ecc:learningExport', async payload => {
+    const { projectId } = eccScope.parse(payload);
+    return exportEccLearning(await eccLearningAccess(projectId));
+  });
+  handle('ecc:learningImport', async payload => {
+    const { projectId, bundle } = eccScope.extend({ bundle: z.string().max(32768) }).parse(payload);
+    requireEccLearningWrite();
+    return importEccLearning(await eccLearningAccess(projectId), bundle, { confirm: true });
+  });
+  handle('ecc:learningReset', async payload => {
+    const { projectId, scope } = eccScope.extend({ scope: z.enum(['all', 'observations']) }).parse(payload);
+    requireEccLearningWrite();
+    return resetEccLearning(await eccLearningAccess(projectId), { scope, confirm: true });
+  });
+  handle('ecc:learningRollback', async payload => {
+    const { projectId } = eccScope.parse(payload);
+    requireEccLearningWrite();
+    return rollbackEccLearning(await eccLearningAccess(projectId), { confirm: true });
+  });
+  handle('ecc:learningPromotionCandidates', async payload => {
+    const { projectIds } = z.object({ projectIds: z.array(z.string().uuid()).min(2).max(12) }).strict().parse(payload);
+    if (new Set(projectIds).size !== projectIds.length) throw new Error('Choose distinct projects');
+    return listEccLearningPromotionCandidates(await Promise.all(projectIds.map(id => eccLearningAccess(id))));
+  });
   handle('skills:installRecommended', async payload => {
     const { id } = z.object({ id: z.string().regex(SKILL_ID_PATTERN) }).strict().parse(payload);
+    if (!effectiveCapabilities(getConfig()).create || getConfig().readOnly)
+      throw new Error('Installing a Skill requires create permission');
     return installRecommendedSkill(id);
   });
   handle('skills:import', async payload => {

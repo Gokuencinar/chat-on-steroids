@@ -226,11 +226,11 @@ export async function* readFileStream(path: string): AsyncGenerator<Buffer, void
   }
 }
 
-/** `ExecutorFileSystem::read_file_text`: `read_file` plus a strict UTF-8 decode. */
+/** Strict UTF-8 decode retaining an existing leading BOM for lossless apply_patch. */
 export async function readFileText(path: string): Promise<string> {
   const bytes = await readFile(path);
   try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
   } catch {
     const error = new Error('stream did not contain valid UTF-8') as NodeJS.ErrnoException;
     error.code = 'EILSEQ';

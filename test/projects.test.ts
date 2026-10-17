@@ -124,6 +124,22 @@ it('retains project ownership through restart, resume and exact worker origins',
   expect((await getSession(stale.id))?.projectId).toBeUndefined();
 });
 
+it('adds an existing chat to a local project once, verifying the exact frontend identity', async () => {
+  const project = await addProject(path.join(approved, 'first'));
+  const other = await addProject(path.join(approved, 'second'));
+  const session = await createSession({ title: 'Existing chat', conversationId: 'existing-chat-0001' });
+  await expect(assignSessionProject(session.id, project.id, 'old-chat-0001'))
+    .rejects.toThrow('Chat changed while choosing a project');
+  expect((await getSession(session.id))?.projectId).toBeUndefined();
+
+  await assignSessionProject(session.id, project.id, 'existing-chat-0001');
+  expect((await getSession(session.id))?.projectId).toBe(project.id);
+  await expect(assignSessionProject(session.id, other.id, 'existing-chat-0001')).rejects.toThrow(/another project/);
+  resetSessionStoreForTests();
+  expect((await getSession(session.id))?.projectId).toBe(project.id);
+  expect(await getSessionProject(session.id)).toMatchObject({ virtual: '/work/first' });
+});
+
 it('fails closed when explicit project permission is removed and follows approved root renames', async () => {
   const project = await addProject(path.join(approved, 'first'));
   const session = await createSession({ title: 'Bound' });

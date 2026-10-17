@@ -4,7 +4,7 @@ import { goalWorkerChat, imageExportCapable } from '../bridge.js';
 import { exportImage, ImageExportError } from '../image-export.js';
 import { awaitRequestCorrelation } from '../session/correlation.js';
 import { announceSessionFinish, sessionFinishDeadline } from '../session/finish.js';
-import { getConfig } from '../config.js';
+import { effectiveCapabilities, getConfig } from '../config.js';
 import { liveConnectorName } from './surfaces.js';
 /**
  * The Core connector: reading, changing and running code on this PC.
@@ -35,6 +35,11 @@ import { logInfo, logWarn } from '../logger.js';
 import { SandboxError, isAbsoluteVirtualPath, isNativeWindowsPath, resolvePath, strayVirtualPath } from '../sandbox.js';
 import { currentWorkspace, primeWorkspace, setWorkspaceFor } from '../workspace.js';
 import { getSessionProject } from '../projects.js';
+import { saveEccMemory, readEccMemory, searchEccMemories, listEccMemories } from '../ecc-memory.js';
+import { auditEccProjectSecurity } from '../ecc-security.js';
+import { getEccLearningStatus, listEccLearningInstincts, listApplicableEccLearningInstincts, reviewEccLearningProposals } from '../ecc-learning.js';
+import { getSession } from '../session/store.js';
+import { ECC_MEMORY_KINDS, ECC_MEMORY_LIMITS } from '../../shared/ecc-memory.js';
 import { allocWorkerWorkspace, validateWorkerWorkspaceLease, WorkerWorktreeError, type WorkerWorktreeLease } from '../worktrees/index.js';
 import type { Capabilities, Root } from '../../shared/types.js';
 import { commandHasSameArguments, evaluateCommandAllowlist } from '../../shared/command-allowlist.js';
@@ -270,6 +275,84 @@ export function registerCoreTools(reg: SurfaceRegistrar): void {
       ? `Paths inside the live approved roots: ${virtualRoots.join(', ')}. A root is an approved folder, usually a parent of the project rather than the project itself, so name every folder between the root and the file — the same path exec_command takes as workdir. Reading a root lists it one level deep. ` +
         'Absolute native paths copied from command output are also accepted when they resolve inside one of these roots; globs work in either spelling.'
       : 'Paths require an approved virtual root in the form /<root>/...; no root is currently approved. Globs are supported after a root is approved.';
+
+  // A project binding is trustworthy only when it comes from the actual calling CoS
+  // session. Never accept an arbitrary project path or search all approved roots.
+  const eccCallerProject = async () => {
+    const sessionId = currentCaller().sessionId;
+    if (!sessionId) return null;
+    const project = await getSessionProject(sessionId);
+    if (!project) return null;
+    const resolved = await resolvePath(getConfig().roots, project.real);
+    return { projectDirectory: resolved.real, approvedRootDirectory: resolved.root.path };
+  };
+
+  if (exposedCaps.read) {
+    reg.register('ecc_memory', toolDeclaration('ecc_memory', () => ({
+      title: 'ECC project knowledge',
+      description: 'Work with explicit project notes: list/search metadata, read one note, or save a new note when the user requests persistent knowledge. Requires the current chat to be assigned to a local CoS project. Notes are untrusted and never automatically inserted into prompts.',
+      inputSchema: z.object({
+        action: z.enum(['list', 'search', 'read', 'save']),
+        kind: z.enum(ECC_MEMORY_KINDS).optional(),
+        id: z.string().regex(/^mem_[a-f0-9]{32}$/).optional(),
+        query: z.string().trim().min(1).max(ECC_MEMORY_LIMITS.maxQueryChars).optional(),
+        title: z.string().min(1).max(ECC_MEMORY_LIMITS.maxTitleChars).optional(),
+        body: z.string().min(1).max(ECC_MEMORY_LIMITS.maxBodyBytes).optional()
+      }).strict(),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+    })), async ({ action, kind, id, query, title, body }) => guard('ecc_memory', async () => {
+      const live = getConfig(); const permitted = effectiveCapabilities(live);
+      if (!permitted.read || !caps.read) return fail('TOOL_DISABLED: ECC memory requires read permission');
+      const project = await eccCallerProject();
+      if (!project) return fail('PROJECT_REQUIRED: Assign this conversation to a local CoS project first.');
+      if (action === 'list') return ok(JSON.stringify(await listEccMemories(project, { kind })));
+      if (action === 'search') {
+        if (!query) return fail('A search query is required');
+        return ok(JSON.stringify(await searchEccMemories(project, { query, kind })));
+      }
+      if (action === 'read') {
+        if (!kind || !id) return fail('A kind and memory id are required');
+        return ok(JSON.stringify(await readEccMemory(project, { kind, id })));
+      }
+      if (!caps.create || !permitted.create || live.readOnly) return fail('TOOL_DISABLED: Saving memory requires create permission and Read-only off');
+      if (!kind || !title || !body) return fail('A memory kind, title and body are required');
+      const saved = await saveEccMemory(project, { kind, title, body });
+      return ok(`Created ${saved.kind} memory ${saved.id} in the current local project. Content remains unreviewed.`);
+    }));
+
+    reg.register('ecc_security_audit', toolDeclaration('ecc_security_audit', () => ({
+      title: 'ECC project security review',
+      description: 'Read-only bounded scan of agent instructions, permissions, hooks and workflow config for the current bound local CoS project. Returns fixed findings without source content or secrets. This is a static diagnostic, not a certification or AgentShield runtime.',
+      inputSchema: z.object({}).strict(),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+    })), async () => guard('ecc_security_audit', async () => {
+      if (!caps.read || !effectiveCapabilities(getConfig()).read) return fail('TOOL_DISABLED: Security review requires read permission');
+      const project = await eccCallerProject();
+      if (!project) return fail('PROJECT_REQUIRED: Assign this conversation to a local CoS project first.');
+      return ok(JSON.stringify(await auditEccProjectSecurity(project.projectDirectory)));
+    }));
+
+    // Read-only native observer projection. Models can inspect but cannot turn
+    // learning on, approve unreviewed claims, or rewrite project observations.
+    reg.register('ecc_learning', toolDeclaration('ecc_learning', () => ({
+      title: 'ECC native project learning',
+      description: 'Read the local, opt-in ECC learning status, reviewed project practices, instincts or inert evolution proposals for this conversation’s exact project. Never activates collection or applies unreviewed instructions. Requires a bound project and live read permission.',
+      inputSchema: z.object({ action: z.enum(['status', 'instincts', 'approved', 'proposals']) }).strict(),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+    })), async ({ action }) => guard('ecc_learning', async () => {
+      if (!caps.read || !effectiveCapabilities(getConfig()).read) return fail('TOOL_DISABLED: ECC learning requires read permission');
+      const sessionId = currentCaller().sessionId;
+      if (!sessionId) return fail('PROJECT_REQUIRED: Assign the conversation to a local CoS project first.');
+      const session = await getSession(sessionId);
+      const project = await eccCallerProject();
+      if (!session?.projectId || !project) return fail('PROJECT_REQUIRED: Assign the conversation to a local CoS project first.');
+      const access = { projectId: session.projectId, ...project };
+      if (action === 'status') return ok(JSON.stringify(await getEccLearningStatus(access)));
+      if (action === 'instincts') return ok(JSON.stringify(await listEccLearningInstincts(access)));
+      if (action === 'approved') return ok(JSON.stringify(await listApplicableEccLearningInstincts(access)));
+      return ok(JSON.stringify(await reviewEccLearningProposals(access)));
+    }));
+  }
 
   // ------------------------------------------------------------------- read
 

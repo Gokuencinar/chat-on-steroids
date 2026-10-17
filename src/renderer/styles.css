@@ -19,6 +19,82 @@
 .panel.plugins-panel { overflow-y: auto; padding: 46px 36px 32px; scrollbar-gutter: stable; }
 .panel.plugins-panel.is-active { display: block; }
 .plugins-content { width: 100%; max-width: 940px; margin-inline: auto; }
+/* ECC is a first-class library page. Separate the project context, tasks and optional Skills. */
+.ecc-content { max-width: 980px; }
+.ecc-hero { position: relative; display: flex; justify-content: space-between; align-items: center; gap: 22px; overflow: hidden; padding: 29px 32px; border: 1px solid var(--edge); border-radius: var(--r-lg); background: radial-gradient(ellipse at 95% -10%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 65%), var(--card); }
+.ecc-hero > div { position: relative; z-index: 1; max-width: 640px; }
+.ecc-hero .ecc-eyebrow { margin: 0 0 11px; color: var(--soft); font-size: calc(10px * var(--text-scale, 1)); letter-spacing: .11em; font-weight: 700; }
+.ecc-eyebrow span { margin-left: 8px; color: var(--ink); letter-spacing: 0; }
+.ecc-hero h1 { margin: 0; color: var(--ink); font-size: calc(30px * var(--text-scale, 1)); font-weight: 680; letter-spacing: -.9px; }
+.ecc-hero > div > p:last-child { margin: 10px 0 0; color: var(--soft); font-size: calc(13px * var(--text-scale, 1)); line-height: 1.7; }
+.ecc-hero-symbol { display: grid; place-items: center; flex: 0 0 78px; width: 78px; height: 78px; border: 1px solid var(--edge); border-radius: 23px; background: var(--sunk); color: var(--ink); }
+.ecc-hero-symbol .ico { --ico: 34px; --glyph: 34px; }
+.ecc-workspace { min-width: 0; }
+.ecc-project-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px; margin: 20px 0; padding: 17px 20px; border: 1px solid var(--edge); border-radius: var(--r-lg); background: var(--card); }
+.ecc-project-choice { display: grid; gap: 8px; flex: 1 1 310px; min-width: 0; }
+.ecc-project-choice label { color: var(--ink); font-size: calc(12px * var(--text-scale, 1)); font-weight: 650; }
+.ecc-project-choice select { width: 100%; min-width: 0; max-width: 530px; padding: 11px 12px; border: 1px solid var(--edge); border-radius: var(--r-sm); background: var(--sunk); color: var(--ink); font: inherit; font-size: calc(13px * var(--text-scale, 1)); }
+.ecc-project-choice p { margin: 0; color: var(--soft); font-size: calc(11px * var(--text-scale, 1)); line-height: 1.5; }
+.ecc-project-bar > .btn { min-height: 40px; display: flex; align-items: center; gap: 7px; padding-inline: 14px; color: var(--ink); border: 1px solid var(--edge); }
+.ecc-project-bar > .btn .ico { --ico: 15px; }
+.ecc-empty { display: flex; gap: 16px; align-items: center; margin: 0 0 20px; padding: 17px 20px; border: 1px dashed var(--edge); border-radius: var(--r-md); background: var(--sunk); }
+.ecc-empty[hidden] { display: none; }
+.ecc-empty > .ico { --ico: 25px; color: var(--soft); }
+.ecc-empty strong { font-size: calc(13px * var(--text-scale, 1)); }
+.ecc-empty p { margin: 4px 0 0; font-size: calc(12px * var(--text-scale, 1)); color: var(--soft); }
+.ecc-view-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; padding: 5px; border: 1px solid var(--edge); border-radius: var(--r-md); background: var(--sunk); }
+.ecc-view-tabs button { display: flex; justify-content: center; align-items: center; gap: 8px; min-width: 0; min-height: 43px; padding: 9px 10px; border: 1px solid transparent; border-radius: calc(var(--r-sm) - 2px); background: transparent; color: var(--soft); font: inherit; font-size: calc(12px * var(--text-scale, 1)); font-weight: 600; cursor: pointer; }
+.ecc-view-tabs button:hover { color: var(--ink); background: var(--hover); }
+.ecc-view-tabs button.is-selected { color: var(--ink); border-color: var(--line); background: var(--card); box-shadow: var(--lift); }
+.ecc-view-tabs button .ico { --ico: 17px; flex: none; }
+.ecc-view-tabs button:focus-visible, .ecc-project-choice select:focus-visible, .ecc-card :is(input, textarea, select, button, summary):focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+.ecc-pane { display: grid; gap: 16px; margin-top: 19px; min-width: 0; }
+.ecc-pane[hidden] { display: none; }
+.ecc-card { min-width: 0; padding: 23px 24px; border: 1px solid var(--edge); border-radius: var(--r-lg); background: var(--card); }
+.ecc-card-featured { border-color: color-mix(in srgb, var(--accent) 24%, var(--edge)); }
+.ecc-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.ecc-card-heading > div { min-width: 0; }
+.ecc-card-heading h2 { margin: 0; font-size: calc(17px * var(--text-scale, 1)); line-height: 1.3; letter-spacing: -.2px; }
+.ecc-card-heading p { margin: 7px 0 0; color: var(--soft); font-size: calc(12px * var(--text-scale, 1)); line-height: 1.6; }
+.ecc-card-heading > .btn { flex: 0 0 auto; padding: 8px 12px; font-size: calc(12px * var(--text-scale, 1)); }
+.ecc-toggle { display: flex; align-items: flex-start; gap: 13px; padding: 18px; border: 1px solid var(--edge); border-radius: var(--r-md); background: var(--sunk); cursor: pointer; }
+.ecc-toggle input { flex: none; width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--accent); }
+.ecc-toggle span { display: grid; gap: 6px; min-width: 0; }
+.ecc-toggle strong { font-size: calc(13px * var(--text-scale, 1)); line-height: 1.45; font-weight: 650; }
+.ecc-toggle small { color: var(--soft); font-size: calc(11px * var(--text-scale, 1)); font-weight: 400; line-height: 1.5; }
+.ecc-status { margin: 12px 0 0; color: var(--soft); font-size: calc(12px * var(--text-scale, 1)); line-height: 1.55; }
+.ecc-pane .plugin-field { margin: 11px 0 16px; }
+.ecc-pane .plugin-field textarea { display: block; width: 100%; min-width: 0; max-width: 100%; padding: 12px; border: 1px solid var(--edge); border-radius: var(--r-sm); background: var(--sunk); color: var(--ink); font: inherit; font-weight: 400; line-height: 1.5; resize: vertical; }
+.ecc-pane .pet-library-grid { gap: 11px; margin-top: 12px; }
+.ecc-pane .pet-library-grid:empty { display: none; }
+.ecc-pane .plugin-card { padding: 14px; }
+.ecc-pane .plugin-card p { overflow-wrap: anywhere; }
+.ecc-pane .plugin-card > .plugin-entry { padding: 0; }
+.ecc-pane .skill-library-card { padding: 0; }
+.ecc-pane .skill-library-card > .plugin-entry { padding: 15px 16px; }
+.ecc-two-column { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 16px; }
+#eccMemoryResults { grid-template-columns: minmax(0, 1fr); }
+#eccMemoryDetail pre { overflow-wrap: anywhere; white-space: pre-wrap; max-height: 380px; overflow-y: auto; }
+.ecc-disclosure > summary { color: var(--ink); font-size: calc(14px * var(--text-scale, 1)); font-weight: 650; cursor: pointer; }
+.ecc-disclosure > p { font-size: calc(12px * var(--text-scale, 1)); line-height: 1.6; }
+.ecc-disclosure > .btn { margin-top: 8px; }
+.ecc-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.ecc-results { display: grid; gap: 10px; }
+.ecc-results > .muted { margin: 0; }
+#eccCatalog { margin-top: 17px; }
+#eccCatalogMore { margin-top: 15px; }
+@media (max-width: 850px) {
+  .ecc-hero { padding: 23px 24px; }
+  .ecc-view-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ecc-two-column { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 560px) {
+  .ecc-hero-symbol { display: none; }
+  .ecc-card { padding: 18px; }
+  .ecc-card-heading { flex-direction: column; }
+  .ecc-project-bar > .btn { width: 100%; justify-content: center; }
+  .ecc-pane .pet-library-grid { grid-template-columns: minmax(0, 1fr); }
+}
 .plugin-page-head { display: grid; gap: 26px; padding: 0; min-height: 0; border: 0; }
 .plugin-page-head h1 { margin: 0; font-size: calc(30px * var(--text-scale, 1)); font-weight: 650; letter-spacing: -.8px; line-height: 1.2; }
 .plugin-page-head p { margin: 9px 0 0; color: var(--soft); font-size: calc(14px * var(--text-scale, 1)); line-height: 1.6; }

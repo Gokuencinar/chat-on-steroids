@@ -1,0 +1,176 @@
+{
+  "format": "cos-ecc-v2.2.3-v1",
+  "version": "2.2.3",
+  "entries": [
+    {
+      "id": "accessibility",
+      "source": "skills",
+      "sha256": "eeeba35e39d29256d07bd3755cac6a3fad14d4365a952ce817d99f486331c200"
+    },
+    {
+      "id": "agent-harness-construction",
+      "source": "skills",
+      "sha256": "e7fb390a6663b46ea5d3c2876753a5ce32ba3bad1889686b21a42894caa1742d"
+    },
+    {
+      "id": "agent-introspection-debugging",
+      "source": "skills",
+      "sha256": "1c07355daa9aaed7c5fa3ec1b3c876951dcc59db781f98ff279b49144dc4478f"
+    },
+    {
+      "id": "ai-first-engineering",
+      "source": "skills",
+      "sha256": "114913bdcb6127392df56d96f7f1312f36c74d69c278dece6d377b9bd92123a5"
+    },
+    {
+      "id": "ai-regression-testing",
+      "source": "skills",
+      "sha256": "d1c2278e3be8d3940919ae6a7611c77d87039359198018aa6486b13e1f11e839"
+    },
+    {
+      "id": "api-design",
+      "source": "skills",
+      "sha256": "250e464413a13c0eb93cc73447b423df1f9aa8e4f80e5e68c41f895b2c33e352"
+    },
+    {
+      "id": "architecture-decision-records",
+      "source": "skills",
+      "sha256": "263b20e81801aa5fa7e75eaec6c38345c0ac028ca0edbd67b1b9071c5fcbe11f"
+    },
+    {
+      "id": "backend-patterns",
+      "source": "skills",
+      "sha256": "9b983d0297a983110fdfda8dce55d19b750ca3e53ef155d75a3eff740d3874b8"
+    },
+    {
+      "id": "benchmark-methodology",
+      "source": "skills",
+      "sha256": "f24585262b9c3e106dc27d45f75c4b965501680a16ff6dc5a9995a53322549df"
+    },
+    {
+      "id": "benchmark-optimization-loop",
+      "source": "skills",
+      "sha256": "816b09033e1039eeecceca54b6b329ac12f5ec400f5fc279b8fa205a9bd0feae"
+    },
+    {
+      "id": "click-path-audit",
+      "source": "skills",
+      "sha256": "42411eefa0c2cc65222e77d762541a27d76677d349bec5eaf4365e32a0bb29cd"
+    },
+    {
+      "id": "coding-standards",
+      "source": "skills",
+      "sha256": "e80544c3d1eac5b14f22022146bd91a6b0ecc30e099cf5181894853aeb81dee1"
+    },
+    {
+      "id": "content-hash-cache-pattern",
+      "source": "skills",
+      "sha256": "c0242ee2fcb5c096d0625cb6957481fce2266e92985036795f5b5c13c329d802"
+    },
+    {
+      "id": "contract-first",
+      "source": "skills",
+      "sha256": "3eaacf16a9bbd92888659e9c1e15b0fa4eb96a41c257dd9e08f2e63b824f0cea"
+    },
+    {
+      "id": "ecc-agent-review",
+      "source": "workflows",
+      "sha256": "a63429357f7907ad0741a16c93934a5625b89469974772c1608d3dbde0dc091d"
+    },
+    {
+      "id": "ecc-all",
+      "source": "workflows",
+      "sha256": "bc59f33f68117993f44e78c2fc0597072ad48f77beac771b1c700f9de91d14ce"
+    },
+    {
+      "id": "ecc-context-handoff",
+      "source": "workflows",
+      "sha256": "a2f531f6769cfd2a87e53bb9d7b837855e4242be7d78d66f6fcbc5876b17a3b3"
+    },
+    {
+      "id": "ecc-engineering-loop",
+      "source": "workflows",
+      "sha256": "686183de7a8456f9d0bed710ca08cccf4161236764573210499cedeafd5f6737"
+    },
+    {
+      "id": "ecc-lessons-learned",
+      "source": "workflows",
+      "sha256": "0d25c6e68b79284b435ec7a7814420081ecc201cddc30b5964e2bb5d4d3a7178"
+    },
+    {
+      "id": "ecc-search-first",
+      "source": "workflows",
+      "sha256": "cac7428a6e4434c7a08b48a07f48fe5f3436d2cb40be459fe03a76851c5a9138"
+    },
+    {
+      "id": "ecc-security-review",
+      "source": "workflows",
+      "sha256": "6a1470428f5eff8c4f05a09b27cd7d2eebb15b691fa787600df12b734a6a404e"
+    },
+    {
+      "id": "ecc-test-first",
+      "source": "workflows",
+      "sha256": "c003740209e93c000fc1f4d62782d399be47ce383e4d640244731658d4aee830"
+    },
+    {
+      "id": "ecc-verification",
+      "source": "workflows",
+      "sha256": "bebcf765655826da3526781d324a44c3f0baea192a8d7c53e80d28388de8e75b"
+    },
+    {
+      "id": "error-handling",
+      "source": "skills",
+      "sha256": "e8eec6756c950b570486493e64e3bf14c12baf6bf0858bf3928097fe2bfeaf79"
+    },
+    {
+      "id": "frontend-a11y",
+      "source": "skills",
+      "sha256": "e00991a3f4d47fcf1529dd74a080afcf46137dc5061e70dc6e3da7b27f2ae3f3"
+    },
+    {
+      "id": "frontend-patterns",
+      "source": "skills",
+      "sha256": "a5b971eb9e74cd763c7e3308bfd888e0d9cf69f8b88477659889d77182479740"
+    },
+    {
+      "id": "hexagonal-architecture",
+      "source": "skills",
+      "sha256": "1579f70e4cd5a2dde39d29a2055d18b39f06b063a308d3b43a498900c99495b7"
+    },
+    {
+      "id": "i18n-sync",
+      "source": "skills",
+      "sha256": "f83395d39aa7d81c8bcd184dbcd07cd8ceed251097639c9e5e53f39539f3c976"
+    },
+    {
+      "id": "intent-driven-development",
+      "source": "skills",
+      "sha256": "e34045f7b3bf6a6fbd364f85c7bc81d8208e18bb929ceff80bbc987f78aadea8"
+    },
+    {
+      "id": "iterative-retrieval",
+      "source": "skills",
+      "sha256": "b453b16d3e36174b8487c05ab807d0321a66c2d058812b2ae129d82824183725"
+    },
+    {
+      "id": "kotlin-patterns",
+      "source": "skills",
+      "sha256": "e519234772a3697763ad484908d180c4c653439fea75a56c03440c272f9f0896"
+    },
+    {
+      "id": "living-docs-governance",
+      "source": "skills",
+      "sha256": "e8c22a1f69743e256c6d6df138d99e49d22e29effbf008dfe2328b7fdc76247e"
+    },
+    {
+      "id": "production-audit",
+      "source": "skills",
+      "sha256": "3ab3dd8a364ee17566e9361f0ebed2aec3b3146ede44e1db0a72c5ceae1ca0a4"
+    },
+    {
+      "id": "python-patterns",
+      "source": "skills",
+      "sha256": "103e0130dac33a49d26705fc5a2df804980fcab6a0138d65bc7f370a987d49f6"
+    }
+  ]
+}

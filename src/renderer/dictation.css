@@ -1,4 +1,19 @@
 /* Dictation lives entirely in the existing composer and uses its theme tokens. */
+.composer-dictation-picker { display: inline-flex; max-width: 130px; align-items: center; }
+.composer-dictation-picker[hidden] { display: none; }
+.composer-dictation-picker select {
+  max-width: 130px;
+  min-width: 0;
+  padding: 4px 2px;
+  font: inherit;
+  font-size: calc(10px * var(--text-scale, 1));
+  color: var(--soft);
+  background: var(--card);
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+}
+.composer-dictation-picker select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.composer-dictation-picker select:disabled { opacity: .55; }
 .composer-dictation-button[hidden] { display: none; }
 .composer-dictation-button {
   position: relative;
@@ -25,7 +40,7 @@
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-.composer-dictation-button:is([data-state='starting'],[data-state='listening'],[data-state='stopping']) {
+.composer-dictation-button:is([data-state='starting'],[data-state='listening'],[data-state='stopping'],[data-state='transcribing']) {
   border-color: var(--accent-edge);
   background: var(--accent-wash);
   color: var(--accent);

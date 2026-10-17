@@ -14,6 +14,29 @@ interface Highlight { icon: string; title: () => string; text: () => string }
 interface Release { lead: () => string; highlights: Highlight[] }
 
 const RELEASES: Readonly<Record<string, Release>> = {
+  '2.1.44': {
+    lead: () => t('ECC All Workflows now offers a complete one-click pack with your 25 verified ECC Skills.'),
+    highlights: [
+      { icon: 'i-skill', title: () => t('Install all ECC Skills together'), text: () => t('Choose the 8-workflow pack or confirm the complete 33-Skill installation from one ECC card.') },
+      { icon: 'i-lock', title: () => t('Protect your custom Skills'), text: () => t('Existing Skills are preserved; hashes, conflicts and the 64-Skill limit are checked before installing.') }
+    ]
+  },
+  '2.1.43': {
+    lead: () => t('More ECC skills and clearer dictation options for CoS and ChatGPT.'),
+    highlights: [
+      { icon: 'i-skill', title: () => t('Expanded ECC skills'), text: () => t('Install additional source-pinned engineering skills with CoS permissions and safeguards.') },
+      { icon: 'i-chat', title: () => t('Use ChatGPT microphone'), text: () => t('Open your signed-in ChatGPT chat and use its own microphone without CoS API billing.') },
+      { icon: 'i-lock', title: () => t('Clear API quota errors'), text: () => t('Cloud transcription now distinguishes API credits, spending limits, and temporary rate limits.') }
+    ]
+  },
+  '2.1.42': {
+    lead: () => t('Cloud dictation safeguards and improved recovery after Windows sleep.'),
+    highlights: [
+      { icon: 'i-lock', title: () => t('Safer OpenAI audio'), text: () => t('Unexpected microphone stops no longer upload; the 45-second limit is disclosed.') },
+      { icon: 'i-retry', title: () => t('Chats after sleep'), text: () => t('Working chats have 90 seconds to reconnect after Windows wakes.') },
+      { icon: 'i-check-circle', title: () => t('More reliable updates and files'), text: () => t('Update downloads retry safely, image export works on more drives, and UTF-8 BOM is preserved.') }
+    ]
+  },
   '2.1.41': {
     lead: () => t('Microphone dictation, more reliable active turns, and nine immersive appearances.'),
     highlights: [

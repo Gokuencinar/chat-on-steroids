@@ -35,6 +35,7 @@ import { chatErrorMessageKey } from '../../shared/chat-error.js';
 import { continuedRequestTurn, overlappingRequestTurns, recordedRequestTurn, responseTurnId, turnOpenAt } from '../../shared/chronology.js';
 import { getConfig } from '../config.js';
 import { logInfo, logWarn } from '../logger.js';
+import { observeRecordedToolForEcc } from '../ecc-learning-bridge.js';
 import { redactCredentialText } from '../redaction.js';
 import { currentCall, emptyEvidence, runningToolCalls, type CallEvidence } from '../mcp/call-context.js';
 import {
@@ -1454,6 +1455,11 @@ async function fileToolCall(input: ToolCallInput, target: Target): Promise<ToolC
       ...(eventAgent ? { agent: eventAgent } : {}),
       ...(target.turnId ? { turnId: target.turnId } : {})
     });
+    // ECC learning is opt-in, metadata-only, and never blocks recording or tool delivery.
+    // Source text, commands, and tool payloads are not persisted to the learning journal.
+    if (target.attribution !== 'superseded' && target.attribution !== 'unattributed' && !call.process) {
+      void observeRecordedToolForEcc(sessionId, call.callId, input, target.turnId);
+    }
     if (call.process && evidence.processCompletion) {
       // Bind once to the recorded call, never look up a reusable numeric process id.
       // A process that exited during recorder admission resolves this same promise.

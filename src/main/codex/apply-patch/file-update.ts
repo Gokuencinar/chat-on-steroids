@@ -20,6 +20,8 @@ export interface AppliedPatch {
   newContents: string;
 }
 
+const BYTE_ORDER_MARK = '\uFEFF';
+
 /**
  * Return *only* the new file contents (joined into a single string) after applying the chunks to
  * the file at `path`.
@@ -47,9 +49,12 @@ export async function deriveNewContentsFromChunks(
     }
   }
 
+  // Keep the hidden UTF-8 mark outside the lines the patch matches, then restore it exactly.
+  const mark = originalContents.startsWith(BYTE_ORDER_MARK) ? BYTE_ORDER_MARK : '';
+  const text = mark ? originalContents.slice(mark.length) : originalContents;
   let newContents: string;
   if (updateFileMode === 'normalize_to_lf') {
-    const originalLines = originalContents.split('\n');
+    const originalLines = text.split('\n');
 
     // Drop the trailing empty element that results from the final newline so that line counts
     // match the behaviour of standard `diff`.
@@ -60,14 +65,14 @@ export async function deriveNewContentsFromChunks(
     if (newLines.at(-1) !== '') newLines.push('');
     newContents = newLines.join('\n');
   } else {
-    const sourceFile = SourceFile.parse(originalContents);
+    const sourceFile = SourceFile.parse(text);
     const originalLines = sourceFile.lineTexts();
     const replacements = computeReplacements(originalLines, path, chunks, updateFileMode);
     sourceFile.applyReplacements(replacements);
     newContents = sourceFile.intoContents();
   }
 
-  return { originalContents, newContents };
+  return { originalContents, newContents: mark + newContents };
 }
 
 /** Diagnostics only: never retry a replacement at a different location. */

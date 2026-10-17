@@ -33,6 +33,20 @@ files:
 extraResources:
   - from: LICENSE
     to: LICENSE
+  - from: docs/licenses/ecc-LICENSE
+    to: LICENSE.ecc.txt
+  - from: resources/ecc/v2.2.3/skills
+    to: ecc/v2.2.3/skills
+    filter:
+      - '**/*'
+  - from: resources/ecc/v2.2.3/workflows
+    to: ecc/v2.2.3/workflows
+    filter:
+      - '**/*'
+  - from: resources/ecc/v2.2.3/install-manifest.json
+    to: ecc/v2.2.3/install-manifest.json
+  - from: scripts/import-ecc-pack.ps1
+    to: ecc/import-ecc-pack.ps1
   - from: THIRD-PARTY-NOTICES.txt
     to: THIRD-PARTY-NOTICES.txt
   - from: node_modules/electron/dist/LICENSE

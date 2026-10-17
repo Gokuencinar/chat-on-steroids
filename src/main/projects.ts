@@ -97,11 +97,11 @@ export function removeProject(id: string): Promise<LocalProject> {
   mutations = operation.catch(() => undefined);
   return operation;
 }
-export async function assignSessionProject(sessionId: string, projectId: string): Promise<void> {
+export async function assignSessionProject(sessionId: string, projectId: string, expectedConversationId?: string): Promise<void> {
   const project = await getProject(projectId);
   if (!project) throw new Error('Project not found');
   await resolveProject(project);
-  await bindSessionProject(sessionId, project.id);
+  await bindSessionProject(sessionId, project.id, expectedConversationId);
 }
 export async function projectWorkspace(projectId: string): Promise<{ virtual: string; real: string }> {
   const project = await getProject(projectId);

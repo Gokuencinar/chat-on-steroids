@@ -633,7 +633,7 @@ describe('surface boundaries', () => {
     everything();
     const names = toolNames(await core('tools/list'));
     // find is absent because exec_command is present — they are mutually exclusive.
-    expect(names).toEqual(['agents', 'apply_patch', 'exec', 'exec_command', 'read', 'save_image', 'update_plan', 'view_image', 'write_stdin']);
+    expect(names).toEqual(['agents', 'apply_patch', 'ecc_learning', 'ecc_memory', 'ecc_security_audit', 'exec', 'exec_command', 'read', 'save_image', 'update_plan', 'view_image', 'write_stdin']);
     for (const name of surfaceDefinition('desktop').tools.filter(name => name !== 'exec')) expect(names, name).not.toContain(name);
   });
 
@@ -942,7 +942,7 @@ describe('surface boundaries', () => {
     const desktopTools = toolList(await desktop('tools/list'));
 
     // Each populated surface includes code mode; find and the shell exec pair remain exclusive.
-    expect(coreTools).toHaveLength(9);
+    expect(coreTools).toHaveLength(12);
     expect(desktopTools).toHaveLength(BROWSER_TOOLS.length + (IS_WINDOWS ? 16 : process.platform === 'darwin' ? 3 : 1));
 
     // And the size, which is what a discovery pull actually costs the model on every
@@ -1205,7 +1205,7 @@ describe('capability gating', () => {
     ctx.caps = effectiveCapabilities(config);
     ctx.readOnly = true;
 
-    expect(toolNames(await core('tools/list'))).toEqual(['exec', 'find', 'read', 'view_image']);
+    expect(toolNames(await core('tools/list'))).toEqual(['ecc_learning', 'ecc_memory', 'ecc_security_audit', 'exec', 'find', 'read', 'view_image']);
   });
 
   it('offers apply_patch only when a writing permission is on', async () => {

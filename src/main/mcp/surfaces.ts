@@ -104,12 +104,12 @@ const CORE: SurfaceDefinition = {
     'Read and edit code and text files on this computer, and run commands in a real terminal. ' +
     'Use for: opening and reading files, searching a repository, applying patches, creating, renaming and deleting files, ' +
     'running builds, tests, linters, git, npm and shell commands, continuing long-running or interactive terminal sessions, ' +
-    'and saving images and files ChatGPT generates onto this computer. ' +
+    'saving images and files ChatGPT generates onto this computer, and maintaining optional ECC project knowledge and auditing agent configurations. ' +
     'Also displays task plans and — when the user has ' +
     'enabled it — spawns and coordinates worker agents, subagents or a parallel swarm across several ChatGPT conversations.',
   cardSummary: 'Files, patches and terminal.',
   required: true,
-  tools: ['read', 'view_image', 'find', 'apply_patch', 'save_image', 'exec_command', 'write_stdin', 'update_plan', 'agents', 'session_finish', 'exec']
+  tools: ['read', 'view_image', 'find', 'apply_patch', 'save_image', 'exec_command', 'write_stdin', 'ecc_memory', 'ecc_security_audit', 'ecc_learning', 'update_plan', 'agents', 'session_finish', 'exec']
 };
 
 /**

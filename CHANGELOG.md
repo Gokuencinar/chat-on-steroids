@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.45] — Nine appearances and optional ECC full-pack updater (2026-10-17)
+
+- Publish the customized Windows x64 fork with nine immersive styles, ECC native features and the existing three dictation modes.
+- Bundle 25 SHA-vetted ECC Skills, eight native CoS workflows and the `/ecc-all` contextual orchestrator as installable read-only release resources.
+- Add an explicit, non-destructive Skills import to both the GitHub-downloading `Actualizar-ChatOnSteroids.cmd` and source-build `Actualizar-CoS-ECC-Skills-Apariencias-2.1.45.cmd`. Validate checksums, the 64-Skill limit and collisions; never overwrite existing personal Skills.
+- Preserve the installed appearance and user configuration; all nine styles are available in Settings → Appearance.
+- Release notes: `docs/release-notes/v2.1.45.md`.
+
 ## [2.1.41] — Windows microphone dictation and upstream 2.1.32–2.1.34 integration (candidate; 2026-10-11)
 
 - Add opt-in native Windows speech-to-text beside the chat composer. Interim and final recognition update editable draft text; users must explicitly press Send. Stopping, switching drafts or leaving the chat retires dictation, and microphone errors remain visible.

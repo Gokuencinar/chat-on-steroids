@@ -634,6 +634,77 @@ it("copies a chat's ChatGPT link from its row menu (#1107)", async () => {
   await vi.waitFor(() => expect(doc.querySelector('.toast')?.textContent).toBe('Link copied'));
 });
 
+it('offers Add to project on an unbound chat and groups it after an explicit submenu selection', async () => {
+  const project = { id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', name: 'Code workspace',
+    path: 'C:\\repo', createdAt: 1 };
+  const session = {
+    id: 'project-menu-chat-0001', title: 'My existing chat', conversationId: 'project-menu-conv-0001',
+    chatIds: ['project-menu-conv-0001'], startedAt: 1, updatedAt: 2, endedAt: null,
+    events: 0, userMessages: 0, toolCalls: 0, lastToolCallAt: null,
+    processExitNonzero: 0, toolRejected: 0, toolInternalErrors: 0, errors: 0,
+    estimatedTokens: 0, contextTokens: 0, lastHandoffId: null, lastHandoffAt: null,
+    lastTurnOutcome: null, activeTurnId: null, agents: [], origin: null
+  };
+  const addSessionToProject = vi.fn(async () => ({ ok: true as const, data: true }));
+  const addProject = vi.fn();
+  const mounted = await mountChat({}, [], {
+    listProjects: async () => ({ ok: true as const, data: [project] }),
+    listSessions: async () => ({ ok: true as const, data: {
+      sessions: [session], activeId: null, pressure: [], blocked: [], trusted: []
+    } }),
+    addSessionToProject, addProject
+  });
+  const doc = mounted.window.document;
+  const row = () => doc.querySelector<HTMLElement>(`[data-id="${session.id}"]`)!;
+  await vi.waitFor(() => expect(row()).not.toBeNull());
+  expect(doc.querySelector(`[data-project-id="${project.id}"] .sess`)).toBeNull();
+
+  const addToProject = rowMenuItem(row(), 'add-to-project')!;
+  expect(addToProject.textContent).toContain('Add to project');
+  expect(addToProject.getAttribute('aria-haspopup')).toBe('menu');
+  addToProject.click();
+  const option = doc.querySelector<HTMLButtonElement>(`.row-menu [data-row-action="project-${project.id}"]`)!;
+  expect(option.textContent).toContain(project.name);
+  expect(addSessionToProject).not.toHaveBeenCalled();
+  option.click();
+  await vi.waitFor(() => expect(addSessionToProject).toHaveBeenCalledWith(
+    session.id, project.id, session.conversationId
+  ));
+  await vi.waitFor(() => expect(doc.querySelector(`[data-project-id="${project.id}"] .sess[data-id="${session.id}"]`)).not.toBeNull());
+  expect(addProject).not.toHaveBeenCalled();
+  expect(rowMenuItem(row(), 'add-to-project')).toBeNull(); // Cannot change an existing binding.
+});
+
+it('lets an unbound chat create a folder through the normal picker before binding', async () => {
+  const project = { id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', name: 'New folder', path: 'C:\\repo', createdAt: 1 };
+  const session = {
+    id: 'project-folder-chat-0001', title: 'Unfiled chat', conversationId: 'project-folder-conv-0001',
+    chatIds: ['project-folder-conv-0001'], startedAt: 1, updatedAt: 2, endedAt: null,
+    events: 0, userMessages: 0, toolCalls: 0, lastToolCallAt: null,
+    processExitNonzero: 0, toolRejected: 0, toolInternalErrors: 0, errors: 0,
+    estimatedTokens: 0, contextTokens: 0, lastHandoffId: null, lastHandoffAt: null,
+    lastTurnOutcome: null, activeTurnId: null, agents: [], origin: null
+  };
+  const addProject = vi.fn(async () => ({ ok: true as const, data: project }));
+  const addSessionToProject = vi.fn(async () => ({ ok: true as const, data: true }));
+  const mounted = await mountChat({}, [], {
+    listProjects: async () => ({ ok: true as const, data: [] }),
+    listSessions: async () => ({ ok: true as const, data: { sessions: [session], activeId: null,
+      pressure: [], blocked: [], trusted: [] } }),
+    addProject, addSessionToProject
+  });
+  const doc = mounted.window.document;
+  const row = () => doc.querySelector<HTMLElement>(`[data-id="${session.id}"]`)!;
+  await vi.waitFor(() => expect(row()).not.toBeNull());
+  rowMenuItem(row(), 'add-to-project')!.click();
+  expect(doc.querySelector('[data-row-action^="project-"]')).toBeNull();
+  doc.querySelector<HTMLButtonElement>('[data-row-action="add-project-folder"]')!.click();
+  await vi.waitFor(() => expect(addProject).toHaveBeenCalledTimes(1));
+  await vi.waitFor(() => expect(addSessionToProject).toHaveBeenCalledWith(
+    session.id, project.id, session.conversationId
+  ));
+});
+
 it('keeps strict chat allowlisting separate from Block and exposes explicit Trust on session rows', async () => {
   const session = {
     id: 'strict-session', title: 'Strict policy chat', conversationId: 'strict-chat-0001', chatIds: ['strict-chat-0001'],
@@ -730,7 +801,7 @@ it('offers a chat\'s actions in one menu, by kind of row, and opens it with a ri
   expect(row(chat.id).querySelectorAll('.sess-actions button').length).toBe(1);
   const actions = (): Array<string | undefined> => [...doc.querySelectorAll<HTMLElement>('.row-menu .row-menu-item')].map(item => item.dataset.rowAction);
   rowMenuItem(row(chat.id), 'rename');
-  expect(actions()).toEqual(['pin', 'rename', 'open', 'copy-link', 'block', 'remove']);
+  expect(actions()).toEqual(['pin', 'rename', 'open', 'copy-link', 'add-to-project', 'block', 'remove']);
   expect(doc.querySelector('.row-menu [data-row-action="remove"]')!.classList.contains('is-danger')).toBe(true);
   closeRowMenus(doc);
   // A row that is not a chat offers only what applies to it.

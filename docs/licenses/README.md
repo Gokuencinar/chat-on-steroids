@@ -13,3 +13,8 @@ license from their npm tarballs. `napi-rs-canvas-LICENSE` is the complete MIT li
 their parent `@napi-rs/canvas` package from the same release and repository.
 The packaging pipeline separately supplies the target-specific tunnel, ripgrep, image-library
 and Electron/Chromium notices alongside those binaries.
+
+`ecc-LICENSE` preserves the MIT copyright and permission notice for the engineering
+workflows adapted from affaan-m/ECC v2.2.3. The workflows are installed only at
+the user's request from CoS's Skills library; upstream Claude hooks and scripts
+are not bundled or executed. Source: https://github.com/affaan-m/ECC.

@@ -1,5 +1,5 @@
 import type { WorkspaceTerminalEvent, WorkspaceTerminalInfo } from '../shared/workspace-terminal.js';
-import type { DictationEvent } from '../shared/dictation.js';
+import type { DictationEvent, DictationAudioRequest } from '../shared/dictation.js';
 import type { ChatModelCatalog } from '../shared/chat-models.js';
 import type { GoalModel } from '../shared/goal-reasoning.js';
 import type { TaskProgress } from '../shared/task-progress.js';
@@ -13,6 +13,9 @@ import type { ProjectDirectoryListing, ProjectFileMutationResult, ProjectFilePre
 import type { ProjectGitChanged, ProjectGitDiff, ProjectGitSnapshot } from '../shared/project-git.js';
 import type { PetLibraryState, PetOverlayControlState, PetRuntimeAsset } from '../shared/pets.js';
 import type { SkillSummary, ManagedSkill, GitHubSkillUpdateCheck, SkillLibrary, SkillsDraftScope } from '../shared/skills.js';
+import type { EccMemoryKind, EccMemoryEntry, EccMemorySummary, EccMemorySave } from '../shared/ecc-memory.js';
+import type { EccSecurityAudit } from '../shared/ecc-security.js';
+import type { EccLearningInstinct, EccLearningStatus, EccLearningProposal, EccLearningPromotionCandidate, EccLearningCorrection, EccLearningReceipt } from '../shared/ecc-learning.js';
 import type { RunningToolActivity, SessionChange, SessionSearchReply, SessionSearchLocation, ToolEditReview } from '../shared/session.js';
 import type { TurnTrace } from '../shared/turn-trace.js';
 import type { RunningExecProcess } from '../shared/background-exec.js';
@@ -102,6 +105,12 @@ const api = {
   /** Start microphone access only on explicit user action; audio stays in Windows recognizer. */
   startDictation: () => call<{ status: 'starting' }>('dictation:start'),
   stopDictation: () => call<void>('dictation:stop'),
+  /** Uses only the OS-protected API key of the current CoS Setup profile. */
+  dictationOpenAIKeyStatus: () => call<{ available: boolean }>('dictation:keyStatus'),
+  /** Microphone bytes are sent only after an explicit OpenAI dictation click. */
+  transcribeDictationAudio: (request: DictationAudioRequest) =>
+    call<{ text: string }>('dictation:transcribe', request),
+  cancelDictationTranscription: () => call<void>('dictation:cancelTranscription'),
   onDictationEvent: (listener: (event: DictationEvent) => void): (() => void) => {
     const wrapped = (_event: unknown, value: DictationEvent): void => listener(value);
     ipcRenderer.on('dictation:event', wrapped);
@@ -160,8 +169,28 @@ const api = {
     return () => ipcRenderer.removeListener('pet-overlay:openOwner', wrapped);
   },
   listSkills: () => call<SkillSummary[]>('skills:list'),
+  eccInstallSkill: (id: string) => call<ManagedSkill[]>('ecc:installSkill', { id }),
+  eccListMemories: (projectId: string, kind?: EccMemoryKind) => call<EccMemorySummary[]>('ecc:memories', { projectId, kind }),
+  eccSearchMemories: (projectId: string, query: string) => call<EccMemorySummary[]>('ecc:memorySearch', { projectId, query }),
+  eccReadMemory: (projectId: string, kind: EccMemoryKind, id: string) => call<EccMemoryEntry | null>('ecc:memoryRead', { projectId, kind, id }),
+  eccSaveMemory: (projectId: string, input: EccMemorySave) => call<EccMemoryEntry>('ecc:memorySave', { projectId, ...input }),
+  eccSecurityAudit: (projectId: string) => call<EccSecurityAudit>('ecc:securityAudit', { projectId }),
+  eccLearningStatus: (projectId: string) => call<EccLearningStatus>('ecc:learningStatus', { projectId }),
+  eccLearningInstincts: (projectId: string) => call<EccLearningInstinct[]>('ecc:learningInstincts', { projectId }),
+  eccLearningProposals: (projectId: string) => call<EccLearningProposal[]>('ecc:learningProposals', { projectId }),
+  eccLearningConfigure: (projectId: string, enabled: boolean) => call<EccLearningStatus>('ecc:learningConfigure', { projectId, enabled }),
+  eccLearningApprove: (projectId: string, instinctId: string, approved: boolean) =>
+    call<EccLearningInstinct>('ecc:learningApprove', { projectId, instinctId, approved }),
+  eccLearningCorrection: (projectId: string, preference: EccLearningCorrection) =>
+    call<EccLearningReceipt>('ecc:learningCorrection', { projectId, preference }),
+  eccLearningExport: (projectId: string) => call<string>('ecc:learningExport', { projectId }),
+  eccLearningImport: (projectId: string, bundle: string) => call<EccLearningStatus>('ecc:learningImport', { projectId, bundle }),
+  eccLearningReset: (projectId: string, scope: 'all' | 'observations') => call<EccLearningStatus>('ecc:learningReset', { projectId, scope }),
+  eccLearningRollback: (projectId: string) => call<EccLearningStatus>('ecc:learningRollback', { projectId }),
+  eccLearningPromotionCandidates: (projectIds: string[]) =>
+    call<EccLearningPromotionCandidate[]>('ecc:learningPromotionCandidates', { projectIds }),
   listManagedSkills: () => call<ManagedSkill[]>('skills:managed'),
-  listRecommendedSkills: () => call<Array<{ id: string; name: string; description: string; installed: boolean }>>('skills:recommended'),
+  listRecommendedSkills: () => call<Array<{ id: string; name: string; description: string; installed: boolean; members?: string[] }>>('skills:recommended'),
   installRecommendedSkill: (id: string) => call<ManagedSkill[]>('skills:installRecommended', { id }),
   skillsImport: (kind: 'folder' | 'file') => call<ManagedSkill[] | null>('skills:import', { kind }),
   skillsImportGithub: (url: string) => call<ManagedSkill[]>('skills:githubImport', { url }),
@@ -251,6 +280,9 @@ const api = {
   listSessions: (options?: { cursor?: SessionListCursor; limit?: number }) =>
     call<SessionList>('sessions:list', options ?? {}),
   listProjects: () => call<LocalProject[]>('projects:list'),
+  /** User-selected local CoS project only; never modifies ChatGPT's native project. */
+  addSessionToProject: (id: string, projectId: string, expectedConversationId: string) =>
+    call<boolean>('sessions:addToProject', { id, projectId, expectedConversationId }),
   addProject: () => call<LocalProject | null>('projects:add'),
   retryChatgptProject: (id: string) => call<LocalProject | null>('projects:chatgpt-retry', { id }),
   removeProject: (id: string) => call<LocalProject>('projects:remove', { id }),

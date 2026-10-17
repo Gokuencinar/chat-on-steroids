@@ -3368,11 +3368,16 @@ export async function setSessionTemporaryChat(id: string, conversationId: string
   });
 }
 
-/** Bind once before publishing project work; a task never silently changes folders. */
-export async function bindSessionProject(id: string, projectId: string): Promise<void> {
+/** Bind once before publishing project work; a task never silently changes folders.
+ * An optional exact-chat guard keeps a stale sidebar action from assigning the
+ * newly rebound Compact & Resume destination instead of the chat the user chose.
+ */
+export async function bindSessionProject(id: string, projectId: string, expectedConversationId?: string): Promise<void> {
   if (!/^[a-f0-9-]{36}$/i.test(projectId)) throw new Error('Invalid project id');
   const entry = await ensureOpen(id);
   await enqueueSessionOperation(entry, 'project', async () => {
+    if (expectedConversationId !== undefined && entry.summary.conversationId !== expectedConversationId)
+      throw new Error('Chat changed while choosing a project');
     if (entry.summary.projectId === projectId) return;
     if (entry.summary.projectId) throw new Error('Session already belongs to another project');
     const staged = { ...entry.summary, projectId };

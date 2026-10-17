@@ -5549,7 +5549,10 @@ async function startBridgeOnce(epoch: number, prepared?: PreparedBridge): Promis
     cancelWorkerCommands(reason, undefined, runId);
   });
   if (staleSwarmTimer) clearInterval(staleSwarmTimer);
+  // A new timer starts a new cadence; the first tick cannot imply the system slept.
+  lastRecoverySweepTickAt = 0;
   staleSwarmTimer = setInterval(() => {
+    noteRecoverySweepTick(Date.now());
     void runStaleSwarmSweep().catch((err: Error) => logWarn(`stale swarm sweep failed: ${err.message}`));
     void retryUnclaimedBrowserInputs().catch((err: Error) => logWarn(`unclaimed browser input recovery failed: ${err.message}`));
   }, STALE_SWARM_SWEEP_MS);
@@ -6704,6 +6707,26 @@ interface ActivityGrant {
 }
 
 const activeUntil = new Map<string, ActivityGrant>();
+
+/** Let active chats reconnect after Windows resumes before considering a silence reload. */
+export const WAKE_GRACE_MS = 90_000;
+const WAKE_GAP_MS = 2 * 60_000;
+let lastRecoverySweepTickAt = 0;
+
+/** Detect a missed recovery cadence caused by suspension without forging new model activity. */
+export function noteRecoverySweepTick(now: number): boolean {
+  const gap = lastRecoverySweepTickAt === 0 ? 0 : now - lastRecoverySweepTickAt;
+  lastRecoverySweepTickAt = now;
+  if (gap < WAKE_GAP_MS) return false;
+  let held = 0;
+  for (const grant of activeUntil.values()) {
+    if (grant.until >= now + WAKE_GRACE_MS) continue;
+    grant.until = now + WAKE_GRACE_MS;
+    held += 1;
+  }
+  logInfo(`bridge: recovery paused for ${Math.round(gap / 60_000)} minute(s) — allowing ${held} working chat(s) ${WAKE_GRACE_MS / 1000}s to reconnect`);
+  return true;
+}
 
 /** Chats reloaded by the app whose page has given no sign of life since. */
 const awaitingReturn = new Set<string>();
@@ -10929,6 +10952,7 @@ export function resetBridgeForTests(): void {
   providerHistoryBackoffUntil.clear();
   providerDeferredColdStarts.clear();
   activeUntil.clear();
+  lastRecoverySweepTickAt = 0;
   awaitingReturn.clear();
   lastAttributedCallAt.clear();
   fiberHealth.clear();

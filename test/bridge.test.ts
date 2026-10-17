@@ -88,6 +88,7 @@ const {
   startBridge,
   stopBridge,
   sweepStaleSwarm,
+  noteRecoverySweepTick,
   unpair,
   workerBriefForTests
 } = await import('../src/main/bridge.js');
@@ -10822,6 +10823,51 @@ describe('unattributed activity recovery', () => {
    * finished its answer, as the manual reload then showed — went unreloaded for twenty minutes.
    * A failure restarts the watch instead; a completed answer still spends it.
    */
+  it('gives working chats 90 seconds to report after the computer wakes', async () => {
+    vi.useFakeTimers();
+    try {
+      await pair();
+      await events(OTHER, [{ kind: 'model_selection', model: 'GPT-5.6 Sol', reasoningEffort: 'high', time: Date.now() }, openTurn('turn-asleep')]);
+      await attributed(OTHER, false, Date.now());
+      await events(OTHER, [endTurn('turn-asleep', 'failed')]);
+      noteRecoverySweepTick(Date.now());
+      // Simulate a suspended Windows machine: the clock advances, but no JS timer runs.
+      vi.setSystemTime(Date.now() + 60 * 60_000);
+      noteRecoverySweepTick(Date.now());
+      await sweepStaleSwarm(Date.now());
+      expect(await maintenance()).toBeNull();
+
+      await vi.advanceTimersByTimeAsync(2 * 60_000);
+      await sweepStaleSwarm(Date.now());
+      const handout = await maintenance();
+      expect(chatOf(handout)).toBe(OTHER);
+      expect(handout?.reason).toBe('silence');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('detects a wake through the periodic timer without manually calling the wake helper', async () => {
+    vi.useFakeTimers();
+    try {
+      await pair();
+      await events(OTHER, [{ kind: 'model_selection', model: 'GPT-5.6 Sol', reasoningEffort: 'high', time: Date.now() }, openTurn('turn-wake-race')]);
+      await attributed(OTHER, false, Date.now());
+      await events(OTHER, [endTurn('turn-wake-race', 'failed')]);
+      // Do not invoke the wake helper manually: the scheduled callbacks must protect the turn.
+      vi.setSystemTime(Date.now() + 60 * 60_000);
+      await vi.advanceTimersToNextTimerAsync();
+      expect(await maintenance()).toBeNull();
+      await vi.advanceTimersByTimeAsync(2 * 60_000);
+      await sweepStaleSwarm(Date.now());
+      const handout = await maintenance();
+      expect(chatOf(handout)).toBe(OTHER);
+      expect(handout?.reason).toBe('silence');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('keeps a chat whose turn failed on the silence watch and reloads it two minutes later', async () => {
     vi.useFakeTimers();
     try {

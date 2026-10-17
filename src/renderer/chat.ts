@@ -38,7 +38,7 @@ import { answerAnchors } from '../shared/markdown-export.js';
 import type { InputImage, InputAttachment, InputAutomation } from '../shared/input.js';
 import { injectableAttachments, queuedFollowup, MAX_INPUT_IMAGES } from '../shared/input.js';
 import type { InputArgs, InputEntry } from '../main/session/input.js';
-import type { DictationEvent } from '../shared/dictation.js';
+import { DICTATION_AUDIO_LIMITS, type DictationAudioRequest, type DictationAudioResult, type DictationEvent, type DictationProvider } from '../shared/dictation.js';
 import { PROJECT_COLORS, type LocalProject, type ProjectColor } from '../shared/projects.js';
 import type { TaskProgress } from '../shared/task-progress.js';
 import type { RunningExecProcess } from '../shared/background-exec.js';
@@ -170,6 +170,39 @@ function rowMenuButton(owner: string): HTMLElement | null {
 /** Projects whose color or removal is being saved: their choices wait for the answer. */
 const savingProjectColor = new Set<string>();
 const removingProject = new Set<string>();
+const assigningSessionProject = new Set<string>();
+
+/** Explicit one-time local attachment. ChatGPT's own Project membership is not
+ * modified: that is a separate browser-side operation.
+ */
+async function addChatToLocalProject(id: string, conversationId: string, projectId: string): Promise<void> {
+  if (assigningSessionProject.has(id)) return;
+  assigningSessionProject.add(id);
+  try {
+    const added = await run(api.addSessionToProject(id, projectId, conversationId));
+    if (!added) return;
+    // Reject a catalog refresh that began before the durable project assignment.
+    ++sessionsLoadGeneration;
+    sessions = sessions.map(row => row.id === id && row.conversationId === conversationId
+      ? { ...row, projectId } : row);
+    expandedProjects.add(projectId);
+    if (selectedId === id) selectedProjectId = projectId;
+    paintSessions();
+    toast(t('Chat added to project'));
+  } finally { assigningSessionProject.delete(id); }
+}
+
+/** Uses CoS's existing folder picker and permission flow, never an arbitrary
+ * filesystem path from the renderer. Cancellation is a no-op for the chat.
+ */
+async function addChatWithNewProject(id: string, conversationId: string): Promise<void> {
+  if (assigningSessionProject.has(id)) return;
+  const created = await run(api.addProject());
+  if (!created || created.ungrouped) return;
+  ++sessionsLoadGeneration;
+  projects = [...projects.filter(row => row.id !== created.id), created];
+  await addChatToLocalProject(id, conversationId, created.id);
+}
 
 /** A project's menu: its color (a submenu) and taking it off the sidebar. A new chat has its own button on the row. */
 function projectMenuItems(id: string): RowMenuItem[] {
@@ -346,15 +379,21 @@ function rememberDraft(): void {
 }
 let skillPicker: ReturnType<typeof initSkills> | undefined;
 
-// The native microphone/permission/recognizer belongs to main. Renderer only projects
-// transcription events into the currently owned composer draft, never into a submit action.
+// Windows still owns System.Speech. Optional OpenAI capture uses MediaRecorder only after
+// explicit user selection and microphone click. No audio/text enters the composer pre-final.
 type DictationBridge = {
   dictationSupported?: boolean;
+  openSessionChat?: (id: string) => Promise<unknown>;
+  openChatGpt?: () => Promise<unknown>;
   startDictation?: () => Promise<unknown> | unknown;
   stopDictation?: () => Promise<unknown> | unknown;
   onDictationEvent?: (listener: (event: DictationEvent) => void) => (() => void) | void;
+  dictationOpenAIKeyStatus?: () => Promise<{ ok: boolean; data?: { available: boolean }; error?: string }>;
+  transcribeDictationAudio?: (request: DictationAudioRequest) => Promise<DictationAudioResult>;
+  cancelDictationTranscription?: () => Promise<unknown>;
 };
 type DictationSession = {
+  provider: DictationProvider;
   owner: ComposerDraftOwner;
   start: number;
   end: number;
@@ -367,10 +406,44 @@ let dictation: DictationSession | null = null;
 // The native process stops asynchronously. Block a new start until it actually exits,
 // including when navigation retires the text owner before the stop event arrives.
 let dictationRetiring = false;
-let dictationPhase: 'idle' | 'starting' | 'listening' | 'stopping' | 'error' = 'idle';
+let dictationPhase: 'idle' | 'starting' | 'listening' | 'stopping' | 'transcribing' | 'error' = 'idle';
 let dictationNotice = '';
 let writingDictation = false;
 let dictationStopGuard: number | null = null;
+type OpenAICapture = {
+  session: DictationSession;
+  stream: MediaStream;
+  recorder: MediaRecorder;
+  chunks: Blob[];
+  bytes: number;
+  startedAt: number;
+  timer: number;
+  cancelled: boolean;
+};
+let openAICapture: OpenAICapture | null = null;
+const openAIReady = (): boolean =>
+  !!dictationBridge.dictationOpenAIKeyStatus &&
+  !!dictationBridge.transcribeDictationAudio &&
+  !!dictationBridge.cancelDictationTranscription &&
+  typeof window.MediaRecorder === 'function' &&
+  !!navigator.mediaDevices?.getUserMedia;
+function dictationProvider(): DictationProvider {
+  const value = (document.getElementById('dictationProvider') as HTMLSelectElement | null)?.value;
+  return value === 'openai' || value === 'chatgpt' ? value : 'windows';
+}
+function cancelOpenAI(): void {
+  const capture = openAICapture;
+  openAICapture = null;
+  if (capture) {
+    capture.cancelled = true;
+    window.clearTimeout(capture.timer);
+    try { if (capture.recorder.state !== 'inactive') capture.recorder.stop(); } catch { /* already stopped */ }
+    capture.stream.getTracks().forEach(track => track.stop());
+    capture.chunks.length = 0;
+  }
+  try { void dictationBridge.cancelDictationTranscription?.().catch(() => undefined); }
+  catch { /* window could already be closing */ }
+}
 
 function clearDictationStopGuard(): void {
   if (dictationStopGuard === null) return;
@@ -399,15 +472,24 @@ function guardDictationStop(): void {
 function paintDictation(): void {
   const button = $<HTMLButtonElement>('dictationButton');
   const status = $('dictationStatus');
-  const available = dictationBridge.dictationSupported === true &&
+  const windowsReady = dictationBridge.dictationSupported === true &&
     typeof dictationBridge.startDictation === 'function' &&
     typeof dictationBridge.stopDictation === 'function' && typeof dictationBridge.onDictationEvent === 'function';
+  const provider = dictation?.provider ?? dictationProvider();
+  const available = provider === 'openai' ? openAIReady() : provider === 'chatgpt'
+    ? typeof dictationBridge.openSessionChat === 'function' && typeof dictationBridge.openChatGpt === 'function'
+    : windowsReady;
+  const chooser = document.getElementById('dictationProvider') as HTMLSelectElement | null;
+  if (chooser) { chooser.disabled = !!dictation || dictationRetiring; chooser.hidden = !windowsReady && !openAIReady() && !dictationBridge.openChatGpt; }
   button.hidden = !available;
-  const active = dictationPhase === 'starting' || dictationPhase === 'listening' || dictationPhase === 'stopping';
-  const label = !available ? 'Dictation unavailable' : dictationPhase === 'starting' ? 'Cancel dictation' :
-    dictationPhase === 'listening' ? 'Stop dictation' : dictationPhase === 'stopping' ? 'Stopping dictation' :
+  const active = dictationPhase === 'starting' || dictationPhase === 'listening' || dictationPhase === 'stopping' || dictationPhase === 'transcribing';
+  const label = !available ? 'Dictation unavailable' : provider === 'chatgpt' ? 'Open ChatGPT microphone in browser' : dictationPhase === 'starting' ? 'Cancel dictation' :
+    dictationPhase === 'listening' ? 'Stop dictation' : provider === 'openai' &&
+      (dictationPhase === 'stopping' || dictationPhase === 'transcribing') ? 'Cancel transcription' :
+      dictationPhase === 'stopping' || dictationPhase === 'transcribing' ? 'Transcribing dictation' :
       dictationPhase === 'error' ? 'Retry dictation' : 'Start dictation';
-  button.disabled = !available || dictationRetiring || dictationPhase === 'stopping';
+  button.disabled = !available || dictationRetiring ||
+    (provider === 'windows' && (dictationPhase === 'stopping' || dictationPhase === 'transcribing'));
   button.dataset.state = dictationPhase;
   button.setAttribute('aria-pressed', String(active));
   button.setAttribute('aria-label', t(label));
@@ -448,6 +530,16 @@ function stopDictationBestEffort(): void {
 function retireDictation(): void {
   const session = dictation;
   if (!session) return;
+  if (session.provider === 'openai') {
+    dictation = null;
+    cancelOpenAI();
+    clearDictationStopGuard();
+    dictationRetiring = false;
+    dictationPhase = 'idle';
+    dictationNotice = '';
+    paintDictation();
+    return;
+  }
   // Invalidating first is important: late IPC results must never write in a new chat.
   dictation = null;
   dictationRetiring = true;
@@ -491,7 +583,7 @@ function onDictationEvent(event: DictationEvent): void {
     paintDictation();
     return;
   }
-  if (!session || !ownsComposerDraft(session.owner) || !event || typeof event !== 'object') return;
+  if (!session || session.provider !== 'windows' || !ownsComposerDraft(session.owner) || !event || typeof event !== 'object') return;
   if (event.type === 'partial' && typeof event.text === 'string') {
     dictatedText(session, joinedDictation(session.committed, event.text));
   } else if (event.type === 'final' && typeof event.text === 'string') {
@@ -520,10 +612,125 @@ function onDictationEvent(event: DictationEvent): void {
   }
 }
 
+function finishOpenAIWithError(session: DictationSession, message: string): void {
+  if (dictation !== session) return;
+  cancelOpenAI();
+  dictation = null;
+  dictationPhase = 'error';
+  dictationNotice = message;
+  paintDictation();
+}
+
+async function uploadOpenAIDictation(capture: OpenAICapture): Promise<void> {
+  const { session } = capture;
+  capture.stream.getTracks().forEach(track => track.stop());
+  window.clearTimeout(capture.timer);
+  if (capture.cancelled || openAICapture !== capture || dictation !== session) return;
+  // MediaRecorder.onstop can fire when the source ends or permission is revoked,
+  // not only after our Stop action. Never upload an involuntary recording end.
+  if (!session.stopping) {
+    finishOpenAIWithError(session, 'Microphone recording ended unexpectedly. No audio was sent.');
+    return;
+  }
+  const durationMs = Math.min(DICTATION_AUDIO_LIMITS.maxDurationMs, Date.now() - capture.startedAt);
+  if (capture.bytes < 256 || capture.bytes > DICTATION_AUDIO_LIMITS.maxBytes || durationMs < 250) {
+    finishOpenAIWithError(session, 'Recording was empty or too large. Please try again.');
+    return;
+  }
+  const mime = capture.recorder.mimeType.split(';')[0] as DictationAudioRequest['mimeType'];
+  if (!['audio/webm', 'audio/ogg', 'audio/mp4'].includes(mime)) {
+    finishOpenAIWithError(session, 'Audio format is not supported by OpenAI transcription.');
+    return;
+  }
+  dictationPhase = 'transcribing';
+  dictationNotice = 'Sending recorded audio to OpenAI for transcription…';
+  paintDictation();
+  try {
+    const bytes = new Uint8Array(await new Blob(capture.chunks, { type: mime }).arrayBuffer());
+    capture.chunks.length = 0;
+    if (capture.cancelled || dictation !== session || !ownsComposerDraft(session.owner)) return;
+    const response = await dictationBridge.transcribeDictationAudio?.({ audio: bytes, mimeType: mime, durationMs });
+    if (capture.cancelled || dictation !== session || !ownsComposerDraft(session.owner)) return;
+    const error = dictationReplyError(response);
+    if (error) throw new Error(error);
+    if (!response || !response.ok || !response.data?.text) throw new Error('OpenAI transcription returned no text.');
+    dictatedText(session, response.data.text);
+    if (dictation === session) {
+      openAICapture = null;
+      completedDictation(session, 'Transcription added to the draft. Review before sending.');
+    }
+  } catch (error) {
+    finishOpenAIWithError(session, dictationMessage(error));
+  }
+}
+
+async function startOpenAIDictation(session: DictationSession): Promise<void> {
+  if (!openAIReady()) throw new Error('OpenAI microphone capture is unavailable.');
+  const key = await dictationBridge.dictationOpenAIKeyStatus?.();
+  if (dictation !== session) return;
+  if (!key?.ok || !key.data?.available)
+    throw new Error('Set your own OpenAI API key in CoS Setup before enabling OpenAI dictation.');
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+  if (dictation !== session) { stream.getTracks().forEach(track => track.stop()); return; }
+  const mimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4']
+    .find(type => MediaRecorder.isTypeSupported(type));
+  if (!mimeType) {
+    stream.getTracks().forEach(track => track.stop());
+    throw new Error('This microphone cannot record an OpenAI-compatible audio format.');
+  }
+  let recorder: MediaRecorder;
+  try { recorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 128_000 }); }
+  catch (error) { stream.getTracks().forEach(track => track.stop()); throw error; }
+  const capture: OpenAICapture = {
+    session, stream, recorder, chunks: [], bytes: 0, startedAt: Date.now(),
+    timer: 0, cancelled: false
+  };
+  openAICapture = capture;
+  recorder.ondataavailable = event => {
+    if (capture.cancelled || openAICapture !== capture || !event.data.size) return;
+    capture.bytes += event.data.size;
+    if (capture.bytes > DICTATION_AUDIO_LIMITS.maxBytes) {
+      finishOpenAIWithError(session, 'Recording exceeded 8 MiB. Use a shorter dictation.');
+      return;
+    }
+    capture.chunks.push(event.data);
+  };
+  recorder.onerror = () => finishOpenAIWithError(session, 'Microphone recording failed.');
+  recorder.onstop = () => { void uploadOpenAIDictation(capture); };
+  try { recorder.start(1_000); }
+  catch (error) { cancelOpenAI(); throw error; }
+  capture.timer = window.setTimeout(() => {
+    if (dictation === session && openAICapture === capture && recorder.state === 'recording') {
+      session.stopping = true;
+      dictationPhase = 'stopping';
+      dictationNotice = 'Maximum 45-second recording reached. Transcribing…';
+      paintDictation();
+      recorder.stop();
+    }
+  }, DICTATION_AUDIO_LIMITS.maxDurationMs);
+  if (dictation === session) {
+    dictationPhase = 'listening';
+    dictationNotice = 'Recording for OpenAI. Audio is sent after you press Stop or automatically at 45 seconds.';
+    paintDictation();
+  }
+}
+
 async function toggleDictation(): Promise<void> {
   if (dictation) {
     const session = dictation;
+    if (session.provider === 'openai' && session.stopping) { retireDictation(); return; }
     if (session.stopping) return;
+    if (session.provider === 'openai') {
+      const capture = openAICapture;
+      if (!capture) { retireDictation(); return; }
+      session.stopping = true;
+      dictationPhase = 'stopping';
+      dictationNotice = 'Finalizing recording…';
+      paintDictation();
+      try { if (capture.recorder.state !== 'inactive') capture.recorder.stop(); }
+      catch { finishOpenAIWithError(session, 'Microphone recording did not stop normally.'); }
+      return;
+    }
     session.stopping = true;
     dictationPhase = 'stopping';
     dictationNotice = 'Finishing dictation…';
@@ -548,10 +755,32 @@ async function toggleDictation(): Promise<void> {
     }
     return;
   }
-  if (dictationRetiring || dictationBridge.dictationSupported !== true ||
-    !dictationBridge.startDictation || !dictationBridge.stopDictation || !dictationBridge.onDictationEvent) return;
+  if (dictationRetiring) return;
+  const provider = dictationProvider();
+  if (provider === 'chatgpt') {
+    // The signed-in ChatGPT webpage owns its own microphone, consent and quota.
+    // Never proxy session cookies/audio or claim that web transcripts enter CoS drafts.
+    try {
+      const result = selectedId
+        ? await dictationBridge.openSessionChat?.(selectedId)
+        : await dictationBridge.openChatGpt?.();
+      const error = dictationReplyError(result);
+      if (error) throw new Error(error);
+      dictationPhase = 'idle';
+      dictationNotice = 'ChatGPT opened in your browser. Click its microphone there; dictated text stays in ChatGPT until you send it.';
+    } catch (error) {
+      dictationPhase = 'error';
+      dictationNotice = dictationMessage(error);
+    }
+    paintDictation();
+    return;
+  }
+  if (provider === 'windows' && (dictationBridge.dictationSupported !== true ||
+    !dictationBridge.startDictation || !dictationBridge.stopDictation || !dictationBridge.onDictationEvent)) return;
+  if (provider === 'openai' && !openAIReady()) return;
   const input = $<HTMLTextAreaElement>('chatInput');
   const session: DictationSession = {
+    provider,
     owner: composerDraftOwner(), start: input.selectionStart, end: input.selectionEnd,
     rendered: input.value.slice(input.selectionStart, input.selectionEnd), committed: '', stopping: false
   };
@@ -560,7 +789,11 @@ async function toggleDictation(): Promise<void> {
   dictationNotice = 'Preparing microphone…';
   paintDictation();
   try {
-    const result = await dictationBridge.startDictation();
+    if (session.provider === 'openai') {
+      await startOpenAIDictation(session);
+      return;
+    }
+    const result = await dictationBridge.startDictation?.();
     const error = dictationReplyError(result);
     if (error) throw new Error(error);
     if (dictation !== session && dictationRetiring) {
@@ -588,6 +821,17 @@ async function toggleDictation(): Promise<void> {
 export function initComposerDictation(): void {
   paintDictation();
   $<HTMLButtonElement>('dictationButton').addEventListener('click', () => { void toggleDictation(); });
+  document.getElementById('dictationProvider')?.addEventListener('change', () => {
+    if (!dictation) {
+      dictationPhase = 'idle';
+      dictationNotice = dictationProvider() === 'openai'
+        ? 'OpenAI API cloud mode costs separate API credits. It uploads audio on Stop or at 45 seconds. For ChatGPT subscription dictation, choose ChatGPT (browser).'
+        : dictationProvider() === 'chatgpt'
+          ? 'Uses the microphone on ChatGPT.com in your signed-in browser, without CoS API credits. Audio and transcript stay in that ChatGPT chat, not the CoS draft.'
+          : '';
+      paintDictation();
+    }
+  });
   $('chatInput').addEventListener('input', () => { if (!writingDictation && dictation) retireDictation(); });
   $('chatInput').addEventListener('keydown', event => {
     if (event.key === 'Escape' && dictation) { event.preventDefault(); retireDictation(); }
@@ -926,6 +1170,28 @@ function sessionRow(summary: SessionSummary): HTMLElement {
       { action: 'copy-link', icon: 'i-copy', label: () => t('Copy link'), title: () => t("Copy this chat's ChatGPT link"),
         run: async () => { if (await run(api.writeClipboard(`https://chatgpt.com/c/${summary.conversationId}`))) toast(t('Link copied')); } }
     );
+    if (!summary.projectId && summary.origin?.kind !== 'worker' && summary.origin?.kind !== 'helper') {
+      const originalConversation = summary.conversationId;
+      items.push({
+        action: 'add-to-project', icon: 'i-folder', label: () => t('Add to project'),
+        title: () => t('Add this chat to a local CoS project; its ChatGPT location stays unchanged.'),
+        submenu: () => {
+          const local = projects.filter(entry => !entry.ungrouped);
+          return [
+            ...local.map(entry => ({
+              action: `project-${entry.id}`, icon: 'i-folder', label: () => entry.name,
+              disabled: assigningSessionProject.has(summary.id),
+              run: () => void addChatToLocalProject(summary.id, originalConversation, entry.id)
+            } satisfies RowMenuItem)),
+            {
+              action: 'add-project-folder', icon: 'i-plus', separated: local.length > 0,
+              label: () => t('Add a project folder'), disabled: assigningSessionProject.has(summary.id),
+              run: () => void addChatWithNewProject(summary.id, originalConversation)
+            } satisfies RowMenuItem
+          ];
+        }
+      });
+    }
     // The stop this app can actually make. It does not touch the running ChatGPT turn — nothing
     // here can — it takes this chat's tools away, and a model whose every call is refused with
     // an instruction to stop finishes its turn on its own.
