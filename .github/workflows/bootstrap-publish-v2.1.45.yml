@@ -1,0 +1,48 @@
+name: Bootstrap publish CoS v2.1.45
+
+# Tags pushed before their publish trigger was present on the default branch
+# do not necessarily generate a tag-push run. Dispatch from an explicit,
+# reviewable main-only workflow pinned to the already-verified release commit.
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/bootstrap-publish-v2.1.45.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: v2.1.45
+      EXPECTED_SHA: 9c95b16eae6b850e7d458232ab21fd018a72809d
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Verify exact release tag and version
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+          test "$actual" = "$EXPECTED_SHA"
+          test "$(git show "$RELEASE_TAG:package.json" | node -e 'let data="";process.stdin.on("data",chunk=>data+=chunk).on("end",()=>console.log(JSON.parse(data).version))')" = "2.1.45"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists; no duplicate dispatch."
+            exit 0
+          fi
+      - name: Dispatch pinned release workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release already published."
+            exit 0
+          fi
+          gh workflow run publish.yml --ref "$RELEASE_TAG"
